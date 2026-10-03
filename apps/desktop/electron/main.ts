@@ -1,0 +1,434 @@
+import {
+  app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage,
+  protocol, screen, session, Tray,
+} from 'electron';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { existsSync, appendFileSync, mkdirSync } from 'node:fs';
+import { createServer } from 'node:net';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import WebSocket from 'ws';
+
+type Event = Record<string, unknown> & { type: string; protocol_version: number };
+const commands = new Set([
+  'session.start', 'session.close', 'turn.start', 'generation.cancel', 'target.bind',
+  'target.capture', 'windows.list', 'repository.inspect', 'repository.read',
+  'repository.search', 'settings.get', 'settings.update', 'history.get', 'tool.execute', 'utterance.displayed', 'mode.set', 'input.audio',
+]);
+app.setName('Ayana');
+const playbackTypes = new Set(['playback.started', 'playback.progress', 'playback.ended', 'playback.cancelled', 'playback.error']);
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'ayana-asset', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+]);
+
+let chat: BrowserWindow | undefined;
+let avatar: BrowserWindow | undefined;
+let highlight: BrowserWindow | undefined;
+let tray: Tray | undefined;
+let child: ChildProcess | undefined;
+let socket: WebSocket | undefined;
+let service = 'starting';
+let token = '';
+let port = 0;
+let currentGeneration = 0;
+let quitting = false;
+let restarting = false;
+let focusAfterCapture = false;
+let summonPending = false;
+let startupSummonDone = false;
+let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+let highlightTimer: ReturnType<typeof setTimeout> | undefined;
+let focusTimer: ReturnType<typeof setTimeout> | undefined;
+let recentEvents: Event[] = [];
+let repositoryRoot = '';
+let summonShortcut = 'Control+Alt+A';
+let cancelShortcut = 'Control+Alt+Space';
+
+function backendRoot(): string {
+  return process.env.AYANA_REPOSITORY_ROOT
+    || (app.isPackaged ? path.join(process.resourcesPath, 'backend') : path.resolve(__dirname, '../../..'));
+}
+
+function diagnostic(value: string) {
+  try {
+    const dir = app.getPath('logs');
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(path.join(dir, 'ayana-runtime.log'), `${new Date().toISOString()} ${value}\n`);
+  } catch { /* Logging must never break lifecycle cleanup. */ }
+}
+
+function broadcast(event: Event, remember = true) {
+  if (remember && !event.type.startsWith('audio.') && !event.type.startsWith('playback.')) {
+    if (['snapshot.ready', 'repository.inspected', 'settings.ready', 'history.ready'].includes(event.type)) {
+      recentEvents = recentEvents.filter(previous => previous.type !== event.type);
+    }
+    recentEvents.push(event);
+    recentEvents = recentEvents.slice(-160);
+  }
+  for (const window of [chat, avatar, highlight]) {
+    if (window !== chat && event.type.startsWith('audio.')) continue;
+    if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) {
+      window.webContents.send('ayana:event', event);
+    }
+  }
+}
+
+function desktopEvent(type: string, payload: Record<string, unknown> = {}) {
+  broadcast({ protocol_version: 1, type, generation_id: currentGeneration, ...payload });
+}
+
+function runtimeSend(command: Record<string, unknown>): boolean {
+  if (socket?.readyState !== WebSocket.OPEN) return false;
+  socket.send(JSON.stringify(command));
+  return true;
+}
+
+function cancel() {
+  // This IPC event is emitted immediately, before waiting for the runtime.
+  desktopEvent('desktop.cancelled', { cancelled_generation_id: currentGeneration });
+  runtimeSend({ type: 'generation.cancel' });
+  highlight?.hide();
+}
+
+function hide() {
+  cancel();
+  runtimeSend({ type: 'session.close' });
+  chat?.hide();
+  avatar?.hide();
+  highlight?.hide();
+}
+
+async function summon() {
+  // Runtime records the foreground HWND before either assistant window gains focus.
+  cancel();
+  focusAfterCapture = true;
+  avatar?.showInactive();
+  if (!runtimeSend({ type: 'session.start' })) {
+    summonPending = true;
+    chat?.showInactive();
+    desktopEvent('desktop.service', { state: service, message: '本地服务正在启动…' });
+    return;
+  }
+  if (focusTimer) clearTimeout(focusTimer);
+  // In an unavailable target scenario, runtime should emit target/error; this fallback
+  // allows typing after a bounded wait without performing another foreground query.
+  focusTimer = setTimeout(() => focusChat(), 3000);
+}
+
+function focusChat() {
+  if (!focusAfterCapture) return;
+  focusAfterCapture = false;
+  if (focusTimer) clearTimeout(focusTimer);
+  chat?.show();
+  chat?.focus();
+}
+
+function windowHandle(window: BrowserWindow): number {
+  const buffer = window.getNativeWindowHandle();
+  return buffer.length >= 8 ? Number(buffer.readBigUInt64LE()) : buffer.readUInt32LE();
+}
+
+function registerWindows() {
+  runtimeSend({
+    type: 'assistant.register',
+    hwnds: [chat, avatar, highlight].filter((win): win is BrowserWindow => !!win && !win.isDestroyed()).map(windowHandle),
+  });
+}
+
+function updateShortcuts(settings: Record<string, unknown>) {
+  const raw = settings.shortcuts as Record<string, unknown> | undefined;
+  const nextSummon = String(raw?.summon || settings.hotkey || settings.summon_shortcut || summonShortcut);
+  const nextCancel = String(raw?.cancel || settings.cancel_hotkey || settings.cancel_shortcut || cancelShortcut);
+  globalShortcut.unregisterAll();
+  summonShortcut = nextSummon;
+  cancelShortcut = nextCancel;
+  let summonOk = false;
+  let cancelOk = false;
+  try { summonOk = globalShortcut.register(summonShortcut, () => { void summon(); }); } catch { /* Invalid accelerator. */ }
+  try { cancelOk = globalShortcut.register(cancelShortcut, cancel); } catch { /* Invalid accelerator. */ }
+  desktopEvent('desktop.shortcuts', { summon: summonShortcut, cancel: cancelShortcut, summon_ok: summonOk, cancel_ok: cancelOk });
+  if (tray) tray.setContextMenu(Menu.buildFromTemplate([
+    { label: `呼出 Ayana · ${summonShortcut}`, click: () => { void summon(); } },
+    { label: `停止当前回复 · ${cancelShortcut}`, click: cancel },
+    { label: '收起会话', click: hide },
+    { type: 'separator' },
+    { label: '重新启动本地服务', click: () => { void restartRuntime(); } },
+    { label: '退出 Ayana', click: () => { quitting = true; app.quit(); } },
+  ]));
+}
+
+function showHighlight(event: Event) {
+  const result = (event.result ?? event) as Record<string, unknown>;
+  const rect = (result.screen_rect ?? result.rect ?? event.screen_rect) as Record<string, number> | undefined;
+  if (!rect || ![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite)) return;
+  // Native coordinates are physical screen pixels; Electron bounds use DIP.
+  const bounds = screen.screenToDipRect(chat!, { x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+  const padding = 18;
+  highlight?.setBounds({
+    x: Math.floor(bounds.x - padding), y: Math.floor(bounds.y - padding),
+    width: Math.max(40, Math.ceil(bounds.width + padding * 2)),
+    height: Math.max(40, Math.ceil(bounds.height + padding * 2)),
+  });
+  highlight?.showInactive();
+  if (highlightTimer) clearTimeout(highlightTimer);
+  highlightTimer = setTimeout(() => highlight?.hide(), 6000);
+}
+
+function receive(event: Event) {
+  if (event.protocol_version !== 1 || typeof event.type !== 'string') return;
+  if (typeof event.generation_id === 'number') currentGeneration = Math.max(currentGeneration, event.generation_id);
+  if (event.type === 'settings.ready') {
+    const settings = (event.settings ?? {}) as Record<string, unknown>;
+    updateShortcuts(settings);
+  }
+  if (event.type === 'target.bound' || event.type === 'snapshot.ready' || event.type === 'error') focusChat();
+  if (event.type === 'highlight.ready' || event.type === 'target.highlight'
+    || (event.type === 'tool.completed' && ((event.result as Record<string, unknown> | undefined)?.kind === 'highlight'))) {
+    showHighlight(event);
+  }
+  broadcast(event);
+}
+
+async function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      const selected = typeof address === 'object' && address ? address.port : 0;
+      server.close((error) => error ? reject(error) : resolve(selected));
+    });
+  });
+}
+
+function connectRuntime(attempt = 0) {
+  if (quitting || restarting) return;
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, {
+    headers: { Authorization: `Bearer ${token}` }, maxPayload: 32 * 1024 * 1024,
+  });
+  socket = ws;
+  ws.on('open', () => {
+    service = 'ready';
+    desktopEvent('desktop.service', { state: service, connected: true });
+    registerWindows();
+    runtimeSend({ type: 'settings.get' });
+    runtimeSend({ type: 'history.get' });
+    if (summonPending || !startupSummonDone) {
+      summonPending = false;
+      startupSummonDone = true;
+      void summon();
+    }
+  });
+  ws.on('message', (raw) => {
+    try { receive(JSON.parse(raw.toString()) as Event); }
+    catch { desktopEvent('error', { code: 'invalid_runtime_event', message: '本地服务返回了无法读取的事件。' }); }
+  });
+  ws.on('error', (error) => diagnostic(`Connection: ${error.message}`));
+  ws.on('close', () => {
+    if (socket !== ws || quitting || restarting) return;
+    service = child?.exitCode === null ? 'connecting' : 'failed';
+    desktopEvent('desktop.cancelled', { cancelled_generation_id: currentGeneration });
+    desktopEvent('desktop.service', { state: service, connected: false });
+    if (attempt < 40 && child?.exitCode === null) {
+      reconnectTimer = setTimeout(() => connectRuntime(attempt + 1), Math.min(250 + attempt * 200, 2000));
+    } else {
+      desktopEvent('error', { code: 'runtime_unavailable', message: '本地服务未连接。请查看运行日志或点击重启服务。' });
+      chat?.show();
+    }
+  });
+}
+
+async function startRuntime() {
+  service = 'starting';
+  desktopEvent('desktop.service', { state: service, connected: false });
+  token = randomBytes(32).toString('hex');
+  port = await freePort();
+  const root = backendRoot();
+  repositoryRoot = app.isPackaged ? '' : root;
+  const bundled = path.join(process.resourcesPath, 'python', 'python.exe');
+  const local = path.join(root, '.venv', 'Scripts', 'python.exe');
+  const python = process.env.AYANA_PYTHON || (existsSync(bundled) ? bundled : existsSync(local) ? local : 'python');
+  child = spawn(python, [...(app.isPackaged ? ['-I', '-X', 'utf8', '-u'] : []), '-m', 'services.agent', '--port', String(port)], {
+    cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONPATH: root, AYANA_RUNTIME_TOKEN: token,
+      ...(app.isPackaged ? { AYANA_DATA_DIR: app.getPath('userData') } : {}), },
+  });
+  child.stdout?.on('data', (chunk: Buffer) => diagnostic(chunk.toString('utf8').replaceAll(token, '[redacted]')));
+  child.stderr?.on('data', (chunk: Buffer) => diagnostic(chunk.toString('utf8').replaceAll(token, '[redacted]')));
+  child.on('error', (error) => {
+    service = 'failed';
+    diagnostic(`Spawn: ${error.message}`);
+    desktopEvent('error', { code: 'runtime_launch', message: '无法启动 Python 服务。请配置 AYANA_PYTHON 或安装项目依赖。' });
+    chat?.show();
+  });
+  child.on('exit', (code) => {
+    if (quitting || restarting) return;
+    service = 'failed';
+    cancel();
+    desktopEvent('desktop.service', { state: service, connected: false, exit_code: code });
+  });
+  connectRuntime();
+}
+
+async function restartRuntime() {
+  restarting = true;
+  cancel();
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  socket?.terminate();
+  const previous = child;
+  child = undefined;
+  if (previous && previous.exitCode === null) {
+    await stopRuntime(previous);
+  }
+  recentEvents = [];
+  currentGeneration = 0;
+  desktopEvent('desktop.reset');
+  restarting = false;
+  await startRuntime();
+}
+
+async function stopRuntime(previous = child) {
+  if (!previous || previous.exitCode !== null) return;
+  try {
+    await fetch(`http://127.0.0.1:${port}/shutdown`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(2500),
+    });
+  } catch { /* A failed service is terminated after the bounded wait below. */ }
+  if (previous.exitCode !== null) return;
+  await new Promise<void>(resolve => {
+    const timeout = setTimeout(() => { previous.kill(); resolve(); }, 8000);
+    previous.once('exit', () => { clearTimeout(timeout); resolve(); });
+  });
+}
+
+function trustedSender(id: number) {
+  return [chat, avatar, highlight].some(win => win && !win.isDestroyed() && win.webContents.id === id);
+}
+
+function registerIpc() {
+  ipcMain.handle('ayana:command', (event, value: unknown) => {
+    if (!trustedSender(event.sender.id) || event.sender.id !== chat?.webContents.id) return { ok: false, error: '不允许此窗口发送控制命令。' };
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return { ok: false, error: '命令格式无效。' };
+    const command = value as Record<string, unknown>;
+    if (!commands.has(String(command.type)) || JSON.stringify(command).length > 2_000_000) return { ok: false, error: '命令不在允许范围内。' };
+    if (command.type === 'turn.start' || command.type === 'generation.cancel' || command.type === 'session.close') {
+      desktopEvent('desktop.cancelled', { cancelled_generation_id: currentGeneration });
+    }
+    if (command.type === 'repository.inspect' && typeof command.root === 'string') repositoryRoot = command.root;
+    return runtimeSend(command) ? { ok: true } : { ok: false, error: '本地服务未连接，请稍后重试。' };
+  });
+  ipcMain.on('ayana:playback', (event, value: unknown) => {
+    if (event.sender.id !== chat?.webContents.id || !value || typeof value !== 'object') return;
+    const receipt = value as Event;
+    if (receipt.protocol_version !== 1 || !playbackTypes.has(receipt.type)) return;
+    if (typeof receipt.utterance_id !== 'string' || typeof receipt.played_samples !== 'number') return;
+    runtimeSend(receipt);
+    broadcast(receipt, false);
+  });
+  ipcMain.handle('ayana:summon', (event) => trustedSender(event.sender.id) ? summon() : undefined);
+  ipcMain.handle('ayana:hide', (event) => trustedSender(event.sender.id) ? hide() : undefined);
+  ipcMain.handle('ayana:choose-repository', async (event) => {
+    if (event.sender.id !== chat?.webContents.id) return null;
+    const result = await dialog.showOpenDialog(chat!, { title: '选择要一起学习的仓库', properties: ['openDirectory'] });
+    return result.canceled ? null : result.filePaths[0] ?? null;
+  });
+  ipcMain.handle('ayana:restart', (event) => event.sender.id === chat?.webContents.id ? restartRuntime() : undefined);
+  ipcMain.handle('ayana:state', (event) => {
+    if (!trustedSender(event.sender.id)) return null;
+    return { connected: socket?.readyState === WebSocket.OPEN, service, version: app.getVersion(), repositoryRoot, events: recentEvents };
+  });
+}
+
+function createWindow(kind: 'chat' | 'avatar' | 'highlight') {
+  const overlay = kind !== 'chat';
+  const { workArea } = screen.getPrimaryDisplay();
+  const window = new BrowserWindow({
+    width: kind === 'chat' ? Math.min(1240, Math.max(820, workArea.width - 40)) : kind === 'avatar' ? 320 : 300,
+    height: kind === 'chat' ? Math.min(830, Math.max(480, workArea.height - 40)) : kind === 'avatar' ? Math.min(720, workArea.height) : 140,
+    minWidth: kind === 'chat' ? 820 : undefined,
+    minHeight: kind === 'chat' ? 480 : undefined,
+    show: false, frame: !overlay, transparent: overlay, backgroundColor: overlay ? '#00000000' : '#f5f7fb',
+    alwaysOnTop: overlay, focusable: !overlay, skipTaskbar: overlay,
+    title: 'Ayana · 一起看懂', autoHideMenuBar: true,
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
+  });
+  if (overlay) {
+    window.setIgnoreMouseEvents(true, { forward: true });
+    window.setAlwaysOnTop(true, 'screen-saver');
+  }
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.on('will-navigate', (event, url) => {
+    const dev = process.env.AYANA_RENDERER_URL;
+    const destination = new URL(url);
+    const allowed = dev ? destination.origin === new URL(dev).origin
+      : destination.href.split('?')[0] === pathToFileURL(path.join(__dirname, '../dist/index.html')).href;
+    if (!allowed) event.preventDefault();
+  });
+  if (process.env.AYANA_RENDERER_URL) {
+    void window.loadURL(`${process.env.AYANA_RENDERER_URL}/?window=${kind}`);
+  } else {
+    void window.loadFile(path.join(__dirname, '../dist/index.html'), { query: { window: kind } });
+  }
+  if (kind === 'chat') {
+    window.on('close', event => { if (!quitting) { event.preventDefault(); hide(); } });
+  }
+  return window;
+}
+
+function placeAvatar() {
+  const { workArea } = screen.getPrimaryDisplay();
+  const height = Math.min(720, workArea.height);
+  avatar?.setBounds({ x: workArea.x + workArea.width - 322, y: workArea.y + workArea.height - height, width: 320, height });
+}
+
+async function ready() {
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const mediaTypes = (details as { mediaTypes?: string[] }).mediaTypes;
+    callback(webContents.id === chat?.webContents.id && permission === 'media'
+      && Array.isArray(mediaTypes) && mediaTypes.every(type => type === 'audio'));
+  });
+  session.defaultSession.setPermissionCheckHandler((webContents, permission) =>
+    webContents?.id === chat?.webContents.id && permission === 'media');
+  protocol.handle('ayana-asset', async request => {
+    const id = new URL(request.url).hostname;
+    if (!/^[a-z0-9_-]{1,80}$/i.test(id) || !port || !token) return new Response(null, { status: 404 });
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/assets/${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${token}` } });
+      return new Response(await response.arrayBuffer(), { status: response.status, headers: { 'Content-Type': response.headers.get('Content-Type') || 'image/png', 'Cache-Control': 'no-cache' } });
+    } catch { return new Response(null, { status: 503 }); }
+  });
+  chat = createWindow('chat');
+  avatar = createWindow('avatar');
+  highlight = createWindow('highlight');
+  placeAvatar();
+  screen.on('display-metrics-changed', placeAvatar);
+  // A small bundled bitmap is used so the tray remains available while offline.
+  const iconPath = path.join(__dirname, '../dist/tray.png');
+  const icon = existsSync(iconPath) ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty();
+  tray = new Tray(icon);
+  tray.setToolTip('Ayana · 一起看懂');
+  tray.on('click', () => { void summon(); });
+  updateShortcuts({});
+  registerIpc();
+  await startRuntime();
+}
+
+if (!app.requestSingleInstanceLock()) app.quit();
+else {
+  app.on('second-instance', () => { void summon(); });
+  void app.whenReady().then(ready).catch(error => { diagnostic(String(error)); app.quit(); });
+}
+app.on('window-all-closed', () => { if (quitting) app.quit(); });
+app.on('before-quit', event => {
+  event.preventDefault();
+  quitting = true;
+  globalShortcut.unregisterAll();
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  if (highlightTimer) clearTimeout(highlightTimer);
+  if (focusTimer) clearTimeout(focusTimer);
+  socket?.terminate();
+  tray?.destroy();
+  void stopRuntime().finally(() => app.exit(0));
+});

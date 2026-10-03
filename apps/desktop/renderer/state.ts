@@ -1,0 +1,163 @@
+import { useEffect, useReducer, useRef } from 'react';
+import { AudioPlayer } from './audio';
+import type { AyanaBridge, RuntimeEvent } from './types';
+
+export interface Speech {
+  id: string; ja: string; zh: string; intent: string; generation: number;
+  intensity: number; affect: string;
+  state: 'generated' | 'playing' | 'played' | 'partial' | 'cancelled';
+  played: number; total: number;
+}
+export interface Evidence { path: string; content: string; start_line?: number; line?: number; }
+export interface Target { hwnd?: number; target_id?: string; title?: string; process_id?: number; bounds?: Record<string, number>; }
+export interface Repository { root: string; name: string; files: string[]; evidence: Evidence[]; }
+export interface ModelState {
+  connected: boolean; service: string; generation: number; cancelledGeneration: number;
+  task: string; voice: string; mode: 'teach' | 'execute'; target?: Target;
+  snapshot?: RuntimeEvent; speeches: Speech[]; current?: string; expression: string;
+  expressionAt: number; inputState: string;
+  progress: number; repository?: Repository; settings: Record<string, unknown>;
+  history: Record<string, unknown>[]; windows: Target[]; evidence: Evidence[];
+  actions: RuntimeEvent[]; tools: RuntimeEvent[]; error?: string; shortcuts?: RuntimeEvent;
+  questions: { text: string; generation: number; id: string }[];
+}
+export const initialState: ModelState = {
+  connected: false, service: 'starting', generation: 0, cancelledGeneration: -1,
+  task: 'idle', voice: 'starting', mode: 'teach', speeches: [], expression: 'neutral', expressionAt: 0, inputState: 'idle',
+  progress: 0, settings: {}, history: [], windows: [], evidence: [], actions: [], tools: [], questions: [],
+};
+
+export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState {
+  const generation = Number(event.generation_id ?? state.generation);
+  if (event.protocol_version !== 1) return state;
+  // Runtime acknowledgments are persistence confirmations. They can arrive after
+  // the next segment starts, so only immediate player receipts drive presentation.
+  if (event.type.startsWith('playback.') && typeof event.seq === 'number') return state;
+  if (event.type === 'desktop.reset') return { ...initialState, connected: state.connected, settings: state.settings };
+  if (event.type === 'desktop.cancelled' || event.type === 'generation.cancelled') {
+    const cancelled = Number(event.cancelled_generation_id ?? generation);
+    return {
+      ...state, generation: Math.max(state.generation, generation),
+      cancelledGeneration: Math.max(state.cancelledGeneration, cancelled),
+      current: undefined, expression: 'neutral', expressionAt: 0, inputState: 'idle', progress: 0, task: 'idle', actions: [],
+      speeches: state.speeches.map(s => s.generation <= cancelled && s.state !== 'played'
+        ? { ...s, state: s.state === 'playing' ? 'partial' : 'cancelled' } : s),
+    };
+  }
+  const output = ['utterance.ready', 'subtitle.ready', 'audio.ready', 'action.proposed', 'evidence.ready', 'playback.started', 'playback.progress'];
+  if (output.includes(event.type) && generation <= state.cancelledGeneration) return state;
+  let next = { ...state, generation: Math.max(state.generation, generation) };
+  switch (event.type) {
+    case 'desktop.dismiss-error': next.error = undefined; break;
+    case 'desktop.service':
+      next.connected = Boolean(event.connected); next.service = String(event.state); break;
+    case 'desktop.shortcuts': next.shortcuts = event; break;
+    case 'service.state': {
+      const name = String(event.service || event.name || '');
+      if (/tts|voice/i.test(name)) next.voice = String(event.state || 'unavailable');
+      break;
+    }
+    case 'session.started': next.task = 'observing'; next.error = undefined; break;
+    case 'task.state': next.task = String(event.state || 'idle'); break;
+    case 'input.state': next.inputState = String(event.state || 'idle'); break;
+    case 'target.bound': next.target = (event.target ?? event.window ?? event) as Target; break;
+    case 'snapshot.ready': next.snapshot = event; next.target = (event.target ?? next.target) as Target; break;
+    case 'windows.list': next.windows = (event.windows ?? []) as Target[]; break;
+    case 'repository.inspected': {
+      const repo = (event.repository ?? event.result ?? event) as unknown as Repository;
+      next.repository = { root: repo.root || '', name: repo.name || '', files: repo.files || [], evidence: repo.evidence || [] };
+      next.evidence = repo.evidence || []; break;
+    }
+    case 'repository.file':
+    case 'evidence.ready': {
+      const evidence = (event.evidence ?? event.result ?? event) as unknown as Evidence;
+      if (evidence.path) next.evidence = [...state.evidence.filter(e => e.path !== evidence.path), evidence];
+      break;
+    }
+    case 'settings.ready': next.settings = (event.settings ?? {}) as Record<string, unknown>; break;
+    case 'history.ready': next.history = (event.history ?? event.utterances ?? []) as Record<string, unknown>[]; break;
+    case 'user.message':
+    case 'desktop.question':
+      next.questions = [...state.questions, { text: String(event.text), generation, id: String(event.id) }];
+      next.error = undefined; next.task = 'thinking'; break;
+    case 'utterance.ready':
+      if (!state.speeches.some(s => s.id === event.utterance_id)) {
+        next.speeches = [...state.speeches, { id: String(event.utterance_id), ja: String(event.speech_ja), zh: '', intent: String(event.intent || 'explain'), generation, intensity: Number(event.intensity || 0), affect: String(event.affect || 'neutral'), state: 'generated' as const, played: 0, total: 0 }].slice(-80);
+      }
+      break;
+    case 'subtitle.ready':
+      next.speeches = state.speeches.map(s => s.id === event.utterance_id ? { ...s, zh: String(event.display_zh) } : s); break;
+    case 'playback.started': {
+      next.current = String(event.utterance_id); next.progress = 0;
+      const speech = state.speeches.find(s => s.id === next.current);
+      const expression = ['explain', 'encourage', 'caution', 'playful'].includes(speech?.intent || '') ? speech!.intent : 'neutral';
+      if (speech && speech.intensity >= .35 && Date.now() - state.expressionAt >= 2000 && expression !== state.expression) {
+        next.expression = expression;
+        next.expressionAt = Date.now();
+      }
+      next.speeches = state.speeches.map(s => s.id === next.current ? { ...s, state: 'playing', total: Number(event.total_samples) } : s);
+      break;
+    }
+    case 'playback.progress':
+    case 'playback.cancelled':
+    case 'playback.ended': {
+      const played = Number(event.played_samples); const total = Number(event.total_samples);
+      next.speeches = state.speeches.map(s => s.id === event.utterance_id ? {
+        ...s, played, total,
+        state: event.type === 'playback.cancelled' ? 'partial' : event.type === 'playback.ended' ? 'played' : 'playing',
+      } : s);
+      if (next.current === event.utterance_id) {
+        next.progress = total ? played / total : 0;
+        if (event.type === 'playback.ended' || event.type === 'playback.cancelled') { next.current = undefined; next.progress = 0; }
+      }
+      break;
+    }
+    case 'action.proposed': next.actions = [...state.actions, event]; break;
+    case 'tool.started':
+    case 'tool.completed':
+    case 'tool.failed':
+      next.tools = [...state.tools, event].slice(-30); break;
+    case 'error': next.error = String(event.message || event.error || '发生了未知错误。'); next.task = 'failed'; break;
+  }
+  return next;
+}
+
+// A static browser preview never pretends to be a connected runtime.
+const previewBridge: AyanaBridge = {
+  send: async () => ({ ok: false, error: '此页面仅用于界面预览。请通过桌面应用启动本地服务。' }),
+  onEvent: () => () => {}, playback: () => {}, summon: async () => {}, hide: async () => {},
+  chooseRepository: async () => null, restart: async () => {},
+  getState: async () => ({ connected: false, service: 'preview', version: '0.1.0', repositoryRoot: '', events: [] }),
+};
+export const bridge = window.ayana ?? previewBridge;
+
+export function useRuntime(isChat: boolean) {
+  const [state, dispatch] = useReducer(reduceEvent, initialState);
+  const player = useRef<AudioPlayer | null>(null);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  useEffect(() => {
+    if (isChat) player.current = new AudioPlayer(bridge, dispatch);
+    const consume = (event: RuntimeEvent) => {
+      if (event.type === 'desktop.cancelled' || event.type === 'generation.cancelled') {
+        player.current?.cancel(Number(event.cancelled_generation_id ?? event.generation_id ?? stateRef.current.generation));
+      }
+      if (event.type === 'desktop.reset') {
+        player.current?.dispose();
+        if (isChat) player.current = new AudioPlayer(bridge, dispatch);
+      }
+      if (event.type === 'audio.ready') player.current?.enqueue(event);
+      dispatch(event);
+      if (isChat && event.type === 'utterance.ready' && Number(event.generation_id) > stateRef.current.cancelledGeneration) {
+        void bridge.send({ type: 'utterance.displayed', utterance_id: event.utterance_id, generation_id: event.generation_id });
+      }
+    };
+    const off = bridge.onEvent(consume);
+    void bridge.getState().then(snapshot => {
+      dispatch({ protocol_version: 1, type: 'desktop.service', connected: snapshot.connected, state: snapshot.service });
+      snapshot.events.forEach(dispatch);
+    });
+    return () => { off(); player.current?.dispose(); player.current = null; };
+  }, [isChat]);
+  return { state, dispatch, player };
+}
