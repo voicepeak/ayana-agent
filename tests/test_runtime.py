@@ -76,6 +76,10 @@ async def test_audio_generation_association_and_receipts(tmp_path):
     await runtime.handle({"type": "playback.cancelled", "utterance_id": uid, "generation_id": ready[0]["generation_id"], "played_samples": 800})
     record = next(r for r in runtime.store.history() if r["utterance_id"] == uid)
     assert record["status"] == "partial" and record["played_samples"] == 800
+    historical = [json.loads(line) for item in runtime.store.context() if item["role"] == "assistant" for line in item["content"].splitlines()]
+    interrupted = next(item for item in historical if item["type"] == "speech" and item["key"] == uid)
+    assert interrupted["reception"] == "partial" and interrupted["played_samples"] == 800
+    assert all(item["type"] in {"speech", "translation"} for item in historical)
     await runtime.close()
 
 

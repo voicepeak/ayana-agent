@@ -4,7 +4,7 @@ import json
 import os
 from pathlib import Path
 
-SKIP = {".git", ".venv", "venv", "node_modules", "dist", "build", "release", ".runtime", "__pycache__", ".next", "assets"}
+SKIP = {".git", ".venv", "venv", "node_modules", "dist", "dist-electron", "build", "release", ".runtime", "__pycache__", ".next", "assets"}
 TEXT = {".py", ".ts", ".tsx", ".js", ".jsx", ".vue", ".rs", ".md", ".txt", ".toml", ".json", ".yaml", ".yml", ".css", ".html", ".cs", ".go", ".java", ".c", ".cpp", ".h", ".sql"}
 
 
@@ -62,13 +62,21 @@ class RepositoryReader:
         if not isinstance(query, str) or not 1 <= len(query) <= 120:
             raise ValueError("Search query length must be 1–120")
         out = []
+        folded_query = query.casefold()
         for name in self.list_files():
             try:
-                doc = self.read_file(name, max_lines=200)
-            except OSError:
+                # Search the entire byte-bounded excerpt. The display preview
+                # has a 200-line cap, which must not hide later entry points.
+                path = self._path(name)
+                with path.open("rb") as source:
+                    raw = source.read(65536)
+                if b"\0" in raw:
+                    continue
+                lines = raw.decode("utf-8", errors="replace").splitlines()
+            except (OSError, ValueError):
                 continue
-            for i, line in enumerate(doc["content"].splitlines(), 1):
-                if query.casefold() in line.casefold():
+            for i, line in enumerate(lines, 1):
+                if folded_query in line.casefold():
                     out.append({"path": name, "line": i, "text": line[:400]})
                     if len(out) >= limit:
                         return out

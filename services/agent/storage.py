@@ -80,7 +80,15 @@ class ConversationStore:
             else:
                 r = known.get(e.get("utterance_id"))
                 if r and (r["displayed"] or r["status"] in {"played", "partial"}):
-                    result.append({"role": "assistant", "content": json.dumps({"speech_ja": r["speech_ja"], "display_zh": r["display_zh"], "reception": r["status"], "played_samples": r["played_samples"]}, ensure_ascii=False)})
+                    # Historical examples must retain the current event format;
+                    # otherwise the model imitates an untyped wrapper next turn.
+                    speech = {"type": "speech", "key": r["utterance_id"], "speech_ja": r["speech_ja"],
+                              "intent": e.get("intent", "explain"), "affect": e.get("affect", "neutral"), "intensity": e.get("intensity", .25),
+                              "reception": r["status"], "played_samples": r["played_samples"]}
+                    events = [speech]
+                    if r["display_zh"]:
+                        events.append({"type": "translation", "key": r["utterance_id"], "display_zh": r["display_zh"]})
+                    result.append({"role": "assistant", "content": "\n".join(json.dumps(item, ensure_ascii=False) for item in events)})
         return result[-16:]
 
     @locked
