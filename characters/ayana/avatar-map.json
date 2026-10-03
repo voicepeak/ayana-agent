@@ -1,0 +1,12 @@
+{
+  "default_asset_id": "neutral",
+  "intent_defaults": {"acknowledge": "neutral", "explain": "explain", "encourage": "encourage", "caution": "caution", "playful": "playful"},
+  "assets": {
+    "neutral": {"file": "neutral.png", "source_expression": "休闲", "pose": "crossed"},
+    "explain": {"file": "explain.png", "source_expression": "正经", "pose": "crossed"},
+    "encourage": {"file": "encourage.png", "source_expression": "卖萌", "pose": "crossed"},
+    "caution": {"file": "caution.png", "source_expression": "担忧", "pose": "crossed"},
+    "playful": {"file": "playful.png", "source_expression": "得意", "pose": "crossed"}
+  },
+  "transition": {"min_expression_hold_ms": 2000, "same_pose_fade_ms": 140, "min_pose_hold_ms": 8000, "intensity_threshold": 0.35}
+}

@@ -1,0 +1,15 @@
+{
+  "hotkey": "CommandOrControl+Alt+A",
+  "cancel_hotkey": "CommandOrControl+Alt+Space",
+  "provider": "local",
+  "base_url": "https://api.openai.com/v1",
+  "model": "",
+  "api_key_env": "AYANA_API_KEY",
+  "send_screenshot": true,
+  "max_utterances": 8,
+  "max_audio_ahead_ms": 10000,
+  "voice": {"voice_mode": "auto"},
+  "avatar_root": "assets/ayana",
+  "subtitles": true,
+  "save_history": true
+}
