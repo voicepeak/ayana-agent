@@ -1,0 +1,23 @@
+{
+  "voice_mode": "sovits",
+  "python": "<voice-runtime>/Scripts/python.exe",
+  "source_root": "<ayana-voice-source>",
+  "engine_root": "<GPT-SoVITS-checkout>",
+  "model_gpt": "<models>/ayana-gpt-e14.ckpt",
+  "model_sovits": "<models>/ayana-sovits-e8.pth",
+  "reference_audio": "<ayana-voice-source>/refs/ref0308.wav",
+  "reference_text": "私を芸能界デビューさせたいという人がいるのでしょう",
+  "device": "cpu",
+  "cpu_threads": 8,
+  "max_chars": 24,
+  "speed": 1.0,
+  "temperature": 0.6,
+  "top_k": 20,
+  "top_p": 0.6,
+  "lowpass_hz": 15000,
+  "pause_ms": 70,
+  "queue_limit": 3,
+  "warmup_text": "こんにちは。",
+  "start_timeout_seconds": 180,
+  "synthesis_timeout_seconds": 120
+}
