@@ -3,13 +3,32 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+import threading
+from functools import wraps
 from pathlib import Path
+
+
+def locked(fn):
+    @wraps(fn)
+    def call(self, *args, **kwargs):
+        with self.lock:
+            return fn(self, *args, **kwargs)
+    return call
+
+
+def without_media(value):
+    if isinstance(value, dict):
+        return {k: without_media(v) for k, v in value.items() if k not in {"pcm_base64", "png_base64"}}
+    if isinstance(value, list):
+        return [without_media(v) for v in value]
+    return value
 
 
 class ConversationStore:
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(path)
+        self.lock = threading.RLock()
+        self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript("""
           CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, created REAL, session_id TEXT, generation_id INTEGER, type TEXT, payload TEXT);
@@ -17,10 +36,11 @@ class ConversationStore:
           CREATE TABLE IF NOT EXISTS preferences(key TEXT PRIMARY KEY, value TEXT);
         """)
 
+    @locked
     def commit(self, event: dict):
         kind = event["type"]
         if kind not in {"audio.ready", "snapshot.ready", "playback.progress"}:
-            payload = {k: v for k, v in event.items() if k not in {"pcm_base64", "png_base64"}}
+            payload = without_media(event)
             self.db.execute("INSERT INTO events(created,session_id,generation_id,type,payload) VALUES(?,?,?,?,?)",
                             (time.time(), event.get("session_id"), event.get("generation_id", 0), kind, json.dumps(payload, ensure_ascii=False)))
         uid = event.get("utterance_id")
@@ -40,14 +60,29 @@ class ConversationStore:
                             (event.get("cancelled_generation_id"), event["session_id"]))
         self.db.commit()
 
+    @locked
     def history(self, limit=60):
         self.db.row_factory = sqlite3.Row
         rows = self.db.execute("SELECT * FROM utterances ORDER BY rowid DESC LIMIT ?", (limit,)).fetchall()
         return [dict(r) for r in reversed(rows)]
 
-    def context(self):
-        return [{"role": "assistant", "content": json.dumps({"speech_ja": r["speech_ja"], "display_zh": r["display_zh"], "reception": r["status"], "played_samples": r["played_samples"]}, ensure_ascii=False)}
-                for r in self.history(12) if r["displayed"] or r["status"] in {"played", "partial"}]
+    @locked
+    def context(self, exclude_turn=None):
+        known = {r["utterance_id"]: r for r in self.history(60)}
+        events = self.db.execute("SELECT payload FROM events WHERE type IN ('user.message','utterance.ready') ORDER BY id DESC LIMIT 60").fetchall()
+        result = []
+        for event in reversed(events):
+            e = json.loads(event[0])
+            if e.get("turn_id") == exclude_turn:
+                continue
+            if e["type"] == "user.message":
+                result.append({"role": "user", "content": e["text"]})
+            else:
+                r = known.get(e.get("utterance_id"))
+                if r and (r["displayed"] or r["status"] in {"played", "partial"}):
+                    result.append({"role": "assistant", "content": json.dumps({"speech_ja": r["speech_ja"], "display_zh": r["display_zh"], "reception": r["status"], "played_samples": r["played_samples"]}, ensure_ascii=False)})
+        return result[-16:]
 
+    @locked
     def close(self):
         self.db.close()

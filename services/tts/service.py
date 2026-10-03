@@ -42,12 +42,13 @@ class TtsService:
             self._status = {"state": "starting", "engine": None}
             self._ready = asyncio.get_running_loop().create_future()
             executable = self.config.get("python") or sys.executable
+            python_flags = ["-I", "-X", "utf8"] if sys.flags.isolated and not self.config.get("python") else []
             env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8")
             options = {"creationflags": 0x08000000} if os.name == "nt" else {}
             worker = Path(__file__).with_name("worker.py")
             try:
                 self.process = await asyncio.create_subprocess_exec(
-                    str(executable), "-u", str(worker), stdin=asyncio.subprocess.PIPE,
+                    str(executable), *python_flags, "-u", str(worker), stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
                     limit=32 * 1024 * 1024, env=env, **options)
                 self._tasks = [asyncio.create_task(self._read()), asyncio.create_task(self._logs())]

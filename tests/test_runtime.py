@@ -90,3 +90,45 @@ async def test_bounded_audio_wait_is_released_by_cancel(tmp_path):
     with pytest.raises(asyncio.CancelledError):
         await waiting
     await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_long_desktop_action_does_not_block_cancel_command(tmp_path):
+    import threading
+    import time
+    started, cancelled = threading.Event(), threading.Event()
+    class SlowDesktop(Desktop):
+        def cancel(self):
+            cancelled.set()
+        def execute(self, action, snapshot):
+            started.set()
+            cancelled.wait(2)
+            return {"status": "stopped"}
+    runtime = AgentRuntime(settings(tmp_path), desktop=SlowDesktop(), tts=Tts())
+    runtime.clients.add(Ws())
+    runtime.target = {"target_id": "target"}
+    runtime.snapshot = {"snapshot_id": "snap"}
+    runtime.mode = "execute"
+    await runtime.handle({"type": "tool.execute", "snapshot_id": "snap", "action": {"kind": "type", "text": "demo"}})
+    await asyncio.to_thread(started.wait, 1)
+    before = time.perf_counter()
+    await runtime.handle({"type": "generation.cancel"})
+    assert time.perf_counter() - before < .15
+    assert cancelled.is_set()
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_stt_settings_replaces_cached_recognizer_and_cancel_restores_input(tmp_path):
+    from unittest.mock import AsyncMock
+    runtime = AgentRuntime(settings(tmp_path), desktop=Desktop(), tts=Tts())
+    ws = Ws()
+    runtime.clients.add(ws)
+    old_recognizer = type("Recognizer", (), {"close": AsyncMock()})()
+    runtime.stt = old_recognizer
+    await runtime.handle({"type": "settings.update", "settings": {"stt": {"provider": "disabled"}}})
+    old_recognizer.close.assert_awaited_once()
+    assert runtime.stt is None
+    assert runtime.settings.values["stt"]["provider"] == "disabled"
+    assert any(e["type"] == "input.state" and e["state"] == "idle" for e in ws.events)
+    await runtime.close()

@@ -32,6 +32,19 @@ def create_app(token: str, settings=None, runtime=None):
             raise HTTPException(401)
         return {"ok": True, "protocol_version": 1, "tts": runtime.tts.status}
 
+    @app.post("/shutdown")
+    async def shutdown(request: Request):
+        if not authenticated(request.headers.get("authorization")):
+            raise HTTPException(401)
+        import asyncio
+        async def stop():
+            await runtime.close()
+            server = getattr(app.state, "server", None)
+            if server:
+                server.should_exit = True
+        asyncio.create_task(stop())
+        return {"stopping": True}
+
     @app.get("/assets/{asset_id}")
     async def asset(asset_id: str, request: Request):
         if not authenticated(request.headers.get("authorization")):
@@ -65,7 +78,7 @@ def create_app(token: str, settings=None, runtime=None):
         try:
             while True:
                 raw = await ws.receive_text()
-                if len(raw) > 32768:
+                if len(raw) > 2 * 1024 * 1024:
                     await ws.close(code=1009)
                     break
                 try:

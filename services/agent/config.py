@@ -10,8 +10,14 @@ ROOT = Path(__file__).resolve().parents[2]
 class Settings:
     def __init__(self, root: Path = ROOT):
         self.root = root
-        self.path = root / "config/local.json"
+        self.data_root = Path(os.environ.get("AYANA_DATA_DIR", str(root))).resolve()
+        self.path = self.data_root / "config/local.json"
         self.values = json.loads((root / "config/default.json").read_text(encoding="utf-8"))
+        # First personal packaged launch can seed local resource paths. No credentials in settings.
+        seed = root / "config/local.json"
+        if self.data_root != root and not self.path.exists() and seed.exists():
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_bytes(seed.read_bytes())
         if self.path.exists():
             self.values.update(json.loads(self.path.read_text(encoding="utf-8")))
 
@@ -19,7 +25,7 @@ class Settings:
         return {k: v for k, v in self.values.items() if not any(s in k.lower() for s in ("secret", "token", "api_key"))}
 
     def update(self, patch: dict):
-        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "voice", "max_audio_ahead_ms", "max_utterances"}
+        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "voice", "stt", "max_audio_ahead_ms", "max_utterances"}
         if not isinstance(patch, dict) or set(patch) - allowed:
             raise ValueError("Unsupported settings field")
         if "provider" in patch and patch["provider"] not in {"local", "openai"}:
@@ -49,4 +55,9 @@ class Settings:
         if value:
             return value
         from .credentials import load_key
-        return load_key(self.root / ".runtime/credentials.dpapi")
+        path = self.data_root / ".runtime/credentials.dpapi"
+        seed = self.root / ".runtime/credentials.dpapi"
+        if not path.exists() and self.data_root != self.root and seed.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(seed.read_bytes())
+        return load_key(path)

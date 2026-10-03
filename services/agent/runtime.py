@@ -27,7 +27,7 @@ class AgentRuntime:
             from services.tts.service import TtsService
             tts = TtsService(settings.values.get("voice", {}))
         self.desktop, self.tts = desktop, tts
-        self.store = store or ConversationStore(settings.root / ".runtime/history.sqlite3")
+        self.store = store or ConversationStore(settings.data_root / ".runtime/history.sqlite3")
         self.session_id = identifier("session")
         self.turn_id = ""
         self.generation = 0
@@ -37,6 +37,7 @@ class AgentRuntime:
         self.snapshot = None
         self.repository = None
         self.task = None
+        self.action_task = None
         self.start_task = None
         self.pending = OrderedDict()
         self.pending_condition = asyncio.Condition()
@@ -44,6 +45,7 @@ class AgentRuntime:
         self.utterances = {}
         self.mode = "teach"
         self.closed = False
+        self.stt = None
 
     async def emit(self, kind, **payload):
         self.seq += 1
@@ -88,18 +90,26 @@ class AgentRuntime:
         task, self.task = self.task, None
         if task and task is not asyncio.current_task():
             task.cancel()
+        action_task, self.action_task = self.action_task, None
+        if action_task:
+            action_task.cancel()
         self.actions.clear()
         async with self.pending_condition:
             self.pending.clear()
             self.pending_condition.notify_all()
         # Generation broadcast precedes slow inference cancellation.
         await self.emit("generation.cancelled", cancelled_generation_id=old, reason=reason)
+        await self.emit("input.state", state="idle")
         if hasattr(self.desktop, "cancel"):
             self.desktop.cancel()
-        await self.tts.cancel(old)
+        with contextlib.suppress(BrokenPipeError, ConnectionError, RuntimeError):
+            await self.tts.cancel(old)
         if task and task is not asyncio.current_task():
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        if action_task:
+            with contextlib.suppress(asyncio.CancelledError):
+                await action_task
 
     async def capture(self):
         if not self.target:
@@ -107,6 +117,8 @@ class AgentRuntime:
         snap = await asyncio.to_thread(self.desktop.capture, self.target["target_id"])
         self.snapshot = snap
         await self.emit("snapshot.ready", **snap)
+        if self.task is None or self.task.done():
+            await self.emit("task.state", state="idle")
         return snap
 
     async def handle(self, cmd: dict):
@@ -149,6 +161,22 @@ class AgentRuntime:
             reader = RepositoryReader(cmd["root"])
             self.repository = await asyncio.to_thread(reader.inspect)
             await self.emit("repository.inspected", repository=self.repository, **self.repository)
+        elif kind == "repository.read":
+            root = cmd.get("root") or (self.repository or {}).get("root")
+            evidence = await asyncio.to_thread(RepositoryReader(root).read_file, cmd["path"], cmd.get("start_line", 1), 160)
+            await self.emit("evidence.ready", evidence=evidence, **evidence)
+        elif kind == "repository.search":
+            root = cmd.get("root") or (self.repository or {}).get("root")
+            results = await asyncio.to_thread(RepositoryReader(root).search_text, cmd["query"])
+            await self.emit("repository.searched", results=results, query=cmd["query"])
+        elif kind == "mode.set":
+            if cmd.get("mode") not in {"teach", "execute"}:
+                raise ValueError("Invalid task mode")
+            self.mode = cmd["mode"]
+            await self.emit("mode.ready", mode=self.mode)
+        elif kind == "input.audio":
+            await self.cancel("microphone_input")
+            self.task = asyncio.create_task(self._transcribe(cmd, self.generation))
         elif kind == "turn.start":
             text = cmd.get("text", "")
             if not isinstance(text, str) or not 1 <= len(text.strip()) <= 4000:
@@ -163,7 +191,9 @@ class AgentRuntime:
         elif kind == "tool.execute":
             if self.mode != "execute" and cmd.get("action", {}).get("kind") != "highlight":
                 raise ValueError("先选择单步执行模式，再确认具体步骤")
-            await self._execute(cmd)
+            if self.action_task and not self.action_task.done():
+                raise ValueError("另一个单步操作尚未结束")
+            self.action_task = asyncio.create_task(self._run_action(cmd, self.generation))
         elif kind.startswith("playback.") or kind == "utterance.displayed":
             await self._receipt(cmd)
         elif kind == "settings.get":
@@ -172,6 +202,9 @@ class AgentRuntime:
             patch = cmd.get("settings", {})
             await self.cancel("settings_changed")
             self.settings.update(patch)
+            if "stt" in patch and self.stt:
+                await self.stt.close()
+                self.stt = None
             if "voice" in patch:
                 await self.tts.close()
                 from services.tts.service import TtsService
@@ -209,6 +242,29 @@ class AgentRuntime:
                 self.pending.pop(uid, None)
                 self.pending_condition.notify_all()
 
+    async def _transcribe(self, cmd, gen):
+        try:
+            from .providers.stt import SttService
+            await self.emit("input.state", state="transcribing")
+            if self.stt is None:
+                cfg = {"model_root": str(self.settings.data_root / ".runtime/models"), **self.settings.values.get("stt", {})}
+                self.stt = SttService(cfg)
+                await self.stt.start()
+            text = await self.stt.transcribe(cmd["audio_base64"], cmd.get("mime_type", "audio/webm"))
+            if gen != self.generation:
+                return
+            if not text.strip():
+                raise ValueError("没有识别到语音，请再试一次")
+            await self.emit("input.transcribed", text=text)
+            await self.emit("input.state", state="idle")
+            await self.handle({"type": "turn.start", "text": text, "mode": self.mode})
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            if gen == self.generation:
+                await self.emit("input.state", state="failed")
+                await self.emit("error", source="stt", message=str(e)[:400])
+
     async def _reserve_audio(self, uid, duration, gen):
         async with self.pending_condition:
             deadline = time.monotonic() + 90
@@ -243,12 +299,15 @@ class AgentRuntime:
                 return
             duration = audio["duration_ms"]
             self.pending.pop(uid, None)
+            if audio.get("engine") == "silent":
+                await self.emit("utterance.displayed", utterance_id=uid)
+                continue
             await self._reserve_audio(uid, duration, gen)
             audio_bytes = __import__("base64").b64decode(audio["pcm_base64"])
             if len(audio_bytes) % 4 or audio.get("channels", 1) != 1:
                 raise ValueError("Invalid mono float32 PCM")
             self.utterances[uid].update(total_samples=len(audio_bytes) // 4, sample_rate=audio["sample_rate"])
-            await self.emit("audio.ready", utterance_id=uid, format="pcm_f32le", **audio)
+            await self.emit("audio.ready", utterance_id=uid, **{**audio, "format": "pcm_f32le"})
 
     async def _turn(self, text, root, gen):
         queue = asyncio.Queue(maxsize=3)
@@ -272,7 +331,7 @@ class AgentRuntime:
                 content = [{"type": "text", "text": json.dumps(context, ensure_ascii=False)}]
                 if self.snapshot and self.settings.values.get("send_screenshot"):
                     content.append({"type": "image_url", "image_url": {"url": "data:image/png;base64," + self.snapshot["png_base64"]}})
-                messages = [{"role": "system", "content": persona + "\n" + policy + "\n" + CONTRACT}, *self.store.context(), {"role": "user", "content": content}]
+                messages = [{"role": "system", "content": persona + "\n" + policy + "\n" + CONTRACT}, *self.store.context(exclude_turn=self.turn_id), {"role": "user", "content": content}]
                 streams = [OpenAIProvider(self.settings).stream_reply(messages)]
             for tool_round in range(4):
                 requests = []
@@ -336,7 +395,7 @@ class AgentRuntime:
                 raise RuntimeError("模型没有返回可播放的完整日语语句")
             if not speaker.done():
                 await queue.put(None)
-                await speaker
+            await speaker
             await self.emit("task.state", state="idle", generated_utterances=count)
         except asyncio.CancelledError:
             raise
@@ -380,7 +439,7 @@ class AgentRuntime:
         if not self.snapshot:
             return
         action = event.get("action", {})
-        if action.get("kind") not in {"click", "type", "scroll", "highlight", "invoke", "key"}:
+        if action.get("kind") not in {"click", "type", "scroll", "highlight", "key"}:
             raise ValueError("Unsupported desktop action")
         aid = identifier("action")
         action = {**action, "action_id": aid, "target_id": self.target["target_id"], "snapshot_id": self.snapshot["snapshot_id"], "generation_id": self.generation,
@@ -388,7 +447,16 @@ class AgentRuntime:
         self.actions[aid] = action
         await self.emit("action.proposed", action=action, label=str(event.get("label", action.get("expected_result", "执行单步操作")))[:500])
 
-    async def _execute(self, cmd):
+    async def _run_action(self, cmd, gen):
+        try:
+            await self._execute(cmd, gen)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            if gen == self.generation:
+                await self.emit("tool.failed", tool="execute_step", message=str(e)[:500])
+
+    async def _execute(self, cmd, gen):
         action = cmd.get("action", {})
         if cmd.get("action_id"):
             action = self.actions.pop(cmd["action_id"], None)
@@ -399,15 +467,25 @@ class AgentRuntime:
         if action.get("generation_id", self.generation) != self.generation:
             raise ValueError("Cancelled action generation")
         await self.emit("tool.started", tool="execute_step", action=action)
+        await self.emit("task.state", state="acting")
         try:
-            result = await asyncio.to_thread(self.desktop.execute, {**action, "target_id": self.target["target_id"]}, self.snapshot["snapshot_id"])
+            def execute():
+                if gen != self.generation:
+                    raise RuntimeError("Cancelled action generation")
+                return self.desktop.execute({**action, "target_id": self.target["target_id"]}, self.snapshot["snapshot_id"])
+            result = await asyncio.to_thread(execute)
+            if gen != self.generation:
+                return
             await self.emit("tool.completed", tool="execute_step", result=result)
             if action.get("kind") == "highlight":
                 await self.emit("highlight.ready", **result)
             else:
                 await self.capture()
+            await self.emit("task.state", state="idle")
         except Exception as e:
-            await self.emit("tool.failed", tool="execute_step", message=str(e)[:500])
+            if gen == self.generation:
+                await self.emit("tool.failed", tool="execute_step", message=str(e)[:500])
+                await self.emit("task.state", state="failed")
 
     async def close(self):
         if self.closed:
@@ -418,6 +496,8 @@ class AgentRuntime:
             with contextlib.suppress(asyncio.CancelledError):
                 await self.start_task
         await self.tts.close()
+        if self.stt:
+            await self.stt.close()
         await asyncio.to_thread(self.desktop.close)
         self.store.close()
         self.closed = True
