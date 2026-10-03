@@ -114,7 +114,13 @@ class AgentRuntime:
     async def capture(self):
         if not self.target:
             raise ValueError("请先绑定一个目标窗口")
-        snap = await asyncio.to_thread(self.desktop.capture, self.target["target_id"])
+        try:
+            snap = await asyncio.to_thread(self.desktop.capture, self.target["target_id"])
+        except Exception:
+            self.snapshot = None
+            self.actions.clear()
+            await self.emit("snapshot.invalidated")
+            raise
         self.snapshot = snap
         await self.emit("snapshot.ready", **snap)
         if self.task is None or self.task.done():

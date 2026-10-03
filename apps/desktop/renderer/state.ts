@@ -57,11 +57,15 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
       if (/tts|voice/i.test(name)) next.voice = String(event.state || 'unavailable');
       break;
     }
-    case 'session.started': next.task = 'observing'; next.error = undefined; break;
+    case 'session.started':
+      next.target = event.target ? event.target as Target : undefined;
+      next.snapshot = undefined;
+      next.task = next.target ? 'observing' : 'idle'; next.error = undefined; break;
     case 'task.state': next.task = String(event.state || 'idle'); break;
     case 'input.state': next.inputState = String(event.state || 'idle'); break;
-    case 'target.bound': next.target = (event.target ?? event.window ?? event) as Target; break;
+    case 'target.bound': next.target = (event.target ?? event.window ?? event) as Target; next.snapshot = undefined; break;
     case 'snapshot.ready': next.snapshot = event; next.target = (event.target ?? next.target) as Target; break;
+    case 'snapshot.invalidated': next.snapshot = undefined; next.actions = []; break;
     case 'windows.list': next.windows = (event.windows ?? []) as Target[]; break;
     case 'repository.inspected': {
       const repo = (event.repository ?? event.result ?? event) as unknown as Repository;

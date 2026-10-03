@@ -62,4 +62,13 @@ state = reduceEvent(state, event('input.state', { generation_id: 9, state: 'tran
 assert.equal(state.inputState, 'transcribing');
 state = reduceEvent(state, event('desktop.cancelled', { generation_id: 9, cancelled_generation_id: 9 }));
 assert.equal(state.inputState, 'idle');
+state = reduceEvent(state, event('snapshot.ready', { target: { title: 'old target' }, snapshot_id: 'old' }));
+state = reduceEvent(state, event('snapshot.invalidated'));
+assert.equal(state.snapshot, undefined);
+assert.equal(state.actions.length, 0);
+state = reduceEvent(state, event('snapshot.ready', { target: { title: 'old target' }, snapshot_id: 'old' }));
+state = reduceEvent(state, event('session.started', { target: null }));
+assert.equal(state.target, undefined);
+assert.equal(state.snapshot, undefined);
+assert.equal(state.task, 'idle');
 console.log('PASS: Worklet resampling, exact end/cancel sample counts, stale audio rejection; playback-only expressions, cancellation and low-intensity hold.');

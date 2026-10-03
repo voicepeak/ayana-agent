@@ -60,6 +60,9 @@ function diagnostic(value: string) {
 
 function broadcast(event: Event, remember = true) {
   if (remember && !event.type.startsWith('audio.') && !event.type.startsWith('playback.')) {
+    if (event.type === 'snapshot.invalidated') {
+      recentEvents = recentEvents.filter(previous => previous.type !== 'snapshot.ready');
+    }
     if (['snapshot.ready', 'repository.inspected', 'settings.ready', 'history.ready'].includes(event.type)) {
       recentEvents = recentEvents.filter(previous => previous.type !== event.type);
     }

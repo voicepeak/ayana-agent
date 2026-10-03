@@ -172,3 +172,21 @@ async def test_transcript_waits_for_review_and_late_cancelled_result_is_dropped(
     await runtime._transcribe({"audio_base64": "sample"}, old)
     assert not any(e["type"] == "input.transcribed" for e in ws.events)
     await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_capture_failure_invalidates_old_image_and_actions(tmp_path):
+    class ClosedDesktop(Desktop):
+        def capture(self, target):
+            raise RuntimeError("Target closed")
+    runtime = AgentRuntime(settings(tmp_path), desktop=ClosedDesktop(), tts=Tts())
+    ws = Ws()
+    runtime.clients.add(ws)
+    runtime.target = {"target_id": "closed"}
+    runtime.snapshot = {"snapshot_id": "old", "png_base64": "old-image"}
+    runtime.actions["old"] = {"kind": "click"}
+    with pytest.raises(RuntimeError, match="Target closed"):
+        await runtime.capture()
+    assert runtime.snapshot is None and not runtime.actions
+    assert ws.events[-1]["type"] == "snapshot.invalidated"
+    await runtime.close()
