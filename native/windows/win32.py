@@ -61,6 +61,13 @@ class MSLLHOOKSTRUCT(C.Structure):
                 ("time", W.DWORD), ("dwExtraInfo", ULONG_PTR)]
 
 
+class GUITHREADINFO(C.Structure):
+    _fields_ = [("cbSize", W.DWORD), ("flags", W.DWORD),
+                ("hwndActive", W.HWND), ("hwndFocus", W.HWND), ("hwndCapture", W.HWND),
+                ("hwndMenuOwner", W.HWND), ("hwndMoveSize", W.HWND), ("hwndCaret", W.HWND),
+                ("rcCaret", W.RECT)]
+
+
 def _fn(lib, name, restype, *argtypes):
     fn = getattr(lib, name)
     fn.restype, fn.argtypes = restype, list(argtypes)
@@ -98,6 +105,7 @@ class Win32:
         _fn(u, "GetWindowTextW", C.c_int, W.HWND, W.LPWSTR, C.c_int)
         _fn(u, "GetClassNameW", C.c_int, W.HWND, W.LPWSTR, C.c_int)
         _fn(u, "GetWindowThreadProcessId", W.DWORD, W.HWND, C.POINTER(W.DWORD))
+        _fn(u, "GetGUIThreadInfo", W.BOOL, W.DWORD, C.POINTER(GUITHREADINFO))
         _fn(u, "GetWindow", W.HWND, W.HWND, W.UINT)
         _fn(u, "GetDC", W.HDC, W.HWND)
         _fn(u, "ReleaseDC", C.c_int, W.HWND, W.HDC)
@@ -143,6 +151,13 @@ class Win32:
 
     def foreground(self):
         return int(self.user.GetForegroundWindow() or 0)
+
+    def focused_window(self, hwnd):
+        info = GUITHREADINFO(cbSize=C.sizeof(GUITHREADINFO))
+        thread_id = self.user.GetWindowThreadProcessId(hwnd, None)
+        if self.user.GetGUIThreadInfo(thread_id, C.byref(info)):
+            return int(info.hwndFocus or 0)
+        return None
 
     def identity(self, hwnd):
         self.dpi_context()

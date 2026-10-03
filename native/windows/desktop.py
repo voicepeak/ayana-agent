@@ -72,6 +72,7 @@ class _Snapshot:
     image: object
     input_epoch: int
     captured: float
+    focused_hwnd: int | None
 
 
 class WindowsDesktop:
@@ -225,7 +226,8 @@ class WindowsDesktop:
                       "content_sha256": hashlib.sha256(image.tobytes()).hexdigest(),
                       "target": target, "transform": transform,
                       "coordinate_space": "snapshot_image_px", "window_state": target["window_state"]}
-            self._snapshots[snapshot_id] = _Snapshot(public, image, epoch, captured)
+            focused_hwnd = self._api.focused_window(target["hwnd"]) if hasattr(self._api, "focused_window") else None
+            self._snapshots[snapshot_id] = _Snapshot(public, image, epoch, captured, focused_hwnd)
             self._targets[target_id] = target
             # Memory remains bounded even if observations happen continuously.
             while len(self._snapshots) > 12:
@@ -260,6 +262,9 @@ class WindowsDesktop:
             raise DesktopError("invalid_action", "Only click, type, scroll, key and highlight are supported")
         if kind != "highlight" and self._monitor.epoch != snapshot.input_epoch:
             raise DesktopError("user_takeover", "User input changed after observation; observe again before acting")
+        if kind in {"type", "key"} and action.get("point") is None and snapshot.focused_hwnd is not None:
+            if self._api.focused_window(target["hwnd"]) != snapshot.focused_hwnd:
+                raise DesktopError("focused_control_changed", "Focused control changed; observe again before typing")
         current = self._image(target)
         if not _same_content(snapshot.image, current):
             raise DesktopError("content_changed", "Target contents changed; refresh the screenshot and action preview")
@@ -381,7 +386,7 @@ class WindowsDesktop:
             controls = self.observe_controls(target["target_id"])
             changed = not _same_content(snapshot.image, self._snapshots[after["snapshot_id"]].image)
             expected = str(action.get("expected_text", ""))
-            verified = any(expected in str(control.get("name", "")) for control in controls) if expected else None
+            verified = any(expected in str(control.get("name", "")) or expected in str(control.get("value", "")) for control in controls) if expected else None
             return {"kind": kind, "status": "input_sent", "target_id": target["target_id"],
                     "snapshot_id": snapshot_id, "result_snapshot": after, "controls": controls,
                     "observed_change": changed, "expected_result_verified": verified,

@@ -79,8 +79,15 @@ class UiaObserver:
                                     patterns.append(name)
                             except Exception:
                                 pass
+                        value = ""
+                        if "value" in patterns:
+                            try:
+                                value = str(element.GetCurrentPropertyValue(30045) or "")[:4000]
+                            except Exception:
+                                pass
                         found.append({"control_id": element.CurrentAutomationId or f"control-{len(found)}",
                                       "name": (element.CurrentName or "")[:1000],
+                                      "value": value, "process_id": int(element.CurrentProcessId),
                                       "control_type": int(element.CurrentControlType),
                                       "class_name": element.CurrentClassName,
                                       "enabled": bool(element.CurrentIsEnabled),
@@ -112,6 +119,7 @@ class UiaObserver:
             self.jobs.put_nowait((hwnd, bounds, reply))
             good, result = reply.get(timeout=self.timeout)
             if good:
+                self.status, self.detail = "ready", ""
                 return result
             self.detail = str(result)
             return []
