@@ -176,7 +176,17 @@ class TtsService:
                 await asyncio.wait_for(process.wait(), timeout=4)
             except (OSError, RuntimeError, asyncio.TimeoutError):
                 if process.returncode is None:
-                    process.kill()
+                    if os.name == "nt":
+                        # Windows venv python.exe is a launcher with a separate
+                        # interpreter child. Kill the owned tree on timeout so
+                        # a hung model cannot outlive its service supervisor.
+                        killer = await asyncio.create_subprocess_exec(
+                            "taskkill.exe", "/PID", str(process.pid), "/T", "/F",
+                            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                            creationflags=0x08000000)
+                        await killer.wait()
+                    if process.returncode is None:
+                        process.kill()
                 await process.wait()
         for task in self._tasks:
             if not task.done():
