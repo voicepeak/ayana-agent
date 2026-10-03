@@ -42,10 +42,11 @@ def _identity_key(target):
 
 
 def _same_geometry(first, second):
-    return first["bounds"] == second["bounds"] and first["dpi"] == second["dpi"]
+    return (first["bounds"] == second["bounds"] and first["dpi"] == second["dpi"]
+            and first.get("client_bounds_image_px") == second.get("client_bounds_image_px"))
 
 
-def _same_content(first, second):
+def _same_content(first, second, client_bounds=None):
     """Ignore frame activation and only a narrow blinking insertion caret.
 
     Everything else, including very small button text changes, invalidates
@@ -55,7 +56,16 @@ def _same_content(first, second):
     if first.size != second.size:
         return False
     width, height = first.size
-    crop = (min(8, width//10), min(36, height//5), max(width-8, width//2), max(height-8, height//2))
+    if client_bounds is not None:
+        # Native captions can be >36 physical pixels at high DPI. Compare all
+        # application client pixels using measured Win32 geometry, rather than
+        # treating a hardcoded slice of the caption as application content.
+        crop = tuple(client_bounds[key] for key in ("left", "top", "right", "bottom"))
+        if not 0 <= crop[0] < crop[2] <= width or not 0 <= crop[1] < crop[3] <= height:
+            return False
+    else:
+        # For old/fake snapshots without native client geometry only.
+        crop = (min(8, width//10), min(36, height//5), max(width-8, width//2), max(height-8, height//2))
     difference = ImageChops.difference(first.crop(crop), second.crop(crop))
     # Small compositor rounding differences should not trigger re-observation.
     mask = difference.convert("L").point(lambda value: 255 if value > 2 else 0)
@@ -266,7 +276,7 @@ class WindowsDesktop:
             if self._api.focused_window(target["hwnd"]) != snapshot.focused_hwnd:
                 raise DesktopError("focused_control_changed", "Focused control changed; observe again before typing")
         current = self._image(target)
-        if not _same_content(snapshot.image, current):
+        if not _same_content(snapshot.image, current, snapshot.public["target"].get("client_bounds_image_px")):
             raise DesktopError("content_changed", "Target contents changed; refresh the screenshot and action preview")
         return snapshot, target, kind
 
@@ -316,7 +326,7 @@ class WindowsDesktop:
             if foreground != target["hwnd"] and not self._api.focus(target["hwnd"]):
                 raise DesktopError("focus_failed", "Windows refused target focus recovery; no input was sent")
             # Revalidate content after focus recovery; focused controls can reflow.
-            if not _same_content(snapshot.image, self._image(target)):
+            if not _same_content(snapshot.image, self._image(target), public["target"].get("client_bounds_image_px")):
                 raise DesktopError("content_changed", "Target changed after focus recovery; observe again")
             self._guard(target, epoch)
             point = None
@@ -384,7 +394,7 @@ class WindowsDesktop:
                 self._snapshots.pop(snapshot_id, None)
             after = self.capture(target["target_id"])
             controls = self.observe_controls(target["target_id"])
-            changed = not _same_content(snapshot.image, self._snapshots[after["snapshot_id"]].image)
+            changed = not _same_content(snapshot.image, self._snapshots[after["snapshot_id"]].image, public["target"].get("client_bounds_image_px"))
             expected = str(action.get("expected_text", ""))
             verified = any(expected in str(control.get("name", "")) or expected in str(control.get("value", "")) for control in controls) if expected else None
             return {"kind": kind, "status": "input_sent", "target_id": target["target_id"],

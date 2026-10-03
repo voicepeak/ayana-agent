@@ -87,6 +87,16 @@ class CoordinateTests(unittest.TestCase):
             with self.assertRaises(DesktopError):
                 image_point_to_screen(point, {"width": 100, "height": 100}, {"origin_x": 0, "origin_y": 0, "scale_x": 1, "scale_y": 1})
 
+    def test_high_dpi_native_caption_focus_change_is_excluded(self):
+        first = Image.new("RGB", (704, 544), "white")
+        second = first.copy()
+        ImageDraw.Draw(second).rectangle((0, 0, 703, 51), fill="#204080")
+        client = {"left": 12, "top": 52, "right": 692, "bottom": 532}
+        self.assertTrue(_same_content(first, second, client))
+        # A small application-content change still invalidates the action.
+        ImageDraw.Draw(second).rectangle((100, 100, 105, 105), fill="red")
+        self.assertFalse(_same_content(first, second, client))
+
 
 class SnapshotGuardTests(unittest.TestCase):
     def setUp(self):
@@ -185,6 +195,51 @@ class SnapshotGuardTests(unittest.TestCase):
 
 @unittest.skipUnless(os.name == "nt" and os.environ.get("AYANA_WINDOWS_INTEGRATION") == "1", "Set AYANA_WINDOWS_INTEGRATION=1 for an owned-window capture/input test")
 class OwnedWindowIntegrationTests(unittest.TestCase):
+    def test_inactive_target_restores_focus_from_registered_assistant(self):
+        with tempfile.TemporaryDirectory(prefix="ayana-focus-") as folder:
+            processes, desktop = [], WindowsDesktop()
+            try:
+                states = {}
+                for name in ("target", "assistant"):
+                    state = Path(folder)/(name+".json")
+                    processes.append(subprocess.Popen([sys.executable, "-m", "native.windows.demo_target", "--state", str(state), "--auto-close", "30"], creationflags=subprocess.CREATE_NO_WINDOW))
+                    deadline = time.monotonic()+8
+                    while time.monotonic() < deadline:
+                        try:
+                            states[name] = json.loads(state.read_text(encoding="utf-8"))
+                            break
+                        except (OSError, json.JSONDecodeError): time.sleep(.05)
+                    self.assertIn(name, states)
+                assistant, data = states["assistant"], states["target"]
+                desktop.register_assistant_window(assistant["hwnd"])
+                target = desktop.bind(data["hwnd"])
+                self.assertTrue(desktop._api.focus(assistant["hwnd"]))
+                # Park the pointer on these owned windows' caption. A genuine
+                # button hover/content change remains subject to rejection.
+                bounds = target["bounds"]
+                desktop._api.send([desktop._api.move_input(bounds["left"]+20, bounds["top"]+10)])
+                time.sleep(.1)
+                snapshot = desktop.capture(target["target_id"])
+                entry = data["widgets"]["entry"]
+                point = {"x": entry["x"]+entry["width"]//2-bounds["left"], "y": entry["y"]+entry["height"]//2-bounds["top"]}
+                result = desktop.execute({"kind": "type", "point": point, "text": "Focus recovery demo"}, snapshot["snapshot_id"])
+                self.assertEqual(result["status"], "input_sent")
+                self.assertEqual(desktop._api.foreground(), target["hwnd"])
+                deadline = time.monotonic()+2
+                message = ""
+                while time.monotonic() < deadline:
+                    try:
+                        message = json.loads((Path(folder)/"target.json").read_text(encoding="utf-8"))["message"]
+                        if message == "Focus recovery demo": break
+                    except (OSError, json.JSONDecodeError): pass
+                    time.sleep(.05)
+                self.assertEqual(message, "Focus recovery demo")
+            finally:
+                desktop.close()
+                for process in processes:
+                    process.terminate()
+                    process.wait(timeout=5)
+
     def test_owned_window_capture_type_and_button(self):
         from native.windows.win32 import Win32
         with tempfile.TemporaryDirectory(prefix="ayana-window-") as folder:

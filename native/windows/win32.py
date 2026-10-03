@@ -101,6 +101,8 @@ class Win32:
         _fn(u, "GetForegroundWindow", W.HWND)
         _fn(u, "GetAncestor", W.HWND, W.HWND, W.UINT)
         _fn(u, "GetWindowRect", W.BOOL, W.HWND, C.POINTER(W.RECT))
+        _fn(u, "GetClientRect", W.BOOL, W.HWND, C.POINTER(W.RECT))
+        _fn(u, "ClientToScreen", W.BOOL, W.HWND, C.POINTER(W.POINT))
         _fn(u, "GetWindowTextLengthW", C.c_int, W.HWND)
         _fn(u, "GetWindowTextW", C.c_int, W.HWND, W.LPWSTR, C.c_int)
         _fn(u, "GetClassNameW", C.c_int, W.HWND, W.LPWSTR, C.c_int)
@@ -191,9 +193,16 @@ class Win32:
             raise RuntimeError("Cannot obtain target window bounds")
         self.user.GetWindowTextW(hwnd, title, len(title))
         self.user.GetClassNameW(hwnd, cls, len(cls))
+        client, origin = W.RECT(), W.POINT()
+        if not self.user.GetClientRect(hwnd, C.byref(client)) or not self.user.ClientToScreen(hwnd, C.byref(origin)):
+            raise RuntimeError("Cannot obtain target client bounds")
+        client_bounds = {"left": origin.x-rect.left, "top": origin.y-rect.top,
+                         "right": origin.x-rect.left+client.right-client.left,
+                         "bottom": origin.y-rect.top+client.bottom-client.top}
         return {"hwnd": int(hwnd), "process_id": pid.value, "process_created": creation,
                 "title": title.value, "class_name": cls.value, "executable": path.value,
                 "bounds": {"left": rect.left, "top": rect.top, "right": rect.right, "bottom": rect.bottom},
+                "client_bounds_image_px": client_bounds,
                 "dpi": int(self.user.GetDpiForWindow(hwnd) or 96) if hasattr(self.user, "GetDpiForWindow") else 96,
                 "window_state": "minimized" if self.user.IsIconic(hwnd) else "visible" if self.user.IsWindowVisible(hwnd) else "hidden",
                 "elevated": elevated}
