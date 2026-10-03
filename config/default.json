@@ -9,6 +9,7 @@
   "max_utterances": 8,
   "max_audio_ahead_ms": 10000,
   "voice": {"voice_mode": "auto"},
+  "stt": {"provider": "local", "model": "tiny"},
   "avatar_root": "assets/ayana",
   "subtitles": true,
   "save_history": true
