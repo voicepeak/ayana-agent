@@ -36,6 +36,9 @@ the current generation. Both shortcuts can be configured in Preferences.
 Hold the microphone button to record up to 15 seconds; release to transcribe.
 Recording cancels existing speech and uses half duplex. The microphone permission
 is limited to audio capture by the chat renderer.
+Recognized text fills the question composer first. Review and correct it, then
+press Send; recognition does not automatically submit potentially inaccurate
+technical terms to the model.
 
 ## Verify and package
 

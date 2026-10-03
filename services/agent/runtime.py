@@ -47,9 +47,9 @@ class AgentRuntime:
         self.closed = False
         self.stt = None
 
-    async def emit(self, kind, **payload):
+    async def emit(self, event_type, **payload):
         self.seq += 1
-        event = {"protocol_version": PROTOCOL_VERSION, "type": kind, "session_id": self.session_id,
+        event = {"protocol_version": PROTOCOL_VERSION, "type": event_type, "session_id": self.session_id,
                  "turn_id": self.turn_id, "generation_id": self.generation, "seq": self.seq,
                  "runtime_monotonic_ms": round(time.monotonic() * 1000), **payload}
         if self.settings.values.get("save_history", True):
@@ -257,7 +257,8 @@ class AgentRuntime:
                 raise ValueError("没有识别到语音，请再试一次")
             await self.emit("input.transcribed", text=text)
             await self.emit("input.state", state="idle")
-            await self.handle({"type": "turn.start", "text": text, "mode": self.mode})
+            # Small local ASR can misrecognize technical terms. The desktop
+            # puts this text in the composer for review before a normal send.
         except asyncio.CancelledError:
             raise
         except Exception as e:

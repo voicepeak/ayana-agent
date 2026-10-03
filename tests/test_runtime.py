@@ -132,3 +132,39 @@ async def test_stt_settings_replaces_cached_recognizer_and_cancel_restores_input
     assert runtime.settings.values["stt"]["provider"] == "disabled"
     assert any(e["type"] == "input.state" and e["state"] == "idle" for e in ws.events)
     await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_highlight_result_can_keep_its_action_kind(tmp_path):
+    class HighlightDesktop(Desktop):
+        def execute(self, action, snapshot):
+            return {"kind": "highlight", "screen_rect": {"x": 10, "y": 20, "width": 90, "height": 40}}
+    runtime = AgentRuntime(settings(tmp_path), desktop=HighlightDesktop(), tts=Tts())
+    ws = Ws()
+    runtime.clients.add(ws)
+    runtime.target = {"target_id": "target"}
+    runtime.snapshot = {"snapshot_id": "snap"}
+    await runtime.handle({"type": "tool.execute", "snapshot_id": "snap", "action": {"kind": "highlight"}})
+    await runtime.action_task
+    result = next(e for e in ws.events if e["type"] == "highlight.ready")
+    assert result["kind"] == "highlight" and result["screen_rect"]["width"] == 90
+    assert not any(e["type"] == "tool.failed" for e in ws.events)
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_transcript_waits_for_review_and_late_cancelled_result_is_dropped(tmp_path):
+    from unittest.mock import AsyncMock
+    runtime = AgentRuntime(settings(tmp_path), desktop=Desktop(), tts=Tts())
+    ws = Ws()
+    runtime.clients.add(ws)
+    runtime.stt = type("Recognizer", (), {"transcribe": AsyncMock(return_value="识别到的代码仓库"), "close": AsyncMock()})()
+    await runtime._transcribe({"audio_base64": "sample", "mime_type": "audio/wav"}, runtime.generation)
+    assert any(e["type"] == "input.transcribed" for e in ws.events)
+    assert not any(e["type"] == "user.message" for e in ws.events)
+    old = runtime.generation
+    await runtime.cancel()
+    ws.events.clear()
+    await runtime._transcribe({"audio_base64": "sample"}, old)
+    assert not any(e["type"] == "input.transcribed" for e in ws.events)
+    await runtime.close()
