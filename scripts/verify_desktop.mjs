@@ -119,6 +119,8 @@ try {
     await page.mouse.up();
     await page.waitForFunction(() => window.__qaEvents.some(e => e.type === 'input.transcribed'), null, { timeout: 20000 });
     report.checks.microphone_webm_transcribed = true;
+    await page.waitForFunction(() => document.querySelector('textarea[aria-label="输入问题"]')?.value === window.__qaEvents.find(e => e.type === 'input.transcribed').text);
+    report.checks.microphone_text_reviewable = true;
     report.microphone = { source: 'Chromium fake microphone fed a real pre-generated Japanese WAV; excludes physical microphone acquisition and user accuracy', transcript: await page.evaluate(() => window.__qaEvents.find(e => e.type === 'input.transcribed').text) };
     await page.evaluate(() => window.ayana.send({ type: 'generation.cancel' }));
     await page.screenshot({ path: path.join(directory, 'microphone.png') });
@@ -132,9 +134,10 @@ try {
   report.checks.repository_evidence_visible = (await page.locator('.evidence-cards article').count()) > 0;
   await page.screenshot({ path: path.join(directory, 'files.png') });
   report.playback = await page.evaluate(() => window.__qaEvents.filter(e => e.type.startsWith('playback.') || e.type === 'generation.cancelled' || e.type === 'error'));
+  report.errors.push(...await page.evaluate(() => window.__qaEvents.filter(e => e.type === 'error').map(e => `${e.source || 'runtime'}: ${e.message}`)));
   report.windows = await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(w => ({ title: w.getTitle(), focusable: w.isFocusable(), always_on_top: w.isAlwaysOnTop(), bounds: w.getBounds() })));
   report.runtime = await application.evaluate(({ app }) => ({ packaged: app.isPackaged, resources: process.resourcesPath, data: app.getPath('userData') }));
-  report.passed = report.errors.length === 0 && (actionsOnly || report.checks.real_audio_consumed) && report.checks.repository_evidence_visible && report.checks.single_step_type && report.checks.single_step_observed && (actionsOnly || report.checks.cancel_receipt_ms < 1000) && (!microphoneWav || report.checks.microphone_webm_transcribed);
+  report.passed = report.errors.length === 0 && (actionsOnly || report.checks.real_audio_consumed) && report.checks.repository_evidence_visible && report.checks.single_step_type && report.checks.single_step_observed && (actionsOnly || report.checks.cancel_receipt_ms < 1000) && (!microphoneWav || (report.checks.microphone_webm_transcribed && report.checks.microphone_text_reviewable));
   report.actions_only = actionsOnly;
 } catch (error) {
   report.errors.push(String(error));
