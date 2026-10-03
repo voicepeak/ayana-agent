@@ -18,6 +18,8 @@ from unittest.mock import patch
 from PIL import Image, ImageDraw
 from native.windows.desktop import DesktopError, WindowsDesktop, image_point_to_screen, _same_content
 
+TEST_PYTHON = getattr(sys, "_base_executable", sys.executable)
+
 
 class FakeApi:
     def __init__(self):
@@ -98,6 +100,54 @@ class CoordinateTests(unittest.TestCase):
         self.assertFalse(_same_content(first, second, client))
 
 
+class FocusRecoveryTests(unittest.TestCase):
+    def focus_api(self, mode):
+        from native.windows.win32 import Win32
+        api = Win32.__new__(Win32)
+        front, calls, attached = [71], [], set()
+        class User:
+            def SetForegroundWindow(self, hwnd):
+                calls.append(("foreground", hwnd))
+                if mode == "success" and 2 in attached:
+                    front[0] = hwnd
+                elif mode == "takeover":
+                    front[0] = 99
+            def GetWindowThreadProcessId(self, hwnd, _):
+                return 2 if hwnd == 71 else 3
+            def PeekMessageW(self, *_): calls.append(("queue",))
+            def AttachThreadInput(self, current, other, active):
+                calls.append(("attach", current, other, active))
+                if active: attached.add(other)
+                else: attached.discard(other)
+                return True
+            def BringWindowToTop(self, hwnd): calls.append(("top", hwnd))
+        api.user = User()
+        api.kernel = type("Kernel", (), {"GetCurrentThreadId": lambda self: 1})()
+        api.foreground = lambda: front[0]
+        return api, calls, attached
+
+    def test_attaches_only_while_recovering_and_always_detaches(self):
+        api, calls, attached = self.focus_api("success")
+        self.assertTrue(api.focus(42))
+        self.assertIn(("queue",), calls)
+        self.assertIn(("attach", 1, 2, True), calls)
+        self.assertIn(("attach", 1, 2, False), calls)
+        self.assertEqual(attached, set())
+
+    def test_failure_detaches_both_queues_without_synthetic_input(self):
+        api, calls, attached = self.focus_api("denied")
+        self.assertFalse(api.focus(42))
+        self.assertIn(("attach", 1, 2, False), calls)
+        self.assertIn(("attach", 1, 3, False), calls)
+        self.assertEqual(attached, set())
+
+    def test_foreground_takeover_stops_before_queue_attachment(self):
+        api, calls, attached = self.focus_api("takeover")
+        self.assertFalse(api.focus(42))
+        self.assertFalse(any(call[0] == "attach" for call in calls))
+        self.assertEqual(attached, set())
+
+
 class SnapshotGuardTests(unittest.TestCase):
     def setUp(self):
         self.desktop = fake_desktop()
@@ -169,10 +219,51 @@ class SnapshotGuardTests(unittest.TestCase):
         result = self.desktop.execute(self.action(), self.snapshot["snapshot_id"])
         self.assertEqual(result["status"], "input_sent")
         self.assertFalse(result["observed_change"])
-        self.assertEqual(len(self.desktop._api.sent), 1)
+        injected = [item for batch in self.desktop._api.sent for item in batch]
+        self.assertEqual(sum(item == ("mouse", {"flags": 2}) for item in injected), 1)
+        self.assertEqual(sum(item == ("mouse", {"flags": 4}) for item in injected), 1)
+        batches = len(self.desktop._api.sent)
         with self.assertRaises(DesktopError) as caught:
             self.desktop.execute(self.action(), self.snapshot["snapshot_id"])
         self.assertEqual(caught.exception.code, "unknown_snapshot")
+        self.assertEqual(len(self.desktop._api.sent), batches)
+
+    def test_cancel_during_pointer_move_prevents_mouse_down(self):
+        original = self.desktop._api.send
+        def move_then_cancel(values):
+            original(values)
+            self.desktop.cancel()
+        self.desktop._api.send = move_then_cancel
+        with self.assertRaises(DesktopError) as caught:
+            self.desktop.execute(self.action(), self.snapshot["snapshot_id"])
+        self.assertEqual(caught.exception.code, "cancelled")
+        injected = [item for batch in self.desktop._api.sent for item in batch]
+        self.assertFalse(any(item[0] == "mouse" for item in injected))
+
+    def test_user_takeover_during_pointer_move_prevents_mouse_down(self):
+        original = self.desktop._api.send
+        def move_then_takeover(values):
+            original(values)
+            self.desktop._monitor.epoch += 1
+        self.desktop._api.send = move_then_takeover
+        with self.assertRaises(DesktopError) as caught:
+            self.desktop.execute(self.action(), self.snapshot["snapshot_id"])
+        self.assertEqual(caught.exception.code, "user_takeover")
+        injected = [item for batch in self.desktop._api.sent for item in batch]
+        self.assertFalse(any(item[0] == "mouse" for item in injected))
+
+    def test_cancel_after_mouse_down_always_releases(self):
+        original = self.desktop._api.send
+        def cancel_on_down(values):
+            original(values)
+            if values == [("mouse", {"flags": 2})]:
+                self.desktop.cancel()
+        self.desktop._api.send = cancel_on_down
+        with self.assertRaises(DesktopError) as caught:
+            self.desktop.execute(self.action(), self.snapshot["snapshot_id"])
+        self.assertEqual(caught.exception.code, "cancelled")
+        injected = [item for batch in self.desktop._api.sent for item in batch]
+        self.assertEqual(injected[-2:], [("mouse", {"flags": 2}), ("mouse", {"flags": 4})])
 
     def test_cancellation_stops_long_typing_between_batches(self):
         original = self.desktop._api.send
@@ -202,7 +293,7 @@ class OwnedWindowIntegrationTests(unittest.TestCase):
                 states = {}
                 for name in ("target", "assistant"):
                     state = Path(folder)/(name+".json")
-                    processes.append(subprocess.Popen([sys.executable, "-m", "native.windows.demo_target", "--state", str(state), "--auto-close", "30"], creationflags=subprocess.CREATE_NO_WINDOW))
+                    processes.append(subprocess.Popen([TEST_PYTHON, "-m", "native.windows.demo_target", "--state", str(state), "--auto-close", "30"], creationflags=subprocess.CREATE_NO_WINDOW))
                     deadline = time.monotonic()+8
                     while time.monotonic() < deadline:
                         try:
@@ -244,7 +335,7 @@ class OwnedWindowIntegrationTests(unittest.TestCase):
         from native.windows.win32 import Win32
         with tempfile.TemporaryDirectory(prefix="ayana-window-") as folder:
             state = Path(folder)/"state.json"
-            process = subprocess.Popen([sys.executable, "-m", "native.windows.demo_target", "--state", str(state), "--auto-close", "20"],
+            process = subprocess.Popen([TEST_PYTHON, "-m", "native.windows.demo_target", "--state", str(state), "--auto-close", "20"],
                                        creationflags=subprocess.CREATE_NO_WINDOW)
             desktop = WindowsDesktop()
             try:
@@ -273,12 +364,23 @@ class OwnedWindowIntegrationTests(unittest.TestCase):
                     rect = data["widgets"][widget]
                     return {"x": rect["x"]+rect["width"]//2-b["left"], "y": rect["y"]+rect["height"]//2-b["top"]}
                 result = desktop.execute({"kind": "type", "target_id": target["target_id"], "point": point("entry"), "text": "Ayana demo"}, snapshot["snapshot_id"])
-                time.sleep(.2)
-                self.assertEqual(read_state()["message"], "Ayana demo")
+                deadline = time.monotonic()+2
+                message = ""
+                while time.monotonic() < deadline:
+                    message = read_state()["message"]
+                    if message == "Ayana demo": break
+                    time.sleep(.05)
+                self.assertEqual(message, "Ayana demo")
+                data = read_state()
                 snapshot = desktop.capture(target["target_id"])
                 desktop.execute({"kind": "click", "target_id": target["target_id"], "point": point("button")}, snapshot["snapshot_id"])
-                time.sleep(.2)
-                self.assertEqual(read_state()["output"], "Received: Ayana demo")
+                deadline = time.monotonic()+2
+                output = ""
+                while time.monotonic() < deadline:
+                    output = read_state()["output"]
+                    if output == "Received: Ayana demo": break
+                    time.sleep(.05)
+                self.assertEqual(output, "Received: Ayana demo")
                 self.assertTrue(result["observed_change"])
             finally:
                 desktop.close()

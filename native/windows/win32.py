@@ -109,6 +109,8 @@ class Win32:
         _fn(u, "GetWindowThreadProcessId", W.DWORD, W.HWND, C.POINTER(W.DWORD))
         _fn(u, "GetGUIThreadInfo", W.BOOL, W.DWORD, C.POINTER(GUITHREADINFO))
         _fn(u, "GetWindow", W.HWND, W.HWND, W.UINT)
+        _fn(u, "AttachThreadInput", W.BOOL, W.DWORD, W.DWORD, W.BOOL)
+        _fn(u, "BringWindowToTop", W.BOOL, W.HWND)
         _fn(u, "GetDC", W.HDC, W.HWND)
         _fn(u, "ReleaseDC", C.c_int, W.HWND, W.HDC)
         _fn(u, "PrintWindow", W.BOOL, W.HWND, W.HDC, W.UINT)
@@ -261,13 +263,58 @@ class Win32:
             self.user.ReleaseDC(hwnd, dc)
 
     def focus(self, hwnd):
+        original = self.foreground()
+        if original == hwnd:
+            return True
         self.user.SetForegroundWindow(hwnd)
-        deadline = time.monotonic() + .3
-        while time.monotonic() < deadline:
-            if self.foreground() == hwnd:
+        def wait_for_focus(seconds):
+            deadline = time.monotonic()+seconds
+            while time.monotonic() < deadline:
+                current = self.foreground()
+                if current == hwnd:
+                    return True
+                if current not in (0, original):
+                    return False  # user switched elsewhere: stop recovery
+                time.sleep(.005)
+            return self.foreground() == hwnd
+        if wait_for_focus(.06):
+            return True
+        if not original or self.foreground() != original:
+            return False
+        # Electron's foreground GUI thread received the confirmation click;
+        # the independent backend worker did not. Share that input queue only
+        # for this guarded target activation, then detach on every exit path.
+        # Desktop.execute already requires target/registered-assistant focus.
+        message = W.MSG()
+        self.user.PeekMessageW(C.byref(message), None, 0, 0, 0)
+        current_thread = self.kernel.GetCurrentThreadId()
+        foreground_thread = self.user.GetWindowThreadProcessId(original, None)
+        target_thread = self.user.GetWindowThreadProcessId(hwnd, None)
+        attached = []
+        try:
+            if foreground_thread and foreground_thread != current_thread:
+                if not self.user.AttachThreadInput(current_thread, foreground_thread, True):
+                    return False
+                attached.append(foreground_thread)
+            if self.foreground() != original:
+                return self.foreground() == hwnd
+            self.user.SetForegroundWindow(hwnd)
+            if wait_for_focus(.06):
                 return True
-            time.sleep(.01)
-        return False
+            if self.foreground() != original:
+                return False
+            if target_thread and target_thread not in {current_thread, foreground_thread}:
+                if not self.user.AttachThreadInput(current_thread, target_thread, True):
+                    return False
+                attached.append(target_thread)
+            if self.foreground() != original:
+                return self.foreground() == hwnd
+            self.user.BringWindowToTop(hwnd)
+            self.user.SetForegroundWindow(hwnd)
+            return wait_for_focus(.15)
+        finally:
+            for thread_id in reversed(attached):
+                self.user.AttachThreadInput(current_thread, thread_id, False)
 
     def send(self, inputs):
         if not inputs:

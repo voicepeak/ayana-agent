@@ -291,6 +291,28 @@ class WindowsDesktop:
         if not _same_geometry(current, target):
             raise DesktopError("geometry_changed", "Target moved during action; remaining input was stopped")
 
+    def _move_pointer(self, target, epoch, point):
+        # A single SendInput batch containing MOVE/DOWN/UP can reach a Tk
+        # button before it handles its Enter event. Let the target process the
+        # owned move, then repeat guards before submitting the mouse pair.
+        self._api.send([self._api.move_input(*point)])
+        time.sleep(.04)
+        self._guard(target, epoch)
+        if self._api.point_root(*point) != target["hwnd"]:
+            raise DesktopError("target_occluded", "Action point became obscured; remaining input was stopped")
+
+    def _click_pointer(self, target, epoch, point):
+        self._move_pointer(target, epoch, point)
+        self._api.send([self._api.mouse(flags=2)])
+        try:
+            # Let the target handle Press/focus while the button is held. Some
+            # native controls consult live button state while processing Press.
+            time.sleep(.04)
+            self._guard(target, epoch)
+        finally:
+            # Cancellation can stop the rest of an action, never its release.
+            self._api.send([self._api.mouse(flags=4)])
+
     def execute(self, action: dict, snapshot_id: str):
         self._require()
         if not isinstance(action, dict):
@@ -365,24 +387,27 @@ class WindowsDesktop:
                 if kind == "click":
                     if action.get("button", "left") != "left":
                         raise DesktopError("invalid_action", "Only a single left click is supported")
-                    self._api.send([self._api.move_input(*point), self._api.mouse(flags=2), self._api.mouse(flags=4)])
+                    self._click_pointer(target, epoch, point)
                 elif kind == "type":
                     if point:
-                        self._api.send([self._api.move_input(*point), self._api.mouse(flags=2), self._api.mouse(flags=4)])
+                        self._click_pointer(target, epoch, point)
                         time.sleep(.03)
-                    units = text.encode("utf-16-le", errors="strict")
-                    # Small batches keep takeover checks responsive. Every UTF16
-                    # unit's down/up pair is included together, including emoji.
-                    for index in range(0, len(units), 32):
+                    # Let ordinary application message loops translate each
+                    # Unicode code point before the next one. Flooding a Tk
+                    # entry with a large VK_PACKET burst can lose characters.
+                    # A surrogate pair stays in one atomic down/up batch.
+                    for character in text:
                         self._guard(target, epoch)
+                        units = character.encode("utf-16-le", errors="strict")
                         batch = []
-                        for offset in range(index, min(index+32, len(units)), 2):
+                        for offset in range(0, len(units), 2):
                             code = int.from_bytes(units[offset:offset+2], "little")
                             batch += [self._api.key(scan=code, flags=4), self._api.key(scan=code, flags=6)]
                         self._api.send(batch)
-                        time.sleep(.01)
+                        time.sleep(.005)
                 elif kind == "scroll":
-                    self._api.send([self._api.move_input(*point), self._api.mouse(flags=0x800, data=delta*120)])
+                    self._move_pointer(target, epoch, point)
+                    self._api.send([self._api.mouse(flags=0x800, data=delta*120)])
                 else:
                     self._api.send(keys)
                 time.sleep(.08)
