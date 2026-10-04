@@ -10,6 +10,19 @@ INTENTS = {"acknowledge", "explain", "encourage", "caution", "playful"}
 AFFECTS = {"neutral", "pleased", "concerned", "surprised"}
 
 
+def validate_tool_request(value):
+    if not isinstance(value, dict) or set(value) - {"type", "name", "arguments", "call_id"}:
+        raise ValueError("Tool request has unsupported fields")
+    name = value.get("name")
+    if value.get("type", "tool") != "tool" or not isinstance(name, str) or not re.fullmatch(r"[a-zA-Z0-9_.]{1,100}", name):
+        raise ValueError("Tool request requires a valid registered name")
+    if not isinstance(value.get("arguments", {}), dict):
+        raise ValueError("Tool arguments must be an object")
+    if "call_id" in value and (not isinstance(value["call_id"], str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,100}", value["call_id"])):
+        raise ValueError("Invalid tool call_id")
+    return value
+
+
 def validate_speech(value: dict) -> dict:
     text = value.get("speech_ja")
     if not isinstance(text, str) or not text.strip() or len(text) > 240:

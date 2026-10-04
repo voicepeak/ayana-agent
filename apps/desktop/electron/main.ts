@@ -1,6 +1,7 @@
 import {
   app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage,
   protocol, screen, session, Tray,
+  shell,
 } from 'electron';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -15,6 +16,9 @@ const commands = new Set([
   'session.start', 'session.close', 'turn.start', 'generation.cancel', 'target.bind',
   'target.capture', 'windows.list', 'repository.inspect', 'repository.read',
   'repository.search', 'settings.get', 'settings.update', 'history.get', 'tool.execute', 'utterance.displayed', 'mode.set', 'input.audio',
+  'capabilities.get', 'directory.grant', 'directory.revoke', 'task.pause', 'task.resume', 'task.cancel',
+  'approval.resolve', 'artifact.get', 'artifact.open', 'artifact.restore', 'source.open',
+  'computer.start',
 ]);
 app.setName('Ayana');
 const playbackTypes = new Set(['playback.started', 'playback.progress', 'playback.ended', 'playback.cancelled', 'playback.error']);
@@ -200,6 +204,21 @@ function showTargetCue(event: Event) {
 function receive(event: Event) {
   if (event.protocol_version !== 1 || typeof event.type !== 'string') return;
   if (typeof event.generation_id === 'number') currentGeneration = Math.max(currentGeneration, event.generation_id);
+  if (event.type === 'artifact.open') {
+    const artifact = event.artifact as Record<string, unknown> | undefined;
+    const file = String(artifact?.absolute_path || '');
+    if (artifact?.artifact_id && path.isAbsolute(file) && /\.(md|txt|json|toml|ya?ml|csv|py|tsx?|jsx?|vue|html|css|sql|rs|go|cs|java|c|cpp|h)$/i.test(file)) {
+      // Source extensions can be associated with interpreters; always open as text.
+      const viewer = spawn('notepad.exe', [file], { windowsHide: false, stdio: 'ignore' });
+      viewer.on('error', () => desktopEvent('error', { message: '无法打开文本查看器。' }));
+      viewer.unref();
+    }
+    return;
+  }
+  if (event.type === 'source.open') {
+    try { const url = new URL(String(event.url)); if (['https:', 'http:'].includes(url.protocol) && !url.username && !url.password) void shell.openExternal(url.href); } catch { /* Invalid runtime URL. */ }
+    return;
+  }
   if (event.type === 'settings.ready') {
     const settings = (event.settings ?? {}) as Record<string, unknown>;
     updateShortcuts(settings);
@@ -242,6 +261,7 @@ function connectRuntime(attempt = 0) {
     registerWindows();
     runtimeSend({ type: 'settings.get' });
     runtimeSend({ type: 'history.get' });
+    runtimeSend({ type: 'capabilities.get' });
     if (summonPending || !startupSummonDone) {
       summonPending = false;
       startupSummonDone = true;
@@ -316,6 +336,8 @@ async function restartRuntime() {
   recentEvents = [];
   currentGeneration = 0;
   desktopEvent('desktop.reset');
+  // connectRuntime must be enabled before the new service is started.
+  restarting = false;
   await startRuntime();
   } finally {
     restarting = false;
@@ -363,9 +385,10 @@ function registerIpc() {
   });
   ipcMain.handle('ayana:summon', (event) => trustedSender(event.sender.id) ? summon() : undefined);
   ipcMain.handle('ayana:hide', (event) => trustedSender(event.sender.id) ? hide() : undefined);
-  ipcMain.handle('ayana:settings', event => {
+  ipcMain.handle('ayana:settings', (event, tab?: unknown) => {
     if (!trustedSender(event.sender.id)) return;
     settingsWindow?.show(); settingsWindow?.focus();
+    if (tab === 'tasks') desktopEvent('desktop.navigate', { tab: 'tasks' });
   });
   ipcMain.handle('ayana:hide-settings', event => {
     if (event.sender.id === settingsWindow?.webContents.id) settingsWindow?.hide();
@@ -373,6 +396,11 @@ function registerIpc() {
   ipcMain.handle('ayana:choose-repository', async (event) => {
     if (event.sender.id !== settingsWindow?.webContents.id) return null;
     const result = await dialog.showOpenDialog(settingsWindow!, { title: '选择仓库上下文', properties: ['openDirectory'] });
+    return result.canceled ? null : result.filePaths[0] ?? null;
+  });
+  ipcMain.handle('ayana:choose-directory', async (event) => {
+    if (event.sender.id !== settingsWindow?.webContents.id) return null;
+    const result = await dialog.showOpenDialog(settingsWindow!, { title: '选择 Ayana 可访问的文本目录', properties: ['openDirectory'] });
     return result.canceled ? null : result.filePaths[0] ?? null;
   });
   ipcMain.handle('ayana:restart', (event) => event.sender.id === settingsWindow?.webContents.id ? restartRuntime() : undefined);

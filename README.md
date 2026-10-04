@@ -4,7 +4,7 @@ Windows 个性化 Agent：快捷键呼出时只显示透明半身立绘、对话
 
 ## 在本机运行
 
-本机交付版可直接双击 `apps/desktop/release/Ayana-0.2.4-win-x64.exe`，桌面也有「Ayana Demo」快捷方式。它包含独立 Python、桌面程序、立绘与本地识别模型；个人模型配置保存在 `%APPDATA%/Ayana/config/local.json`。首次解包和加载音色需要等待；首次语音冷启动实测约 43 秒，期间文字输入与界面保持可用。
+本机交付版可直接双击 `apps/desktop/release/Ayana-0.3.0-win-x64.exe`。它包含独立 Python、桌面程序、立绘与本地识别模型；个人模型配置保存在 `%APPDATA%/Ayana/config/local.json`。首次解包和加载音色需要等待；此前版本首次语音冷启动实测约 43 秒，期间文字输入与界面保持可用。启动新版前请退出旧版。
 
 开发目录也可双击 `启动 Ayana.cmd`，后续修改仍按下面的流程构建。
 
@@ -24,6 +24,8 @@ npm --prefix apps/desktop start
 
 联网模型设置 `provider=openai`、`base_url=https://api.deepseek.com`、`model=deepseek-flash`。密钥通过 `AYANA_API_KEY` 或 `DEEPSEEK_API_KEY` 环境变量提供；本机已有密钥使用当前 Windows 用户的 DPAPI 加密保存，界面和日志不接收密钥。
 
+在线模型默认使用原生 function calling（配置项 `native_tools`，默认 `true`）：请求携带注册工具的 `tools` schema，流式解析 `delta.tool_calls`，并以 `role:"tool"` 回传真实结果。因此在对话框里直接描述需求，模型会自行选择工具（读取网页、写入授权文件等），无需在提示里点名工具。若目标端点不支持 `tools`，可将 `native_tools` 设为 `false` 退回既有 NDJSON 工具事件协议。
+
 ## 体验流程
 
 1. 按 **Ctrl+Alt+A** 呼出 Ayana，只出现半身立绘和对话框，可以直接闲聊或请求帮助。
@@ -32,6 +34,7 @@ npm --prefix apps/desktop start
 4. 有语音时，立绘跟随实际播放句切换；仅文字时逐句呈现。立绘平时固定，换句时下沉 12px 并在 300ms 内回到原位；可在设置关闭，系统减少动态效果也会禁用。
 5. 按住麦克风说话、松开识别，文本可修改后发送。**Ctrl+Alt+Space** 立即打断，关闭呼出面板也会停止输出。
 6. 需要理解代码或观察窗口时，在设置里选择仓库和目标；需要执行桌面操作时选择「单步执行」并确认具体步骤。
+7. 首批新增网页读取、联网搜索接入、文本创建/修改/恢复，以及可暂停和取消的任务循环。对话框启用执行模式后可保存文件；管理窗口的「任务与结果」展示来源、文件与修改差异。搜索需要独立凭证，完整用法与实测边界见 [首批交付说明](docs/FIRST_BATCH_DELIVERY.md)。
 
 安全演示窗口：`.\.venv\Scripts\python.exe -m native.windows.demo_target`。它仅是练习应用，不会操作其他用户软件。
 
@@ -62,6 +65,8 @@ $env:AYANA_WINDOWS_INTEGRATION='1'
 基准输出在被忽略的 `.runtime/benchmarks`。PCM 到达耗时不等于设备出声耗时；真实播放器回执以消费的样本数为准。打包步骤由 `scripts/package_backend.py` 准备嵌入式 Python 和非敏感后端文件，再执行 `npm --prefix apps/desktop run package`。
 
 完整打包步骤见 `scripts/PACKAGING.md`。真实桌面回归脚本为 `scripts/verify_desktop.mjs`，需要指定 Playwright 所在的 `node_modules`；它只对自己的练习窗口进行输入和点击。
+
+模型输入缓存使用稳定的系统/仓库前缀和独立模型轮次历史；设置页显示最近一次 API 缓存 token 回执。真实对照可运行 `python scripts/benchmark_prompt_cache.py`（默认六次联网请求，不读取用户聊天历史）。修复、实测与剩余架构问题见 [缓存与架构审查](docs/ARCHITECTURE_REVIEW_2026-10-04.md)。
 
 ## 实际边界
 

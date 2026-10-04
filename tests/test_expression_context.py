@@ -109,7 +109,7 @@ async def test_model_choices_reach_display_and_next_turn_context(tmp_path, monke
         def __init__(self, settings, client=None):
             self.request_messages = []
             self.response_text = ""
-        async def stream_reply(self, messages):
+        async def stream_reply(self, messages, tools=None, tool_names=None):
             messages_seen.append(messages)
             self.request_messages = messages
             for i, label in enumerate(labels):
@@ -117,6 +117,8 @@ async def test_model_choices_reach_display_and_next_turn_context(tmp_path, monke
                          "expression": label, "pose": "crossed", "intent": "acknowledge"}
                 self.response_text += json.dumps(event, ensure_ascii=False) + "\n"
                 yield event
+        def assistant_message(self):
+            return {"role": "assistant", "content": self.response_text}
     class Desktop:
         status = {}
         def close(self): pass

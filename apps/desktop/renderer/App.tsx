@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Button, Character, Icon, Input } from './components';
 import { bridge, useRuntime, type ModelState, type Speech } from './state';
 import avatarCatalog from '../../../characters/ayana/avatar-map.json';
+import { TaskPanel, taskLabels as agentTaskLabels } from './TaskPanel';
 
 const taskLabels: Record<string, string> = { idle: '可以开始啦', observing: '正在观察目标', thinking: '正在整理思路', acting: '正在执行这一步', failed: '需要留意', speaking: 'Ayana 正在说话' };
 const reception: Record<string, string> = { generated: '文字已生成', playing: '正在播放', played: '已播放', partial: '已打断', cancelled: '未播放' };
@@ -9,7 +10,7 @@ const reception: Record<string, string> = { generated: '文字已生成', playin
 export default function App() {
   const kind = new URLSearchParams(location.search).get('window') || 'chat';
   const { state, dispatch, player } = useRuntime(kind === 'chat');
-  const [tab, setTab] = useState<'chat' | 'files' | 'history'>('chat');
+  const [tab, setTab] = useState<'chat' | 'files' | 'history' | 'tasks'>('chat');
   const [targetOpen, setTargetOpen] = useState(false);
   const [text, setText] = useState('');
   const [root, setRoot] = useState('');
@@ -62,6 +63,7 @@ export default function App() {
   useEffect(() => { if (targetOpen) targetDialog.current?.showModal(); else targetDialog.current?.close(); }, [targetOpen]);
   useEffect(() => { setSelectedPoint(undefined); }, [state.snapshot?.snapshot_id]);
   useEffect(() => bridge.onEvent(event => {
+    if (event.type === 'desktop.navigate' && event.tab === 'tasks') { setTab('tasks'); void send({ type: 'capabilities.get' }); }
     if (event.type === 'repository.searched') setSearchResults((event.results ?? []) as Record<string, unknown>[]);
     if (event.type === 'settings.ready') setSettingsSaved(false);
     if (event.type === 'input.transcribed') {
@@ -108,7 +110,9 @@ export default function App() {
     if (directory) { setRoot(directory); await send({ type: 'repository.inspect', root: directory }); }
   }
   async function setTaskMode(next: 'teach' | 'execute') {
-    if (await send({ type: 'mode.set', mode: next })) setMode(next);
+    const previous = mode;
+    setMode(next);
+    if (!await send({ type: 'mode.set', mode: next })) setMode(previous);
   }
   async function startMicrophone() {
     if (recordRequested.current || recorder.current?.state === 'recording' || !state.connected) return;
@@ -204,7 +208,8 @@ export default function App() {
         {state.settings.subtitles !== false && <p className="gal-translation">{presented ? presented.zh || '翻译正在补齐…' : recording ? '正在聆听，松开后识别。' : state.inputState === 'transcribing' ? '正在识别语音…' : busy ? '让我想一想…' : '我在这里。想聊什么？'}</p>}
       </div>
       {(localError || state.error) && <div className="gal-error" role="alert">{localError || state.error}<button aria-label="关闭错误提示" onClick={() => { setLocalError(''); dispatch({ protocol_version: 1, type: 'desktop.dismiss-error' }); }}>×</button></div>}
-      {state.actions.length > 0 && <button className="action-notice" onClick={() => void bridge.openSettings()}>有待确认的操作 · 打开设置查看</button>}
+      {(state.activeTask || state.artifacts.length > 0) && <button className="action-notice" onClick={() => void bridge.openSettings('tasks')}>{state.approvals.length ? '有待确认的步骤' : agentTaskLabels[String(state.activeTask?.state)] || '查看保存的文件'} · 打开任务与结果</button>}
+      <label className="agent-mode"><input type="checkbox" checked={mode === 'execute'} onChange={event => void setTaskMode(event.target.checked ? 'execute' : 'teach')}/>允许本次任务生成文件与提出操作</label>
           <form className="composer" onSubmit={event => { event.preventDefault(); void ask(); }}>
             <textarea ref={textarea} value={text} maxLength={4000} rows={2} onChange={event => setText(event.target.value)} placeholder="想说什么，都可以…" aria-label="输入问题" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void ask(); } }}/>
             <div className="composer-footer"><div><Button type="button" className={`mic-button ${recording ? 'recording' : ''}`} color={recording ? 'danger' : 'default'} variant="light" disabled={!state.connected || state.inputState === 'transcribing'} aria-label="按住说话，松开识别，最长15秒" title="按住说话，松开后识别（最长15秒）" onPointerDown={event => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); void startMicrophone(); }} onPointerUp={endMicrophone} onPointerCancel={() => { discardRecording.current = true; endMicrophone(); }} onKeyDown={event => { if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) { event.preventDefault(); void startMicrophone(); } }} onKeyUp={event => { if (event.key === ' ' || event.key === 'Enter') endMicrophone(); }}><Icon name="mic" size={15}/>{recording ? '录音中' : '按住说话'}</Button><Button color="danger" variant="light" onClick={() => void stop()} type="button" disabled={!busy && !recording}><Icon name="stop" size={14}/>打断</Button><Button color="primary" variant="solid" type="submit" disabled={!text.trim() || !state.connected || recording}>发送<Icon name="arrow" size={16}/></Button></div></div>
@@ -223,7 +228,7 @@ export default function App() {
       <div className="brand"><div className="brand-mark"><Icon name="sparkles" size={25}/></div><div><strong>Ayana</strong><span>你的桌面同伴</span></div></div>
       <div className={`connection ${state.connected ? 'online' : ''}`}><i/>{state.connected ? '本地服务已连接' : state.service === 'preview' ? '桌面界面预览' : '本地服务启动中'}</div>
       <nav aria-label="主导航">
-        {([['chat', 'settings', '对话设置'], ['files', 'folder', '仓库文件'], ['history', 'history', '对话历史']] as const).map(([id, icon, label]) => <button key={id} className={`nav-item ${tab === id ? 'active' : ''}`} onClick={() => { setTab(id); if (id === 'history') void send({ type: 'history.get' }); }}><Icon name={icon}/>{label}{id === 'files' && state.repository && <small>{state.repository.files.length}</small>}</button>)}
+        {([['chat', 'settings', '对话设置'], ['tasks', 'file', '任务与结果'], ['files', 'folder', '仓库文件'], ['history', 'history', '对话历史']] as const).map(([id, icon, label]) => <button key={id} className={`nav-item ${tab === id ? 'active' : ''}`} onClick={() => { setTab(id); if (id === 'history') void send({ type: 'history.get' }); if (id === 'tasks') void send({ type: 'capabilities.get' }); }}><Icon name={icon}/>{label}{id === 'files' && state.repository && <small>{state.repository.files.length}</small>}</button>)}
       </nav>
       <div className="workspace-label">可选的仓库上下文</div>
       <button className="repository-card" onClick={selectRepository}><span className="folder-tile"><Icon name="folder" size={21}/></span><strong>{state.repository?.name || '选择一个仓库'}</strong><small>{state.repository ? '已读取真实文件证据' : '需要读代码时再选择'}</small><Icon name="arrow" size={16}/></button>
@@ -233,18 +238,19 @@ export default function App() {
       <div className="sidebar-bottom">
         <div className="shortcut-note"><Icon name="keyboard" size={17}/><div><span>随时呼出</span><kbd>Ctrl + Alt + A</kbd></div></div>
         <button className="nav-item" onClick={() => void bridge.summon()}><Icon name="message"/>呼出 Ayana</button>
-        <div className="build-label">AYANA DESKTOP <span>v0.2.3</span></div>
+        <div className="build-label">AYANA DESKTOP <span>v0.3.0</span></div>
       </div>
     </aside>
 
     <main className="main-panel">
-      <header className="main-header"><div><div className="eyebrow">AYANA PREFERENCES</div><h1>{tab === 'chat' ? '按你的习惯，相处。' : tab === 'files' ? '每个解释，都有出处。' : '我们走过的每一步。'}</h1></div><Button variant="bordered" onClick={() => void bridge.hideSettings()}><Icon name="close" size={16}/>关闭设置</Button></header>
+      <header className="main-header"><div><div className="eyebrow">AYANA PREFERENCES</div><h1>{tab === 'chat' ? '按你的习惯，相处。' : tab === 'tasks' ? '一起，把事情做好。' : tab === 'files' ? '每个解释，都有出处。' : '我们走过的每一步。'}</h1></div><Button variant="bordered" onClick={() => void bridge.hideSettings()}><Icon name="close" size={16}/>关闭设置</Button></header>
+      {tab === 'tasks' && <TaskPanel state={state} send={send}/>}
       {(localError || state.error) && <div className="error-banner" role="alert"><span>{localError || state.error}</span><button aria-label="关闭错误提示" onClick={() => { setLocalError(''); dispatch({ protocol_version: 1, type: 'desktop.dismiss-error' }); }}>×</button></div>}
       {tab === 'chat' && <section className="preferences-view">
         <p className="preferences-intro">日常呼出只显示立绘与对话。这里管理声音、显示习惯，以及可选的工具上下文。</p>
         <SettingsForm key={JSON.stringify(state.settings)} state={state} onSave={async settings => { const success = await send({ type: 'settings.update', settings }); setSettingsSaved(success); }} />
         <div className="settings-bottom"><span>{settingsSaved ? '设置已提交。' : '设置保存在本机。'}</span><Button onClick={() => void bridge.restart()}><Icon name="refresh" size={15}/>重启服务</Button></div>
-        <div className="mode-strip"><div className="segmented"><button className={mode === 'teach' ? 'selected' : ''} onClick={() => void setTaskMode('teach')}>对话与观察</button><button className={mode === 'execute' ? 'selected' : ''} onClick={() => void setTaskMode('execute')}>单步执行</button></div></div>
+        <div className="mode-strip"><div className="segmented"><button className={mode === 'teach' ? 'selected' : ''} onClick={() => void setTaskMode('teach')}>对话与观察</button><button className={mode === 'execute' ? 'selected' : ''} onClick={() => void setTaskMode('execute')}>执行任务</button></div></div>
         {state.actions.map(event => { const action = event.action as Record<string, unknown>; return <div className="proposed-action" key={String(action.action_id)}><p>{String(event.label || action.expected_result)}</p><Button color="primary" disabled={mode !== 'execute' && action.kind !== 'highlight'} onClick={() => void send({ type: 'tool.execute', action_id: action.action_id, snapshot_id: action.snapshot_id })}>确认并执行一步</Button></div>; })}
       </section>}
       {tab === 'files' && <section className="files-view">
@@ -304,11 +310,13 @@ function SettingsForm({ state, onSave }: { state: ModelState; onSave: (settings:
   const [sentenceMotion, setSentenceMotion] = useState(cfg.sentence_motion !== false);
   const [volume, setVolume] = useState(Number(cfg.volume ?? 1));
   const costumes = [...new Set(Object.values(avatarCatalog.assets).map(item => item.costume))];
+  const usage = state.modelUsage;
+  const cacheRatio = typeof usage?.cache_hit_ratio === 'number' ? usage.cache_hit_ratio : undefined;
   const submit = (event: FormEvent) => {
     event.preventDefault();
     void onSave({ provider, model, base_url: baseUrl, voice: { ...voice, voice_mode: voiceMode }, hotkey, cancel_hotkey: cancelHotkey, subtitles, send_screenshot: screenshot, save_history: history, avatar_costume: costume, sentence_motion: sentenceMotion, volume });
   };
-  return <form className="settings-form" onSubmit={submit}><div className="form-section"><h3>对话模型</h3><label>模型模式<select value={provider} onChange={event => setProvider(event.target.value)}><option value="local">本地演示 · 简单回应与文件读取</option><option value="openai">在线模型 · OpenAI 兼容接口</option></select></label>{provider === 'openai' && <><label>服务地址<Input value={baseUrl} onChange={event => setBaseUrl(event.target.value)} placeholder="https://api.openai.com/v1"/></label><label>模型名称<Input value={model} onChange={event => setModel(event.target.value)} placeholder="填写你可用的模型名称"/></label><p className="field-note">API 凭证使用本机的 AYANA_API_KEY 或已保存的受保护凭证。</p></>}</div><div className="form-section"><h3>日语声音</h3><label>语音引擎<select value={voiceMode} onChange={event => setVoiceMode(event.target.value)}><option value="auto">自动选择已配置的音色</option><option value="sovits">Ayana · GPT-SoVITS 本地音色</option><option value="system">Windows 已安装的日语语音</option><option value="silent">仅显示文字</option></select></label><p className="field-note">本地音色所需的模型、参考音频与引擎路径在 voice 配置中设置。</p></div><div className="form-section"><h3>立绘与对话</h3><label>服装<select value={costume} onChange={event => setCostume(event.target.value)}>{costumes.map(item => <option key={item} value={item}>{item}</option>)}</select></label><p className="field-note">默认半身立绘；模型只在所选服装下选择表情与动作。</p><label className="motion-toggle"><input type="checkbox" checked={sentenceMotion} onChange={event => setSentenceMotion(event.target.checked)}/><span>每句切换时轻微下沉，再回到原位</span></label><label>播放音量 · {Math.round(volume * 100)}%<input type="range" min="0" max="1" step="0.05" value={volume} onChange={event => setVolume(Number(event.target.value))}/></label></div><div className="form-section"><h3>快捷键</h3><div className="form-grid"><label>呼出<Input value={hotkey} onChange={event => setHotkey(event.target.value)}/></label><label>立即打断<Input value={cancelHotkey} onChange={event => setCancelHotkey(event.target.value)}/></label></div>{state.shortcuts && (!state.shortcuts.summon_ok || !state.shortcuts.cancel_ok) && <p className="shortcut-error">有快捷键未注册成功，请换一个组合。</p>}</div><div className="form-section settings-toggles"><label><input type="checkbox" checked={subtitles} onChange={event => setSubtitles(event.target.checked)}/><span>显示中文字幕</span></label><label><input type="checkbox" checked={screenshot} onChange={event => setScreenshot(event.target.checked)}/><span>在线模型可使用当前目标截图</span></label><label><input type="checkbox" checked={history} onChange={event => setHistory(event.target.checked)}/><span>在本机保存会话历史</span></label></div><Button type="submit" disabled={!state.connected || !state.settingsLoaded} color="primary" variant="solid">保存设置<Icon name="check" size={16}/></Button></form>;
+  return <form className="settings-form" onSubmit={submit}><div className="form-section"><h3>对话模型</h3><label>模型模式<select value={provider} onChange={event => setProvider(event.target.value)}><option value="local">本地演示 · 简单回应与文件读取</option><option value="openai">在线模型 · OpenAI 兼容接口</option></select></label>{provider === 'openai' && <><label>服务地址<Input value={baseUrl} onChange={event => setBaseUrl(event.target.value)} placeholder="https://api.openai.com/v1"/></label><label>模型名称<Input value={model} onChange={event => setModel(event.target.value)} placeholder="填写你可用的模型名称"/></label><p className="field-note">API 凭证使用本机的 AYANA_API_KEY 或已保存的受保护凭证。</p><p className="field-note">{usage && usage.model === model ? `最近请求：输入 ${usage.prompt_tokens ?? '未知'} tokens · 缓存命中 ${usage.prompt_cache_hit_tokens ?? '未知'} tokens${cacheRatio !== undefined ? `（${(cacheRatio * 100).toFixed(1)}%）` : ''}` : '缓存统计将在模型返回用量回执后显示。'}</p></>}</div><div className="form-section"><h3>日语声音</h3><label>语音引擎<select value={voiceMode} onChange={event => setVoiceMode(event.target.value)}><option value="auto">自动选择已配置的音色</option><option value="sovits">Ayana · GPT-SoVITS 本地音色</option><option value="system">Windows 已安装的日语语音</option><option value="silent">仅显示文字</option></select></label><p className="field-note">本地音色所需的模型、参考音频与引擎路径在 voice 配置中设置。</p></div><div className="form-section"><h3>立绘与对话</h3><label>服装<select value={costume} onChange={event => setCostume(event.target.value)}>{costumes.map(item => <option key={item} value={item}>{item}</option>)}</select></label><p className="field-note">默认半身立绘；模型只在所选服装下选择表情与动作。</p><label className="motion-toggle"><input type="checkbox" checked={sentenceMotion} onChange={event => setSentenceMotion(event.target.checked)}/><span>每句切换时轻微下沉，再回到原位</span></label><label>播放音量 · {Math.round(volume * 100)}%<input type="range" min="0" max="1" step="0.05" value={volume} onChange={event => setVolume(Number(event.target.value))}/></label></div><div className="form-section"><h3>快捷键</h3><div className="form-grid"><label>呼出<Input value={hotkey} onChange={event => setHotkey(event.target.value)}/></label><label>立即打断<Input value={cancelHotkey} onChange={event => setCancelHotkey(event.target.value)}/></label></div>{state.shortcuts && (!state.shortcuts.summon_ok || !state.shortcuts.cancel_ok) && <p className="shortcut-error">有快捷键未注册成功，请换一个组合。</p>}</div><div className="form-section settings-toggles"><label><input type="checkbox" checked={subtitles} onChange={event => setSubtitles(event.target.checked)}/><span>显示中文字幕</span></label><label><input type="checkbox" checked={screenshot} onChange={event => setScreenshot(event.target.checked)}/><span>在线模型可使用当前目标截图</span></label><label><input type="checkbox" checked={history} onChange={event => setHistory(event.target.checked)}/><span>在本机保存会话历史</span></label></div><Button type="submit" disabled={!state.connected || !state.settingsLoaded} color="primary" variant="solid">保存设置<Icon name="check" size={16}/></Button></form>;
 }
 
 

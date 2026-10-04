@@ -22,12 +22,20 @@ class Settings:
             self.values.update(json.loads(self.path.read_text(encoding="utf-8")))
 
     def public(self):
-        return {k: v for k, v in self.values.items() if not any(s in k.lower() for s in ("secret", "token", "api_key"))}
+        def clean(value):
+            if isinstance(value, dict):
+                return {k: clean(v) for k, v in value.items() if not any(s in k.lower() for s in ("secret", "token", "api_key"))}
+            if isinstance(value, list):
+                return [clean(v) for v in value]
+            return value
+        return clean(self.values)
 
     def update(self, patch: dict):
-        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "avatar_costume", "sentence_motion", "volume"}
+        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "avatar_costume", "sentence_motion", "volume", "task_limits", "model_max_tokens", "native_tools"}
         if not isinstance(patch, dict) or set(patch) - allowed:
             raise ValueError("Unsupported settings field")
+        if "native_tools" in patch and type(patch["native_tools"]) is not bool:
+            raise ValueError("native_tools must be boolean")
         if "provider" in patch and patch["provider"] not in {"local", "openai"}:
             raise ValueError("Provider must be local or openai")
         if "avatar_costume" in patch:
@@ -51,6 +59,16 @@ class Settings:
         for key, low, high in (("max_utterances", 1, 12), ("max_audio_ahead_ms", 2000, 15000)):
             if key in patch and (type(patch[key]) is not int or not low <= patch[key] <= high):
                 raise ValueError(f"{key} out of range")
+        if "model_max_tokens" in patch and (type(patch["model_max_tokens"]) is not int or not 1000 <= patch["model_max_tokens"] <= 12000):
+            raise ValueError("model_max_tokens out of range")
+        if "task_limits" in patch:
+            limits = patch["task_limits"]
+            if not isinstance(limits, dict) or set(limits) - {"rounds", "calls", "seconds"}:
+                raise ValueError("Invalid task_limits")
+            for key, value in limits.items():
+                if type(value) is not int or not 1 <= value <= {"rounds": 24, "calls": 64, "seconds": 600}[key]:
+                    raise ValueError("Invalid task budget")
+            patch = {**patch, "task_limits": {**self.values.get("task_limits", {}), **limits}}
         if "voice" in patch:
             if not isinstance(patch["voice"], dict):
                 raise ValueError("voice must be an object")
@@ -73,3 +91,7 @@ class Settings:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(seed.read_bytes())
         return load_key(path)
+
+    def search_key(self):
+        from .credentials import load_key
+        return os.environ.get("AYANA_SEARCH_API_KEY", "") or load_key(self.data_root / ".runtime/search-credentials.dpapi")

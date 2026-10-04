@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { build } from 'esbuild';
 import { verifyPortableIsolation } from './verify-portable.mjs';
+import './test-lifecycle.mjs';
 
 await verifyPortableIsolation();
 
@@ -98,3 +99,23 @@ routed = reduceEvent(routed, event('desktop.cancelled', { cancelled_generation_i
 routed = reduceEvent(routed, event('desktop.present', { utterance_id: 'catalog-two' }));
 assert.equal(routed.presented, undefined);
 console.log('PASS: full catalog IDs, sentence motion triggers once per sentence, persistent subtitles, and text-only presentation.');
+
+let taskState = reduceEvent(initialState, event('task.updated', { task: { task_id: 'task-a', state: 'waiting_approval', goal: 'Edit' } }));
+taskState = reduceEvent(taskState, event('approval.required', { approval: { approval_id: 'approve-a', task_id: 'task-a', diff: '-old\n+new' } }));
+taskState = reduceEvent(taskState, event('approval.required', { approval: { approval_id: 'approve-a', task_id: 'task-a', diff: '-old\n+new' } }));
+assert.equal(taskState.approvals.length, 1);
+taskState = reduceEvent(taskState, event('generation.cancelled', { cancelled_generation_id: 7, generation_id: 8 }));
+assert.equal(taskState.approvals.length, 0);
+taskState = reduceEvent(taskState, event('approval.required', { approval: { approval_id: 'stale' } }));
+assert.equal(taskState.approvals.length, 0);
+taskState = reduceEvent(taskState, event('task.updated', { generation_id: 8, task: { task_id: 'task-a', state: 'cancelled' } }));
+taskState = reduceEvent(taskState, event('task.updated', { task: { task_id: 'old', state: 'succeeded' } }));
+assert.equal(taskState.activeTask.state, 'cancelled');
+taskState = reduceEvent(taskState, event('capabilities.ready', { generation_id: 8, artifacts: [{ artifact_id: 'saved' }], directories: [{ root_id: 'output', write: true }], tasks: [{ task_id: 'task-a', state: 'cancelled' }], search_configured: true }));
+assert.equal(taskState.artifacts[0].artifact_id, 'saved');
+assert.equal(taskState.directories[0].root_id, 'output');
+assert.equal(taskState.searchConfigured, true);
+taskState = reduceEvent(taskState, event('artifact.ready', { generation_id: 8, artifact: { artifact_id: 'saved', sha256: 'verified' } }));
+assert.equal(taskState.artifacts.length, 1);
+assert.equal(taskState.artifacts[0].sha256, 'verified');
+console.log('PASS: approval deduplication, cancellation and stale task rejection; reconnect restores files, grants and search state.');
