@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 import json
 import logging
 import os
 from pathlib import Path
+import re
 import sys
 from typing import Any
 
@@ -19,10 +21,13 @@ class TtsService:
         self.process: asyncio.subprocess.Process | None = None
         self._status: dict[str, Any] = {"state": "stopped", "engine": None}
         self._pending: dict[int, tuple[int, asyncio.Future]] = {}
+        self._pending_texts: dict[int, str] = {}
         self._cancelled: set[int] = set()
         self._sequence = 0
         self._ready: asyncio.Future | None = None
         self._tasks: list[asyncio.Task] = []
+        self._stderr_task: asyncio.Task | None = None
+        self._stderr_tail: deque[str] = deque(maxlen=16)
         self._start_lock = asyncio.Lock()
         self._write_lock = asyncio.Lock()
         self._synth_lock = asyncio.Lock()
@@ -40,6 +45,7 @@ class TtsService:
                 return
             self._closing = False
             self._status = {"state": "starting", "engine": None}
+            self._stderr_tail.clear()
             self._ready = asyncio.get_running_loop().create_future()
             executable = self.config.get("python") or sys.executable
             python_flags = ["-I", "-X", "utf8"] if sys.flags.isolated and not self.config.get("python") else []
@@ -51,12 +57,15 @@ class TtsService:
                     str(executable), *python_flags, "-u", str(worker), stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
                     limit=32 * 1024 * 1024, env=env, **options)
-                self._tasks = [asyncio.create_task(self._read()), asyncio.create_task(self._logs())]
+                self._stderr_task = asyncio.create_task(self._logs())
+                self._tasks = [asyncio.create_task(self._read()), self._stderr_task]
                 await self._send({"op": "start", "config": self.config})
                 await asyncio.wait_for(asyncio.shield(self._ready),
                                        timeout=float(self.config.get("start_timeout_seconds", 180)))
             except BaseException as error:
-                reason = "TTS warmup exceeded startup timeout" if isinstance(error, asyncio.TimeoutError) else str(error)
+                reason = self._failure_text("TTS warmup exceeded startup timeout" if isinstance(error, asyncio.TimeoutError) else str(error))
+                if not self._status.get("error") and not isinstance(error, asyncio.CancelledError):
+                    LOGGER.warning("TTS startup failed: %s", reason)
                 self._status.update(state="failed", error=reason)
                 await self.close()
                 self._status.update(state="failed", error=reason)
@@ -81,6 +90,7 @@ class TtsService:
             identity = self._sequence
             future = asyncio.get_running_loop().create_future()
             self._pending[identity] = (generation_id, future)
+            self._pending_texts[identity] = text
             try:
                 await self._send({"op": "synthesize", "id": identity,
                                   "generation_id": generation_id, "text": text})
@@ -98,6 +108,7 @@ class TtsService:
                 raise
             finally:
                 self._pending.pop(identity, None)
+                self._pending_texts.pop(identity, None)
 
     async def cancel(self, generation_id: int):
         self._cancelled.add(generation_id)
@@ -125,7 +136,10 @@ class TtsService:
                     if message.get("state") == "ready" and self._ready is not None and not self._ready.done():
                         self._ready.set_result(self.status)
                     elif message.get("state") == "failed":
-                        error = RuntimeError(message.get("error", "TTS loading failed"))
+                        reason = self._failure_text(message.get("error", "TTS loading failed"))
+                        self._status.update(error=reason)
+                        LOGGER.warning("TTS worker failed: %s", reason)
+                        error = RuntimeError(reason)
                         if self._ready is not None and not self._ready.done():
                             self._ready.set_exception(error)
                         self._fail_pending(error)
@@ -139,7 +153,9 @@ class TtsService:
                     if generation in self._cancelled or kind == "cancelled":
                         future.cancel()
                     elif kind == "error":
-                        future.set_exception(RuntimeError(message.get("error", "TTS synthesis failed")))
+                        reason = self._failure_text(message.get("error", "TTS synthesis failed"))
+                        LOGGER.warning("TTS synthesis failed: %s", reason)
+                        future.set_exception(RuntimeError(reason))
                     elif message.get("generation_id") != generation:
                         future.set_exception(RuntimeError("TTS generation mismatch"))
                     else:
@@ -149,7 +165,13 @@ class TtsService:
             self._fail_pending(RuntimeError(self._status["error"]))
         finally:
             if not self._closing:
-                error = RuntimeError(self._status.get("error") or "TTS worker exited unexpectedly")
+                reason = self._status.get("error")
+                if not reason:
+                    # stdout can reach EOF before the stderr reader has drained
+                    # the traceback. Keep the original startup cause available.
+                    reason = await self._exit_reason()
+                    LOGGER.warning("TTS worker failed: %s", reason)
+                error = RuntimeError(reason)
                 self._status.update(state="failed", error=str(error))
                 if self._ready is not None and not self._ready.done():
                     self._ready.set_exception(error)
@@ -163,7 +185,46 @@ class TtsService:
     async def _logs(self):
         assert self.process is not None and self.process.stderr is not None
         while line := await self.process.stderr.readline():
-            LOGGER.debug("tts-worker: %s", line.decode("utf-8", "replace").rstrip()[:2000])
+            # Upstream stderr can include the spoken text. Retain a bounded tail
+            # for failure diagnosis without logging every inference line.
+            self._stderr_tail.append(line.decode("utf-8", "replace").rstrip()[:1000])
+
+    def _failure_text(self, value: object) -> str:
+        message = str(value)
+        if "No installed Japanese System.Speech voice" in message:
+            return "未安装日语系统语音；请配置 Ayana GPT-SoVITS，或在 Windows 安装日语语音。"
+        sensitive = [self.config.get("warmup_text"), *self._pending_texts.values()]
+        sensitive.extend(os.environ.get(name) for name in ("AYANA_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY"))
+        sensitive.extend(value for key, value in self.config.items()
+                         if any(part in key.lower() for part in ("secret", "token", "password", "api_key")))
+        for text in sensitive:
+            if isinstance(text, str) and text:
+                message = message.replace(text, "[redacted]")
+        message = re.sub(r"sk-[A-Za-z0-9_-]{8,}", "[redacted]", message)
+        message = re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._~-]+", r"\1[redacted]", message)
+        lines = [line.strip() for line in message.splitlines() if line.strip()]
+        return (lines[-1] if lines else "TTS worker failed")[:500]
+
+    async def _exit_reason(self) -> str:
+        if self._stderr_task is not None and not self._stderr_task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(self._stderr_task), timeout=0.5)
+            except (asyncio.TimeoutError, OSError):
+                pass
+        assert self.process is not None
+        if self.process.returncode is None:
+            try:
+                await asyncio.wait_for(self.process.wait(), timeout=0.5)
+            except asyncio.TimeoutError:
+                pass
+        reason = "TTS worker exited unexpectedly"
+        if self.process.returncode is not None:
+            reason += f" (exit code {self.process.returncode})"
+        # Use exception summaries, never arbitrary upstream progress/chat lines.
+        for line in reversed(self._stderr_tail):
+            if re.search(r"\b\w*(?:Error|Exception)\b|can't open file|Fatal Python error|No installed Japanese", line):
+                return reason + ": " + self._failure_text(line)
+        return reason
 
     async def close(self):
         self._closing = True
@@ -194,6 +255,8 @@ class TtsService:
                 task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
+        self._stderr_task = None
         self._pending.clear()
+        self._pending_texts.clear()
         self.process = None
         self._status.update(state="stopped")

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from pathlib import Path
 import sys
+import tempfile
 import unittest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 try:
     import numpy as np
@@ -54,6 +56,57 @@ class AudioTests(unittest.TestCase):
 
 
 class ServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_missing_worker_file_reports_stderr_and_exit_code(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = TtsService({"python": sys.executable})
+            # Reproduce a portable runtime losing its extracted worker file.
+            with patch("services.tts.service.__file__", str(Path(directory) / "service.py")):
+                with self.assertLogs("services.tts.service", level="WARNING"):
+                    with self.assertRaisesRegex(RuntimeError, "exit code 2.*can't open file"):
+                        await service.start()
+            self.assertEqual(service.status["state"], "failed")
+            self.assertIn("worker.py", service.status["error"])
+            self.assertIsNone(service.process)
+
+    async def test_known_worker_failure_survives_cleanup_with_readable_guidance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            message = "No installed Japanese System.Speech voice. Install a Japanese voice or configure Ayana GPT-SoVITS."
+            (root / "worker.py").write_text(
+                "import json,sys\nsys.stdin.readline()\n"
+                "print(json.dumps(" + repr({"type": "state", "state": "failed", "error": message}) + "),flush=True)\n",
+                encoding="utf-8")
+            service = TtsService({"python": sys.executable})
+            with patch("services.tts.service.__file__", str(root / "service.py")):
+                with self.assertLogs("services.tts.service", level="WARNING") as logs:
+                    with self.assertRaisesRegex(RuntimeError, "未安装日语系统语音"):
+                        await service.start()
+            self.assertEqual(service.status["state"], "failed")
+            self.assertIn("GPT-SoVITS", service.status["error"])
+            self.assertNotIn("exited unexpectedly", service.status["error"])
+            self.assertIn("未安装日语系统语音", " ".join(logs.output))
+            self.assertIsNone(service.process)
+
+    async def test_stderr_is_drained_and_sensitive_progress_is_not_logged(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            key = "sk-testPrivateCredential12345"
+            warmup = "この文章をログに保存しないで。"
+            (root / "worker.py").write_text(
+                "import sys\nsys.stdin.readline()\n"
+                "sys.stderr.write(" + repr(warmup + "\nRuntimeError: missing model token " + key + "\n") + ")\n"
+                "sys.stderr.flush()\nsys.exit(7)\n", encoding="utf-8")
+            service = TtsService({"python": sys.executable, "warmup_text": warmup})
+            with patch("services.tts.service.__file__", str(root / "service.py")):
+                with self.assertLogs("services.tts.service", level="WARNING") as logs:
+                    with self.assertRaisesRegex(RuntimeError, "exit code 7.*missing model"):
+                        await service.start()
+            output = " ".join(logs.output)
+            self.assertNotIn(key, output)
+            self.assertNotIn(warmup, output)
+            self.assertNotIn(key, service.status["error"])
+            self.assertIn("[redacted]", service.status["error"])
+
     async def test_real_subprocess_lifecycle_with_explicit_silent_mode(self):
         service = TtsService({"voice_mode": "silent", "python": sys.executable})
         try:
