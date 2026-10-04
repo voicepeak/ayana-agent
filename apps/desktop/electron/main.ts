@@ -95,10 +95,14 @@ function cancel() {
 }
 
 function hide() {
+  focusAfterCapture = false;
+  summonPending = false;
+  if (focusTimer) clearTimeout(focusTimer);
   cancel();
   runtimeSend({ type: 'session.close' });
   chat?.hide();
   highlight?.hide();
+  desktopEvent('desktop.hidden');
 }
 
 async function summon() {
@@ -108,6 +112,7 @@ async function summon() {
   if (!runtimeSend({ type: 'session.start' })) {
     summonPending = true;
     chat?.showInactive();
+    desktopEvent('desktop.summoned');
     desktopEvent('desktop.service', { state: service, message: '本地服务正在启动…' });
     return;
   }
@@ -122,6 +127,7 @@ function focusChat() {
   focusAfterCapture = false;
   if (focusTimer) clearTimeout(focusTimer);
   chat?.show();
+  desktopEvent('desktop.summoned');
   chat?.focus();
 }
 
@@ -173,8 +179,22 @@ function showHighlight(event: Event) {
     height: Math.max(40, Math.ceil(bounds.height + padding * 2)),
   });
   highlight?.showInactive();
+  desktopEvent('desktop.target-cue', { cue_id: Date.now(), variant: 'hint' });
   if (highlightTimer) clearTimeout(highlightTimer);
   highlightTimer = setTimeout(() => highlight?.hide(), 6000);
+}
+
+function showTargetCue(event: Event) {
+  const target = event.target as Record<string, unknown> | undefined;
+  const rect = target?.bounds as Record<string, number> | undefined;
+  if (!highlight || !chat || !rect || ![rect.left, rect.top, rect.right, rect.bottom].every(Number.isFinite)) return;
+  if (rect.right <= rect.left || rect.bottom <= rect.top) return;
+  const bounds = screen.screenToDipRect(chat, { x: rect.left, y: rect.top, width: rect.right - rect.left, height: rect.bottom - rect.top });
+  highlight.setBounds({ x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(40, Math.round(bounds.width)), height: Math.max(40, Math.round(bounds.height)) });
+  highlight.showInactive();
+  desktopEvent('desktop.target-cue', { cue_id: Date.now(), variant: 'summon', title: String(target?.title || '') });
+  if (highlightTimer) clearTimeout(highlightTimer);
+  highlightTimer = setTimeout(() => highlight?.hide(), 1800);
 }
 
 function receive(event: Event) {
@@ -183,6 +203,12 @@ function receive(event: Event) {
   if (event.type === 'settings.ready') {
     const settings = (event.settings ?? {}) as Record<string, unknown>;
     updateShortcuts(settings);
+  }
+  // The backend captures the foreground identity before chat takes focus.
+  // Later screenshots and playback must not restart the summon effect.
+  if (event.type === 'session.started' && focusAfterCapture) {
+    showTargetCue(event);
+    focusChat();
   }
   if (event.type === 'target.bound' || event.type === 'snapshot.ready' || event.type === 'error') focusChat();
   if (event.type === 'highlight.ready' || event.type === 'target.highlight'
@@ -276,7 +302,9 @@ async function startRuntime() {
 }
 
 async function restartRuntime() {
+  if (restarting || quitting) return;
   restarting = true;
+  try {
   cancel();
   if (reconnectTimer) clearTimeout(reconnectTimer);
   socket?.terminate();
@@ -288,8 +316,10 @@ async function restartRuntime() {
   recentEvents = [];
   currentGeneration = 0;
   desktopEvent('desktop.reset');
-  restarting = false;
   await startRuntime();
+  } finally {
+    restarting = false;
+  }
 }
 
 async function stopRuntime(previous = child) {
@@ -358,7 +388,7 @@ function createWindow(kind: 'chat' | 'settings' | 'highlight') {
   const window = new BrowserWindow({
     width: kind === 'settings' ? Math.min(1160, workArea.width - 40) : kind === 'chat' ? Math.min(680, workArea.width) : 300,
     height: kind === 'settings' ? Math.min(830, workArea.height - 40) : kind === 'chat' ? Math.min(760, workArea.height) : 140,
-    minWidth: kind === 'settings' ? 820 : 420,
+    minWidth: kind === 'settings' ? 820 : kind === 'chat' ? 420 : 40,
     minHeight: kind === 'settings' ? 480 : undefined,
     show: false, frame: !overlay, transparent: overlay, backgroundColor: overlay ? '#00000000' : '#f5f7fb',
     alwaysOnTop: overlay, focusable: kind !== 'highlight', skipTaskbar: overlay,

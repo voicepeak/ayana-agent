@@ -19,6 +19,7 @@ export interface ModelState {
   expressionAt: number; inputState: string;
   settingsLoaded: boolean;
   presented?: string; sentenceVersion: number;
+  summonVersion: number; targetCue?: RuntimeEvent;
   progress: number; repository?: Repository; settings: Record<string, unknown>;
   history: Record<string, unknown>[]; windows: Target[]; evidence: Evidence[];
   actions: RuntimeEvent[]; tools: RuntimeEvent[]; error?: string; shortcuts?: RuntimeEvent;
@@ -27,7 +28,7 @@ export interface ModelState {
 export const initialState: ModelState = {
   connected: false, service: 'starting', generation: 0, cancelledGeneration: -1,
   task: 'idle', voice: 'starting', mode: 'teach', speeches: [], expression: 'neutral', expressionAt: 0, inputState: 'idle',
-  progress: 0, sentenceVersion: 0, settingsLoaded: false, settings: {}, history: [], windows: [], evidence: [], actions: [], tools: [], questions: [],
+  progress: 0, sentenceVersion: 0, summonVersion: 0, settingsLoaded: false, settings: {}, history: [], windows: [], evidence: [], actions: [], tools: [], questions: [],
 };
 
 export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState {
@@ -51,6 +52,8 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
   if (output.includes(event.type) && generation <= state.cancelledGeneration) return state;
   let next = { ...state, generation: Math.max(state.generation, generation) };
   switch (event.type) {
+    case 'desktop.summoned': next.summonVersion = state.summonVersion + 1; break;
+    case 'desktop.target-cue': next.targetCue = event; break;
     case 'desktop.dismiss-error': next.error = undefined; break;
     case 'desktop.service':
       next.connected = Boolean(event.connected); next.service = String(event.state); break;
@@ -139,7 +142,7 @@ const previewBridge: AyanaBridge = {
   send: async () => ({ ok: false, error: '此页面仅用于界面预览。请通过桌面应用启动本地服务。' }),
   onEvent: () => () => {}, playback: () => {}, summon: async () => {}, hide: async () => {}, openSettings: async () => {}, hideSettings: async () => {},
   chooseRepository: async () => null, restart: async () => {},
-  getState: async () => ({ connected: false, service: 'preview', version: '0.2.1', repositoryRoot: '', events: [] }),
+  getState: async () => ({ connected: false, service: 'preview', version: '0.2.2', repositoryRoot: '', events: [] }),
 };
 export const bridge = window.ayana ?? previewBridge;
 

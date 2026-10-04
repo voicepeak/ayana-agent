@@ -31,9 +31,25 @@ export default function App() {
   const discardRecording = useRef(false);
   const recordingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const portraitReveal = useRef<HTMLDivElement>(null);
+  const dialogue = useRef<HTMLElement>(null);
   const targetDialog = useRef<HTMLDialogElement>(null);
   const current = state.speeches.find(speech => speech.id === state.current);
   const busy = state.task === 'thinking' || state.task === 'observing' || state.inputState === 'transcribing' || Boolean(current);
+
+  useEffect(() => {
+    if (kind !== 'chat' || !state.summonVersion || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    // Separate from Character's sentence dip, so the two transforms never fight.
+    const portrait = portraitReveal.current?.animate([
+      { opacity: 0, transform: 'translateY(26px)' },
+      { opacity: 1, transform: 'translateY(0)' },
+    ], { duration: 480, easing: 'cubic-bezier(.16,1,.3,1)' });
+    const box = dialogue.current?.animate([
+      { opacity: 0, transform: 'translateY(14px)' },
+      { opacity: 1, transform: 'translateY(0)' },
+    ], { duration: 360, delay: 100, fill: 'backwards', easing: 'cubic-bezier(.16,1,.3,1)' });
+    return () => { portrait?.cancel(); box?.cancel(); };
+  }, [kind, state.summonVersion]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('overlay-root', kind !== 'settings');
@@ -169,12 +185,16 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [kind, textOnly, state.speeches.length, state.presented, state.generation, dispatch]);
 
-  if (kind === 'highlight') return <div className="highlight-frame"><span>Ayana · 看这里</span></div>;
+  if (kind === 'highlight') return state.targetCue?.variant === 'summon'
+    ? <div key={String(state.targetCue.cue_id)} className="target-aura" aria-label="Ayana 正在观察这个窗口"><i/><b/><em/><span/></div>
+    : <div className="highlight-frame"><span>Ayana · 看这里</span></div>;
   if (kind === 'chat') return <main className="companion-shell">
     <div className="portrait-stage">
+      <div className="portrait-reveal" ref={portraitReveal}>
       <Character key={String(state.connected)} expression={state.expression} sentenceVersion={state.sentenceVersion} motion={state.settings.sentence_motion !== false} />
+      </div>
     </div>
-    <section className="gal-dialogue" aria-label="Ayana 对话">
+    <section ref={dialogue} className="gal-dialogue" aria-label="Ayana 对话">
       <header className="gal-heading"><strong>Ayana <small>あやな</small></strong><div>
         <button aria-label="打开设置" title="设置与管理" onClick={() => void bridge.openSettings()}><Icon name="settings" size={16}/></button>
         <button aria-label="收起 Ayana" title="收起" onClick={() => void bridge.hide()}><Icon name="close" size={16}/></button>
@@ -213,7 +233,7 @@ export default function App() {
       <div className="sidebar-bottom">
         <div className="shortcut-note"><Icon name="keyboard" size={17}/><div><span>随时呼出</span><kbd>Ctrl + Alt + A</kbd></div></div>
         <button className="nav-item" onClick={() => void bridge.summon()}><Icon name="message"/>呼出 Ayana</button>
-        <div className="build-label">AYANA DESKTOP <span>v0.2.1</span></div>
+        <div className="build-label">AYANA DESKTOP <span>v0.2.2</span></div>
       </div>
     </aside>
 
