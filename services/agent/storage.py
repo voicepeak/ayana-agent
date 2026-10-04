@@ -84,12 +84,26 @@ class ConversationStore:
                     # otherwise the model imitates an untyped wrapper next turn.
                     speech = {"type": "speech", "key": r["utterance_id"], "speech_ja": r["speech_ja"],
                               "intent": e.get("intent", "explain"), "affect": e.get("affect", "neutral"), "intensity": e.get("intensity", .25),
+                              "expression": e.get("resolved_expression", e.get("expression", "")),
+                              "pose": e.get("resolved_pose", e.get("pose", "crossed")),
                               "reception": r["status"], "played_samples": r["played_samples"]}
                     events = [speech]
                     if r["display_zh"]:
                         events.append({"type": "translation", "key": r["utterance_id"], "display_zh": r["display_zh"]})
                     result.append({"role": "assistant", "content": "\n".join(json.dumps(item, ensure_ascii=False) for item in events)})
         return result[-16:]
+
+    @locked
+    def recent_avatar_speeches(self):
+        rows = self.db.execute("""
+            SELECT e.payload,u.status,u.played_samples FROM events e
+            JOIN utterances u ON u.utterance_id=json_extract(e.payload,'$.utterance_id')
+            WHERE e.type='utterance.ready' AND u.displayed=1
+              AND (u.status!='partial' OR u.played_samples>0)
+            ORDER BY e.id DESC LIMIT 12
+        """).fetchall()
+        return [{**json.loads(row[0]), "displayed": True, "status": row[1], "played_samples": row[2]}
+                for row in reversed(rows)]
 
     @locked
     def close(self):

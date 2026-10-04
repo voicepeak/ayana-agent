@@ -66,6 +66,11 @@ class AgentRuntime:
             self.clients.discard(ws)
         return event
 
+    def _avatar_context(self):
+        saved = self.store.recent_avatar_speeches() if self.settings.values.get("save_history", True) else []
+        live = [{"utterance_id": uid, **speech} for uid, speech in self.utterances.items()]
+        return self.avatars.recent_context([*saved, *live], self.settings.values.get("avatar_costume", "校服"))
+
     async def start(self):
         self.start_task = asyncio.create_task(self._prepare_voice())
 
@@ -247,6 +252,11 @@ class AgentRuntime:
             return
         total = utterance.get("total_samples", 0)
         played = max(0, min(total, int(cmd.get("played_samples", 0))))
+        status = {"playback.started": "playing", "playback.progress": "playing", "playback.ended": "played", "playback.cancelled": "partial"}.get(cmd["type"])
+        if status:
+            utterance.update(status=status, played_samples=played, displayed=True)
+        elif cmd["type"] == "utterance.displayed":
+            utterance["displayed"] = True
         await self.emit(cmd["type"], utterance_id=uid, played_samples=played, total_samples=total,
                         sample_rate=utterance.get("sample_rate", 0), played_audio_ms=round(played * 1000 / max(1, utterance.get("sample_rate", 1))),
                         generation_id=utterance["generation_id"])
@@ -314,6 +324,7 @@ class AgentRuntime:
             duration = audio["duration_ms"]
             self.pending.pop(uid, None)
             if audio.get("engine") == "silent":
+                self.utterances[uid]["displayed"] = True
                 await self.emit("utterance.displayed", utterance_id=uid)
                 continue
             await self._reserve_audio(uid, duration, gen)
@@ -341,7 +352,7 @@ class AgentRuntime:
                 persona = (self.settings.root / "characters/ayana/persona.md").read_text(encoding="utf-8")
                 policy = (self.settings.root / "characters/ayana/agent-policy.md").read_text(encoding="utf-8")
                 context = {"question": text, "mode": self.mode, "target": self.target, "repository": self.repository,
-                           "snapshot_id": self.snapshot.get("snapshot_id") if self.snapshot else None}
+                           "avatar_context": self._avatar_context(), "snapshot_id": self.snapshot.get("snapshot_id") if self.snapshot else None}
                 content = [{"type": "text", "text": json.dumps(context, ensure_ascii=False)}]
                 if self.snapshot and self.settings.values.get("send_screenshot"):
                     content.append({"type": "image_url", "image_url": {"url": "data:image/png;base64," + self.snapshot["png_base64"]}})
@@ -359,7 +370,7 @@ class AgentRuntime:
                         if count >= self.settings.values["max_utterances"]:
                             break
                         speech = validate_speech(event)
-                        speech["asset_id"] = self.avatars.route(speech, self.settings.values.get("avatar_costume", "校服"))
+                        speech.update(self.avatars.resolve(speech, self.settings.values.get("avatar_costume", "校服")))
                         key = str(event.get("key", count))
                         if key in keys:
                             raise ValueError("Model repeated a committed utterance key")
