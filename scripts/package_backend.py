@@ -121,9 +121,9 @@ def stage(args):
         shutil.copy2(example, config_root / example.name)
     avatar_destination = backend_root / "assets/ayana"
     avatar_destination.mkdir(parents=True)
-    avatar_names = ["neutral", "explain", "encourage", "caution", "playful"]
-    for name in avatar_names:
-        image = ROOT / f"assets/ayana/{name}.png"
+    mapping = json.loads((ROOT / "characters/ayana/avatar-map.json").read_text(encoding="utf-8"))
+    for filename in {item["file"] for item in mapping["assets"].values()}:
+        image = ROOT / "assets/ayana" / filename
         if not image.is_file():
             raise FileNotFoundError(f"Import character resources before packaging: {image}")
         shutil.copy2(image, avatar_destination / image.name)

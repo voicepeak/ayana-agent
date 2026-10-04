@@ -62,7 +62,7 @@ def create_app(token: str, settings=None, runtime=None):
             file = root / "neutral.png"
         if file.exists():
             return FileResponse(file, media_type="image/png")
-        return Response('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="500"><rect width="300" height="500" rx="40" fill="#edf5ff"/><text x="150" y="230" text-anchor="middle" font-size="32" fill="#72a4e8">Ayana</text><text x="150" y="270" text-anchor="middle" font-size="16" fill="#5274a0">Configure avatar assets</text></svg>', media_type="image/svg+xml")
+        raise HTTPException(404, "Character resource is not installed")
 
     @app.websocket("/ws")
     async def websocket(ws: WebSocket):

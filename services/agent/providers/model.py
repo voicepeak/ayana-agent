@@ -133,8 +133,8 @@ class LocalProvider:
                          ("一度に一つの処理を追うと、理解しやすいよ。", "一次只追踪一个处理过程，会更容易理解。")]
             events.extend({"type": "evidence", **e} for e in evidence[:3])
         else:
-            pairs = [("一緒に、少しずつ見ていこう。", "我们一起，一点一点看。"),
-                     ("学びたいフォルダーを選んでね。", "选择你想学习的仓库文件夹，就能展示真实文件证据。")]
+            pairs = [("うん、ここにいるよ。", "嗯，我在这里。"),
+                     ("今日は、どんなことを話したい？", "今天想聊点什么？")]
         for e in events:
             yield e
         for i, (ja, zh) in enumerate(pairs):

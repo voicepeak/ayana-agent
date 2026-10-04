@@ -9,7 +9,9 @@
     "display_zh": {"type": "string", "maxLength": 1200},
     "intent": {"enum": ["acknowledge", "explain", "encourage", "caution", "playful"]},
     "affect": {"enum": ["neutral", "pleased", "concerned", "surprised"]},
-    "intensity": {"type": "number", "minimum": 0, "maximum": 1}
+    "intensity": {"type": "number", "minimum": 0, "maximum": 1},
+    "expression": {"type": "string", "maxLength": 80},
+    "pose": {"enum": ["crossed", "open"]}
   },
   "additionalProperties": false
 }

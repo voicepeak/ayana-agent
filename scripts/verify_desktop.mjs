@@ -35,16 +35,19 @@ const report = { errors: [], checks: {}, playback: [], scope: 'Electron app, act
 try {
   application = await _electron.launch({
     executablePath: packaged || path.join(root, 'apps/desktop/node_modules/electron/dist/electron.exe'),
-    args: [...(packaged ? [] : [path.join(root, 'apps/desktop')]), ...(microphoneWav ? ['--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${microphoneWav}`] : [])],
+    args: [...(packaged ? [] : [path.join(root, 'apps/desktop')]), `--user-data-dir=${path.join(directory, 'data')}`, ...(microphoneWav ? ['--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${microphoneWav}`] : [])],
     env: { ...process.env, AYANA_DATA_DIR: path.join(directory, 'data'), AYANA_REPOSITORY_ROOT: packaged ? '' : root, AYANA_PYTHON: '' },
     timeout: 30000,
   });
   const windows = await application.windows();
   page = windows.find(w => w.url().includes('window=chat')) || await application.firstWindow();
   page.on('pageerror', error => report.errors.push(error.message));
-  await page.waitForSelector('.workshop', { timeout: 15000 });
+  const conversation = page;
+  const controls = windows.find(window => window.url().includes('window=settings'));
+  if (!controls) throw new Error('Settings window was not created');
+  await page.waitForSelector('.companion-shell', { timeout: 15000 });
   await page.waitForFunction(() => window.ayana?.getState().then(s => s.connected), null, { timeout: 20000 });
-  await page.evaluate(() => {
+  for (const renderer of [conversation, controls]) await renderer.evaluate(() => {
     window.__qaEvents = [];
     window.ayana.onEvent(event => window.__qaEvents.push({ ...event, received_performance_ms: performance.now(), pcm_base64: undefined, png_base64: undefined }));
   });
@@ -53,14 +56,18 @@ try {
   if (summon.status !== 0) throw new Error(`Could not summon from owned target: ${summon.stderr}`);
   await page.waitForFunction(hwnd => window.__qaEvents.some(e => e.type === 'target.bound' && e.target.hwnd === hwnd), targetState.hwnd, { timeout: 10000 });
   report.checks.hotkey_captured_original_target = true;
+  await conversation.evaluate(() => window.ayana.openSettings());
+  page = controls;
   await page.waitForFunction(() => document.querySelector('.snapshot')?.naturalWidth > 0, null, { timeout: 10000 });
-  await page.waitForFunction(() => [...document.querySelectorAll('.character')].every(img => img.naturalWidth > 0), null, { timeout: 10000 });
+  await conversation.waitForFunction(() => document.querySelector('.character')?.naturalWidth > 0, null, { timeout: 10000 });
   report.checks.avatar_loaded = true;
   await page.locator('#repository-root').fill(root);
   await page.getByRole('button', { name: '读取仓库', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.repository-card strong')?.textContent === 'ayana-agent', null, { timeout: 10000 });
   await page.screenshot({ path: path.join(directory, 'welcome.png') });
   if (!actionsOnly) {
+  await controls.evaluate(() => window.ayana.hideSettings());
+  page = conversation;
   await page.getByRole('textbox', { name: '输入问题' }).fill('看这个演示窗口，简短告诉我输入框叫什么，只说两句很短的日语并配中文。');
   await page.getByRole('button', { name: '发送', exact: true }).click();
   await page.waitForFunction(() => window.__qaEvents.some(e => e.type === 'playback.started' && e.output_sample_rate), null, { timeout: 90000 });
@@ -77,6 +84,8 @@ try {
   await page.waitForFunction(gen => window.__qaEvents.some(e => e.type === 'playback.cancelled' && e.generation_id === gen && e.output_sample_rate), interruptedGeneration, { timeout: 2000 });
   report.checks.cancel_receipt_ms = Date.now() - before;
   }
+  await conversation.evaluate(() => window.ayana.openSettings());
+  page = controls;
   await page.getByRole('button', { name: '单步执行', exact: true }).click();
   async function selectPoint(widgetName) {
     await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.isFocusable()).focus());
@@ -108,8 +117,10 @@ try {
   report.checks.single_step_observed = await targetEventually('output', 'Received: Ayana verified demo');
   await page.screenshot({ path: path.join(directory, 'action.png') });
   if (microphoneWav) {
+    await controls.getByRole('button', { name: '对话与观察', exact: true }).click();
+    await controls.evaluate(() => window.ayana.hideSettings());
+    page = conversation;
     await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.isFocusable()).focus());
-    await page.getByRole('button', { name: '教我理解', exact: true }).click();
     const mic = page.getByRole('button', { name: '按住说话，松开识别，最长15秒', exact: true });
     const bounds = await mic.boundingBox();
     await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
@@ -125,10 +136,11 @@ try {
     await page.evaluate(() => window.ayana.send({ type: 'generation.cancel' }));
     await page.screenshot({ path: path.join(directory, 'microphone.png') });
   }
-  await page.getByRole('button', { name: '偏好设置', exact: true }).click();
-  await page.waitForSelector('.settings-dialog[open]');
+  await conversation.evaluate(() => window.ayana.openSettings());
+  page = controls;
+  await page.getByRole('button', { name: '对话设置', exact: true }).click();
+  await page.waitForSelector('.settings-form');
   await page.screenshot({ path: path.join(directory, 'settings.png') });
-  await page.getByRole('button', { name: '关闭设置', exact: true }).click();
   await page.getByRole('button', { name: '仓库文件', exact: false }).first().click();
   await page.waitForSelector('.evidence-cards');
   report.checks.repository_evidence_visible = (await page.locator('.evidence-cards article').count()) > 0;

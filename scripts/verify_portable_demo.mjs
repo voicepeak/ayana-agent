@@ -15,12 +15,18 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const option = name => args.includes(name) ? args[args.indexOf(name) + 1] : undefined;
 const cleanupOnly = args.includes('--cleanup-only');
-const executable = path.resolve(option('--exe') || path.join(root, 'apps/desktop/release/Ayana-0.1.0-win-x64.exe'));
+const isolatedCompanion = args.includes('--isolated-companion');
+const executable = path.resolve(option('--exe') || path.join(root, 'apps/desktop/release/Ayana-0.2.0-win-x64.exe'));
 const require = createRequire(import.meta.url);
 const { chromium } = require(require.resolve('playwright', { paths: [option('--playwright-root') || root] }));
 const WebSocket = require(path.join(root, 'apps/desktop/node_modules/ws'));
-const directory = path.join(root, '.runtime/benchmarks/portable-launcher');
+const directory = path.join(root, '.runtime/benchmarks', isolatedCompanion ? 'portable-companion' : 'portable-launcher');
 mkdirSync(directory, { recursive: true });
+const isolatedProfile = path.join(directory, 'profile');
+if (isolatedCompanion) {
+  mkdirSync(path.join(isolatedProfile, 'config'), { recursive: true });
+  writeFileSync(path.join(isolatedProfile, 'config/local.json'), JSON.stringify({ provider: 'local', voice: { voice_mode: 'silent' }, send_screenshot: false }));
+}
 const statePath = path.join(directory, 'target.json');
 if (!cleanupOnly && existsSync(statePath)) unlinkSync(statePath);
 const reportPath = path.join(directory, cleanupOnly ? 'cleanup-report.json' : 'report.json');
@@ -97,7 +103,7 @@ async function launch(label) {
   const environment = { ...process.env };
   for (const key of ['AYANA_DATA_DIR', 'AYANA_REPOSITORY_ROOT', 'AYANA_PYTHON', 'AYANA_RENDERER_URL', 'ELECTRON_RUN_AS_NODE']) delete environment[key];
   const wrapper = attach ? { pid: Number(option('--attach-wrapper')) }
-    : spawn(executable, [`--remote-debugging-port=${cdp}`, '--remote-debugging-address=127.0.0.1', `--inspect=127.0.0.1:${inspect}`], { cwd: path.dirname(executable), windowsHide: true, stdio: 'ignore', env: environment });
+    : spawn(executable, [`--remote-debugging-port=${cdp}`, '--remote-debugging-address=127.0.0.1', `--inspect=127.0.0.1:${inspect}`, ...(isolatedCompanion ? [`--user-data-dir=${isolatedProfile}`] : [])], { cwd: path.dirname(executable), windowsHide: true, stdio: 'ignore', env: environment });
   const instance = { label, wrapper };
   active = instance;
   instance.inspector = await inspector(inspect);
@@ -109,7 +115,7 @@ async function launch(label) {
   instance.page = await eventually(() => instance.browser.contexts().flatMap(context => context.pages()).find(page => page.url().includes('window=chat')), 15000, 'chat renderer');
   const page = instance.page;
   page.on('pageerror', error => report.errors.push(`${label}: ${error.message}`));
-  await page.waitForSelector('.workshop', { timeout: 15000 });
+  await page.waitForSelector('.companion-shell', { timeout: 15000 });
   await page.waitForFunction(() => window.ayana?.getState().then(state => state.connected), null, { timeout: 20000 });
   await page.evaluate(() => {
     window.__portableEvents = [];
@@ -121,11 +127,17 @@ async function launch(label) {
   await page.evaluate(() => window.ayana.send({ type: 'settings.get' }));
   await page.waitForFunction(() => window.__portableEvents.some(event => event.type === 'settings.ready'), null, { timeout: 10000 });
   const settings = await page.evaluate(() => window.__portableEvents.find(event => event.type === 'settings.ready'));
+  if (isolatedCompanion) {
+    assert.equal(settings.settings.provider, 'local');
+    assert.equal(settings.settings.voice.voice_mode, 'silent');
+    assert.equal(path.normalize(instance.runtime.data).toLowerCase(), isolatedProfile.toLowerCase());
+  } else {
   assert.equal(settings.settings.provider, 'openai');
   assert.equal(settings.settings.model, 'deepseek-flash');
   assert.equal(settings.settings.voice.voice_mode, 'sovits');
   assert.equal(settings.api_key_configured, true, 'The actual runtime must load the personal credential.');
   assert.equal(path.normalize(instance.runtime.data).toLowerCase(), path.join(process.env.APPDATA, 'Ayana').toLowerCase());
+  }
   const logPath = path.join(instance.runtime.logs, 'ayana-runtime.log');
   const log = existsSync(logPath) ? readFileSync(logPath, 'utf8').split(/\r?\n/).filter(line => /Runtime start:|Runtime config:/.test(line)).slice(-4) : [];
   report.launches.push({ label, ...instance.runtime, backend_pid: instance.backend.ProcessId, settings: { provider: settings.settings.provider, model: settings.settings.model, voice_mode: settings.settings.voice.voice_mode, api_key_configured: settings.api_key_configured }, startup_log: log });
@@ -188,6 +200,17 @@ async function close(instance) {
 try {
   if (cleanupOnly) {
     const instance = await launch('initial');
+    if (isolatedCompanion) {
+      await instance.page.waitForFunction(() => document.querySelector('.character')?.naturalWidth === 472);
+      assert.equal(await instance.page.locator('.workshop').count(), 0);
+      assert.equal(await instance.page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor), 'rgba(0, 0, 0, 0)');
+      await instance.page.screenshot({ path: path.join(directory, 'companion.png'), omitBackground: true });
+      report.checks.transparent_companion = true;
+      await instance.page.evaluate(() => window.ayana.openSettings());
+      const controls = await eventually(() => instance.browser.contexts().flatMap(context => context.pages()).find(page => page.url().includes('window=settings')));
+      await controls.waitForSelector('.settings-form');
+      report.checks.independent_settings = true;
+    }
     await instance.page.evaluate(() => window.ayana.send({ type: 'generation.cancel' }));
     await close(instance);
     report.checks.personal_profile_loaded = true;

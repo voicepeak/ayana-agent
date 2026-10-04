@@ -5,6 +5,15 @@ global shortcuts, tray, window lifecycle and controlled avatar asset proxy.
 The isolated React renderers receive a restricted preload bridge. Credentials
 and local-service tokens are never returned by that bridge.
 
+The summoned chat is a single frameless, transparent companion window: a half
+portrait above Japanese dialogue and Chinese translation. Settings and optional
+tool contexts live in a separate hidden window, opened through the gear or tray.
+Only chat owns an AudioWorklet; settings and highlight never create a player.
+The catalog indexes all 234 original PNGs (26 expressions, 9 outfit/pose
+combinations). The model selects a semantic expression and pose per sentence;
+the backend resolves only catalog IDs under the user-selected outfit. A 300ms,
+12px dip runs once when a sentence becomes visible. Idle and speech never float.
+
 The chat renderer hosts the **only** AudioWorklet player. Its bounded queue accepts
 mono float32 little-endian PCM, performs linear resampling to the device sample
 rate and returns source sample counts plus playback time. Avatar expressions and

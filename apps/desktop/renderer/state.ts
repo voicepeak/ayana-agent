@@ -5,6 +5,7 @@ import type { AyanaBridge, RuntimeEvent } from './types';
 export interface Speech {
   id: string; ja: string; zh: string; intent: string; generation: number;
   intensity: number; affect: string;
+  assetId: string;
   state: 'generated' | 'playing' | 'played' | 'partial' | 'cancelled';
   played: number; total: number;
 }
@@ -16,6 +17,7 @@ export interface ModelState {
   task: string; voice: string; mode: 'teach' | 'execute'; target?: Target;
   snapshot?: RuntimeEvent; speeches: Speech[]; current?: string; expression: string;
   expressionAt: number; inputState: string;
+  presented?: string; sentenceVersion: number;
   progress: number; repository?: Repository; settings: Record<string, unknown>;
   history: Record<string, unknown>[]; windows: Target[]; evidence: Evidence[];
   actions: RuntimeEvent[]; tools: RuntimeEvent[]; error?: string; shortcuts?: RuntimeEvent;
@@ -24,7 +26,7 @@ export interface ModelState {
 export const initialState: ModelState = {
   connected: false, service: 'starting', generation: 0, cancelledGeneration: -1,
   task: 'idle', voice: 'starting', mode: 'teach', speeches: [], expression: 'neutral', expressionAt: 0, inputState: 'idle',
-  progress: 0, settings: {}, history: [], windows: [], evidence: [], actions: [], tools: [], questions: [],
+  progress: 0, sentenceVersion: 0, settings: {}, history: [], windows: [], evidence: [], actions: [], tools: [], questions: [],
 };
 
 export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState {
@@ -39,12 +41,12 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
     return {
       ...state, generation: Math.max(state.generation, generation),
       cancelledGeneration: Math.max(state.cancelledGeneration, cancelled),
-      current: undefined, expression: 'neutral', expressionAt: 0, inputState: 'idle', progress: 0, task: 'idle', actions: [],
+      current: undefined, presented: undefined, expression: 'neutral', expressionAt: 0, inputState: 'idle', progress: 0, task: 'idle', actions: [],
       speeches: state.speeches.map(s => s.generation <= cancelled && s.state !== 'played'
         ? { ...s, state: s.state === 'playing' ? 'partial' : 'cancelled' } : s),
     };
   }
-  const output = ['utterance.ready', 'subtitle.ready', 'audio.ready', 'action.proposed', 'evidence.ready', 'playback.started', 'playback.progress'];
+  const output = ['utterance.ready', 'utterance.displayed', 'desktop.present', 'subtitle.ready', 'audio.ready', 'action.proposed', 'evidence.ready', 'playback.started', 'playback.progress'];
   if (output.includes(event.type) && generation <= state.cancelledGeneration) return state;
   let next = { ...state, generation: Math.max(state.generation, generation) };
   switch (event.type) {
@@ -63,8 +65,9 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
       next.task = next.target ? 'observing' : 'idle'; next.error = undefined; break;
     case 'task.state': next.task = String(event.state || 'idle'); break;
     case 'input.state': next.inputState = String(event.state || 'idle'); break;
+    case 'mode.ready': next.mode = event.mode === 'execute' ? 'execute' : 'teach'; break;
     case 'target.bound': next.target = (event.target ?? event.window ?? event) as Target; next.snapshot = undefined; break;
-    case 'snapshot.ready': next.snapshot = event; next.target = (event.target ?? next.target) as Target; break;
+    case 'snapshot.ready': next.snapshot = event; next.target = (event.target ?? next.target) as Target; if (next.task === 'observing') next.task = 'idle'; break;
     case 'snapshot.invalidated': next.snapshot = undefined; next.actions = []; break;
     case 'windows.list': next.windows = (event.windows ?? []) as Target[]; break;
     case 'repository.inspected': {
@@ -86,20 +89,24 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
       next.error = undefined; next.task = 'thinking'; break;
     case 'utterance.ready':
       if (!state.speeches.some(s => s.id === event.utterance_id)) {
-        next.speeches = [...state.speeches, { id: String(event.utterance_id), ja: String(event.speech_ja), zh: '', intent: String(event.intent || 'explain'), generation, intensity: Number(event.intensity || 0), affect: String(event.affect || 'neutral'), state: 'generated' as const, played: 0, total: 0 }].slice(-80);
+        next.speeches = [...state.speeches, { id: String(event.utterance_id), ja: String(event.speech_ja), zh: '', intent: String(event.intent || 'explain'), assetId: String(event.asset_id || ''), generation, intensity: Number(event.intensity || 0), affect: String(event.affect || 'neutral'), state: 'generated' as const, played: 0, total: 0 }].slice(-80);
       }
       break;
     case 'subtitle.ready':
       next.speeches = state.speeches.map(s => s.id === event.utterance_id ? { ...s, zh: String(event.display_zh) } : s); break;
+    case 'desktop.present':
     case 'playback.started': {
-      next.current = String(event.utterance_id); next.progress = 0;
-      const speech = state.speeches.find(s => s.id === next.current);
+      const id = String(event.utterance_id);
+      if (event.type === 'playback.started') { next.current = id; next.progress = 0; }
+      const speech = state.speeches.find(s => s.id === id);
+      if (!speech) break;
+      if (state.presented !== id) { next.presented = id; next.sentenceVersion = state.sentenceVersion + 1; }
       const expression = ['explain', 'encourage', 'caution', 'playful'].includes(speech?.intent || '') ? speech!.intent : 'neutral';
-      if (speech && speech.intensity >= .35 && Date.now() - state.expressionAt >= 2000 && expression !== state.expression) {
-        next.expression = expression;
+      if (speech.assetId || speech.intensity >= .35) {
+        next.expression = speech.assetId || expression;
         next.expressionAt = Date.now();
       }
-      next.speeches = state.speeches.map(s => s.id === next.current ? { ...s, state: 'playing', total: Number(event.total_samples) } : s);
+      if (event.type === 'playback.started') next.speeches = state.speeches.map(s => s.id === id ? { ...s, state: 'playing', total: Number(event.total_samples) } : s);
       break;
     }
     case 'playback.progress':
@@ -129,9 +136,9 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
 // A static browser preview never pretends to be a connected runtime.
 const previewBridge: AyanaBridge = {
   send: async () => ({ ok: false, error: '此页面仅用于界面预览。请通过桌面应用启动本地服务。' }),
-  onEvent: () => () => {}, playback: () => {}, summon: async () => {}, hide: async () => {},
+  onEvent: () => () => {}, playback: () => {}, summon: async () => {}, hide: async () => {}, openSettings: async () => {}, hideSettings: async () => {},
   chooseRepository: async () => null, restart: async () => {},
-  getState: async () => ({ connected: false, service: 'preview', version: '0.1.0', repositoryRoot: '', events: [] }),
+  getState: async () => ({ connected: false, service: 'preview', version: '0.2.0', repositoryRoot: '', events: [] }),
 };
 export const bridge = window.ayana ?? previewBridge;
 
@@ -151,8 +158,13 @@ export function useRuntime(isChat: boolean) {
         if (isChat) player.current = new AudioPlayer(bridge, dispatch);
       }
       if (event.type === 'audio.ready') player.current?.enqueue(event);
+      if (isChat && event.type === 'utterance.ready' && /^[a-z0-9_-]{1,80}$/i.test(String(event.asset_id || ''))) {
+        // Decode ahead without changing the displayed face before playback.
+        const image = new Image();
+        image.src = `ayana-asset://${event.asset_id}/`;
+      }
       dispatch(event);
-      if (isChat && event.type === 'utterance.ready' && Number(event.generation_id) > stateRef.current.cancelledGeneration) {
+      if (isChat && event.type === 'playback.started' && typeof event.seq !== 'number' && Number(event.generation_id) > stateRef.current.cancelledGeneration) {
         void bridge.send({ type: 'utterance.displayed', utterance_id: event.utterance_id, generation_id: event.generation_id });
       }
     };

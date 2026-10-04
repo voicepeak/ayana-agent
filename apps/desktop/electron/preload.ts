@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('ayana', Object.freeze({
   playback: (receipt: Record<string, unknown>) => ipcRenderer.send('ayana:playback', receipt),
   summon: () => ipcRenderer.invoke('ayana:summon'),
   hide: () => ipcRenderer.invoke('ayana:hide'),
+  openSettings: () => ipcRenderer.invoke('ayana:settings'),
+  hideSettings: () => ipcRenderer.invoke('ayana:hide-settings'),
   chooseRepository: () => ipcRenderer.invoke('ayana:choose-repository'),
   restart: () => ipcRenderer.invoke('ayana:restart'),
   getState: () => ipcRenderer.invoke('ayana:state'),

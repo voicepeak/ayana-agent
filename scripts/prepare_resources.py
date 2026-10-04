@@ -19,20 +19,37 @@ def main():
     settings = Settings()
     if args.avatar_root:
         from PIL import Image
+        index = json.loads((args.avatar_root / "素材索引.json").read_text(encoding="utf-8"))
         mapping = json.loads((ROOT / "characters/ayana/avatar-map.json").read_text(encoding="utf-8"))
         destination = ROOT / "assets/ayana"
         destination.mkdir(parents=True, exist_ok=True)
-        source = args.avatar_root / "aya_z1a0000__校服_双手交叠"
-        for item in mapping["assets"].values():
-            filename = source / (item["source_expression"] + "_校服_双手交叠.png")
+        assets = {}
+        import shutil
+        for item in index["素材"]:
+            filename = (args.avatar_root / item["标注后相对路径"]).resolve()
+            if not filename.is_relative_to(args.avatar_root.resolve()):
+                raise ValueError("Avatar path must remain inside the selected folder")
             if not filename.is_file():
-                raise FileNotFoundError(f"Missing avatar expression: {item['source_expression']}")
+                raise FileNotFoundError(f"Missing avatar expression: {filename.name}")
             with Image.open(filename) as img:
-                if img.mode != "RGBA":
+                if img.mode != "RGBA" or img.getextrema()[-1][0] != 0:
                     raise ValueError("Expected transparent RGBA avatar")
-                img.save(destination / item["file"], optimize=True)
+                asset_id = item["素材ID"]
+                assets[asset_id] = {"file": asset_id + ".png", "source_expression": item["用户表情名称"],
+                                    "pose": "open" if item["简短动作描述"] == "双手摊开" else "crossed",
+                                    "costume": item["简短服装描述"], "width": img.width, "height": img.height}
+            shutil.copy2(filename, destination / assets[asset_id]["file"])
+        for alias, old in mapping["assets"].items():
+            if alias.startswith("aya_"):
+                continue
+            original = next(value for value in assets.values() if value["costume"] == "校服" and value["pose"] == "crossed" and value["source_expression"] == old["source_expression"])
+            assets[alias] = {**original, "file": alias + ".png"}
+            shutil.copy2(destination / original["file"], destination / assets[alias]["file"])
+        mapping["assets"] = assets
+        mapping["transition"] = {"sentence_motion": "dip", "dip_px": 12, "duration_ms": 300}
+        (ROOT / "characters/ayana/avatar-map.json").write_text(json.dumps(mapping, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         settings.values["avatar_root"] = "assets/ayana"
-        print("Imported five normal school-uniform expressions, preserving pixels")
+        print(f"Imported {len(index['素材'])} original transparent PNGs without resizing or re-encoding")
     if args.voice_root:
         v = args.voice_root.resolve()
         voice = {"voice_mode": "sovits", "python": str(v / "venv/Scripts/python.exe"),

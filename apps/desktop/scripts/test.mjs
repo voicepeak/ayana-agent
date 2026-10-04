@@ -75,3 +75,24 @@ assert.equal(state.target, undefined);
 assert.equal(state.snapshot, undefined);
 assert.equal(state.task, 'idle');
 console.log('PASS: Worklet resampling, exact end/cancel sample counts, stale audio rejection; playback-only expressions, cancellation and low-intensity hold.');
+
+let routed = reduceEvent(initialState, event('utterance.ready', { utterance_id: 'catalog-one', speech_ja: '大丈夫かな。', asset_id: 'aya_z1a0010__a0018', intensity: .1 }));
+assert.equal(routed.sentenceVersion, 0);
+routed = reduceEvent(routed, event('utterance.displayed', { utterance_id: 'catalog-one', seq: 10 }));
+assert.equal(routed.expression, 'neutral'); // persistence acknowledgments cannot advance the face
+routed = reduceEvent(routed, event('playback.started', { utterance_id: 'catalog-one', total_samples: 100 }));
+assert.equal(routed.expression, 'aya_z1a0010__a0018');
+assert.equal(routed.presented, 'catalog-one');
+assert.equal(routed.sentenceVersion, 1);
+routed = reduceEvent(routed, event('playback.started', { utterance_id: 'catalog-one', total_samples: 100 }));
+assert.equal(routed.sentenceVersion, 1);
+routed = reduceEvent(routed, event('playback.ended', { utterance_id: 'catalog-one', total_samples: 100, played_samples: 100 }));
+assert.equal(routed.presented, 'catalog-one'); // finished subtitles stay readable
+routed = reduceEvent(routed, event('utterance.ready', { utterance_id: 'catalog-two', speech_ja: 'そうだね。', asset_id: 'aya_z1a0000__a0017' }));
+routed = reduceEvent(routed, event('desktop.present', { utterance_id: 'catalog-two' }));
+assert.equal(routed.sentenceVersion, 2);
+assert.equal(routed.expression, 'aya_z1a0000__a0017');
+routed = reduceEvent(routed, event('desktop.cancelled', { cancelled_generation_id: 7 }));
+routed = reduceEvent(routed, event('desktop.present', { utterance_id: 'catalog-two' }));
+assert.equal(routed.presented, undefined);
+console.log('PASS: full catalog IDs, sentence motion triggers once per sentence, persistent subtitles, and text-only presentation.');

@@ -26,7 +26,9 @@ def validate_speech(value: dict) -> dict:
         intensity = 0.25
     return {"speech_ja": text, "intent": value.get("intent") if value.get("intent") in INTENTS else "explain",
             "affect": value.get("affect") if value.get("affect") in AFFECTS else "neutral",
-            "intensity": max(0, min(1, intensity))}
+            "intensity": max(0, min(1, intensity)),
+            "expression": value.get("expression", "") if isinstance(value.get("expression", ""), str) and len(value.get("expression", "")) <= 80 else "",
+            "pose": value.get("pose") if value.get("pose") in {"crossed", "open"} else ""}
 
 
 class SpeechParser:

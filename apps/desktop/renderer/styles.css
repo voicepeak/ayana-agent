@@ -164,19 +164,54 @@ select { width: 100%; outline: none; border: 1px solid var(--color-default-200);
 .windows-list { max-height: 360px; overflow: auto; margin-bottom: 18px; }.windows-list button { width: 100%; display: flex; align-items: center; gap: 13px; padding: 13px 8px; border: 0; border-bottom: 1px solid var(--color-default-100); text-align: left; background: transparent; }.windows-list button > svg { color: var(--color-primary-text); flex-shrink: 0; }.windows-list button > div { flex: 1; min-width: 0; }.windows-list strong { font-size: 11px; font-weight: 500; display: block; overflow-wrap: anywhere; }.windows-list small { font-size: 9px; color: var(--color-foreground-muted); display: block; margin-top: 5px; }
 .settings-form { margin-top: 22px; }.form-section { border-top: 1px solid var(--color-default-100); padding: 19px 0; }.form-section h3 { margin: 0 0 13px; font-size: 12px; font-weight: 600; }.form-section > label, .form-grid label { display: flex; flex-direction: column; gap: 7px; font-size: 10px; color: var(--color-foreground-muted); margin: 11px 0 0; }.form-section select { font-size: 11px; }.field-note { font-size: 9px; line-height: 1.8; color: var(--color-foreground-muted); margin: 10px 0 0; }.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }.settings-toggles > label { flex-direction: row; align-items: center; gap: 10px; margin: 10px 0; }.settings-toggles input { accent-color: var(--color-primary); }.settings-form > .kun-button { width: 100%; font-size: 12px; }
 .settings-bottom { margin-top: 18px; display: flex; align-items: center; gap: 14px; justify-content: space-between; }.settings-bottom > span { font-size: 9px; line-height: 1.8; color: var(--color-foreground-muted); }.settings-bottom .kun-button { font-size: 10px; }.shortcut-error { font-size: 10px; color: var(--color-danger-text); margin-top: 10px; }
-.overlay-body, .overlay-body #root { background: transparent !important; }
-.overlay-body { pointer-events: none; }
+.overlay-root, .overlay-body, .overlay-body #root { background: transparent !important; }
 .avatar-stage { height: 100%; position: relative; display: flex; align-items: flex-end; justify-content: center; overflow: hidden; }
-.avatar-stage .character { max-height: min(600px,calc(100vh - 100px)); width: auto; max-width: 250px; margin-bottom: 0; transform-origin: bottom center; filter: drop-shadow(0 3px 6px rgb(0 0 0 / .12)); animation: breathe 5s ease-in-out infinite; }
-.avatar-stage .character.speaking { animation-duration: 3.7s; }
 .avatar-bubble { position: absolute; top: 15px; left: 14px; right: 14px; padding: 12px 15px 10px; border: 1px solid var(--color-primary-100); border-radius: var(--radius-kun-lg); background: var(--color-content1); box-shadow: var(--shadow-kun-md); opacity: 0; transform: translateY(5px); transition: opacity 140ms,transform 140ms; z-index: 2; }
 .avatar-bubble.visible { opacity: 1; transform: translateY(0); }.avatar-bubble > span { font-size: 9px; color: var(--color-primary-text); font-weight: 600; letter-spacing: 1px; }.avatar-bubble p { font-size: 12px; line-height: 1.8; margin: 6px 0 10px; }
 .highlight-frame { position: absolute; inset: 16px; border: 3px solid var(--color-primary); border-radius: var(--radius-kun-md); box-shadow: 0 0 0 2px white,0 0 0 4px var(--color-primary-200); background: color-mix(in oklch,var(--color-primary) 9%,transparent); }
 .highlight-frame span { position: absolute; left: -2px; top: -24px; background: var(--color-primary); color: var(--color-primary-foreground); padding: 4px 9px; font-size: 9px; border-radius: 5px 5px 0 0; }
 .mic-button.recording { background: var(--color-danger-100); color: var(--color-danger-text); animation: pulse 1s infinite; }
 @keyframes pulse { 50% { opacity: .4; } }
-@keyframes breathe { 50% { transform: scaleY(1.003) translateY(-1px); } }
 @media (max-width:1100px) { .workshop { grid-template-columns: 180px minmax(390px,1fr) 255px; }.sidebar { padding-left: 12px; padding-right: 12px; }.context-panel { padding-left: 13px; padding-right: 13px; }.main-header { padding-left: 24px; padding-right: 24px; }.conversation { padding-left: 24px; padding-right: 24px; }.composer-area { padding-left: 20px; padding-right: 20px; }.composer-hint span { display: none; } }
 @media (max-width:1000px) { .workshop { grid-template-columns: 165px minmax(340px,1fr) 235px; }.main-header { padding: 21px 18px; }.conversation { padding-left: 18px; padding-right: 18px; }.composer-area { padding-left: 15px; padding-right: 15px; }.composer-footer > span { display: none; }.composer-footer > div { margin-left: auto; }.mode-strip > span { display: none; }.brand { margin-left: 3px; gap: 8px; }.brand strong { font-size: 22px; }.brand-mark { width: 35px; height: 35px; }.brand span { font-size: 9px; }.main-header h1 { font-size: 20px; }.main-status { padding: 10px 18px; } }
 @media (max-height:700px) { .sidebar { padding-top: 19px; }.brand { margin-bottom: 13px; }.connection { margin-bottom: 17px; }.nav-item { padding-top: 9px; padding-bottom: 9px; }.workspace-label { margin-top: 21px; margin-bottom: 9px; }.repository-card { padding-top: 11px; padding-bottom: 11px; }.folder-tile { margin-bottom: 7px; width: 28px; height: 28px; }.sidebar-bottom { padding-top: 15px; }.shortcut-note { margin-bottom: 9px; }.main-header { padding-top: 20px; padding-bottom: 17px; }.context-panel { padding-top: 20px; gap: 13px; }.companion-scenery { height: 120px; }.companion-scenery .character { height: 300px; }.companion-name { font-size: 21px; bottom: 16px; }.composer-area { padding-top: 7px; padding-bottom: 12px; }.composer { padding: 11px 12px 10px; }.welcome { padding-top: 4px; }.welcome-symbol { width: 49px; height: 49px; margin-bottom: 14px; }.welcome h2 { font-size: 18px; }.suggestions { margin-top: 17px; }.suggestions button { padding-top: 10px; padding-bottom: 10px; }.conversation { padding-top: 18px; }.root-label { margin-top: 12px; } }
 @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+
+/* The summoned surface is a transparent portrait and a visual-novel dialogue box. */
+.companion-shell { height: 100%; position: relative; padding: 0 20px 18px; display: flex; flex-direction: column; justify-content: flex-end; }
+.portrait-stage { flex: 1; min-height: 0; position: relative; overflow: hidden; margin: 0 34px -30px; pointer-events: none; }
+.portrait-stage .character-frame { position: absolute; width: 440px; max-width: 100%; height: 100%; right: 0; top: 10px; }
+.portrait-stage .character { position: absolute; left: 50%; transform: translateX(-50%); height: 1193px; width: auto; max-width: none; object-fit: unset; filter: none; }
+.asset-missing { display: block; margin: 50px 0; padding: 10px; color: #514b57; background: #fff7ec; border-radius: 8px; font-size: 12px; }
+.gal-dialogue { position: relative; z-index: 2; flex: 0 0 auto; color: #efe7df; background: rgb(31 29 37 / .94); border: 1px solid rgb(226 208 184 / .5); border-radius: 5px 18px 5px 18px; box-shadow: 0 8px 22px rgb(0 0 0 / .2); padding: 16px 22px 12px; }
+.gal-heading { display: flex; align-items: center; justify-content: space-between; -webkit-app-region: drag; }
+.gal-heading strong { color: #ead5ac; font: 26px Georgia, 'Yu Mincho', serif; letter-spacing: 1px; }
+.gal-heading strong small { font: 11px 'Yu Mincho', serif; margin-left: 9px; letter-spacing: 3px; color: #b4a391; }
+.gal-heading > div { display: flex; gap: 10px; -webkit-app-region: no-drag; }
+.gal-heading button { border: 0; color: #bcb0a4; background: transparent; padding: 5px; border-radius: 4px; }
+.gal-heading button:hover { color: #fff; background: #49424b; }
+.gal-lines { min-height: 92px; max-height: 190px; overflow-y: auto; padding: 10px 0 13px; }
+.gal-lines p { margin: 0; font: 17px/1.8 'Yu Mincho', 'SimSun', serif; white-space: pre-wrap; overflow-wrap: anywhere; }
+.gal-lines .gal-translation { font: 13px/1.8 'Microsoft YaHei', sans-serif; margin-top: 8px; color: #c3b7aa; }
+.gal-dialogue .composer { border: 0; border-top: 1px solid #554d53; border-radius: 0; background: transparent; box-shadow: none; padding: 11px 0 0; margin: 0; }
+.gal-dialogue textarea { color: #efe7df; background: transparent; min-height: 30px; max-height: 85px; font-size: 13px; width: 100%; resize: none; outline: none; border: 0; }
+.gal-dialogue textarea::placeholder { color: #948990; }
+.gal-dialogue .composer-footer { justify-content: flex-end; margin-top: 6px; }
+.gal-dialogue .kun-button { font-size: 11px; height: 30px; min-height: 30px; background: transparent; color: #cfc2b3; border: 1px solid #63575c; }
+.gal-dialogue .kun-button[type=submit] { background: #d8bd8b; border-color: #d8bd8b; color: #29242b; }
+.gal-dialogue .composer-hint { color: #9d9094; font-size: 9px; padding-top: 8px; display: block; }
+.gal-dialogue .composer-hint span { display: none; }
+.gal-error { font-size: 11px; line-height: 1.6; background: #51383c; padding: 6px 9px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.gal-error button { margin-left: auto; color: inherit; border: 0; background: transparent; }
+.action-notice { border: 0; background: transparent; color: #ead5ac; font-size: 11px; padding: 6px 0; }
+.preferences-view { padding: 16px 30px 28px; overflow-y: auto; min-height: 0; flex: 1; }
+.preferences-intro { color: var(--color-foreground-muted); font-size: 12px; line-height: 1.9; }
+.preferences-view .settings-form { margin-top: 8px; }
+.preferences-view .form-section h3 { font-size: 14px; }
+.preferences-view .form-section label { font-size: 12px; }
+.preferences-view .field-note { font-size: 11px; }
+.preferences-view .motion-toggle { flex-direction: row; align-items: center; }
+.catalog-note { padding: 16px; border: 1px solid var(--color-default-200); border-radius: 10px; }
+.catalog-note strong { font-size: 13px; }.catalog-note p { font-size: 12px; }.catalog-note small { font-size: 11px; line-height: 1.8; color: var(--color-foreground-muted); }
+@media (max-height: 620px) { .portrait-stage .character { height: 940px; }.gal-lines { min-height: 65px; max-height: 120px; }.gal-dialogue { padding-top: 12px; }.gal-heading strong { font-size: 22px; } }
+@media (max-width: 500px) { .companion-shell { padding: 0 10px 10px; }.portrait-stage { margin-left: 5px; margin-right: 5px; }.portrait-stage .character-frame { right: 5%; }.gal-dialogue { padding-left: 15px; padding-right: 15px; } }

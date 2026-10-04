@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react';
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react';
 import {
   cn, kunVariantClasses, kunRoundedClasses, kunFocusRingClasses, kunControlSizeClasses,
   type KunUIColor, type KunUIVariant,
@@ -33,10 +33,22 @@ export function Icon({ name, size = 18 }: { name: string; size?: number }) {
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[name] || paths.sparkles}</svg>;
 }
 
-export function Character({ expression = 'neutral', className = '' }: { expression?: string; className?: string }) {
-  return <img className={cn('character', className)} src={`ayana-asset://${expression}/`} alt="Ayana" onError={event => {
-    const img = event.currentTarget;
-    if (expression !== 'neutral' && !img.dataset.fallback) { img.dataset.fallback = 'true'; img.src = 'ayana-asset://neutral/'; }
-    else { img.style.opacity = '0'; }
-  }} onLoad={event => { event.currentTarget.style.opacity = '1'; }} draggable={false} />;
+export function Character({ expression = 'neutral', className = '', sentenceVersion = 0, motion = true }: { expression?: string; className?: string; sentenceVersion?: number; motion?: boolean }) {
+  const [loaded, setLoaded] = useState('neutral');
+  const [missing, setMissing] = useState(false);
+  const frame = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const next = new Image();
+    next.onload = () => { if (!cancelled) { setLoaded(expression); setMissing(false); } };
+    next.onerror = () => { if (!cancelled && expression === 'neutral') setMissing(true); };
+    next.src = `ayana-asset://${expression}/`;
+    return () => { cancelled = true; };
+  }, [expression]);
+  useEffect(() => {
+    if (!sentenceVersion || !motion || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const animation = frame.current?.animate([{ transform: 'translateY(0)' }, { transform: 'translateY(12px)', offset: .35 }, { transform: 'translateY(0)' }], { duration: 300, easing: 'ease-out' });
+    return () => animation?.cancel();
+  }, [sentenceVersion, motion]);
+  return <div ref={frame} className={cn('character-frame', className)}>{missing ? <span className="asset-missing">立绘加载中，请在设置中检查素材</span> : <img className="character" src={`ayana-asset://${loaded}/`} alt="Ayana 半身立绘" draggable={false} />}</div>;
 }

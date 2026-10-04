@@ -1,12 +1,1929 @@
 {
   "default_asset_id": "neutral",
-  "intent_defaults": {"acknowledge": "neutral", "explain": "explain", "encourage": "encourage", "caution": "caution", "playful": "playful"},
-  "assets": {
-    "neutral": {"file": "neutral.png", "source_expression": "休闲", "pose": "crossed"},
-    "explain": {"file": "explain.png", "source_expression": "正经", "pose": "crossed"},
-    "encourage": {"file": "encourage.png", "source_expression": "卖萌", "pose": "crossed"},
-    "caution": {"file": "caution.png", "source_expression": "担忧", "pose": "crossed"},
-    "playful": {"file": "playful.png", "source_expression": "得意", "pose": "crossed"}
+  "intent_defaults": {
+    "acknowledge": "neutral",
+    "explain": "explain",
+    "encourage": "encourage",
+    "caution": "caution",
+    "playful": "playful"
   },
-  "transition": {"min_expression_hold_ms": 2000, "same_pose_fade_ms": 140, "min_pose_hold_ms": 8000, "intensity_threshold": 0.35}
+  "assets": {
+    "aya_z1a0000__a0019": {
+      "file": "aya_z1a0000__a0019.png",
+      "source_expression": "不同意",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0010": {
+      "file": "aya_z1a0000__a0010.png",
+      "source_expression": "不屑",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0001": {
+      "file": "aya_z1a0000__a0001.png",
+      "source_expression": "休闲",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0016": {
+      "file": "aya_z1a0000__a0016.png",
+      "source_expression": "卖萌",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0025": {
+      "file": "aya_z1a0000__a0025.png",
+      "source_expression": "哭",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0011": {
+      "file": "aya_z1a0000__a0011.png",
+      "source_expression": "嘟哝",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0008": {
+      "file": "aya_z1a0000__a0008.png",
+      "source_expression": "失望",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0023": {
+      "file": "aya_z1a0000__a0023.png",
+      "source_expression": "委屈",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0006": {
+      "file": "aya_z1a0000__a0006.png",
+      "source_expression": "害怕",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0017": {
+      "file": "aya_z1a0000__a0017.png",
+      "source_expression": "得意",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0002": {
+      "file": "aya_z1a0000__a0002.png",
+      "source_expression": "愤怒",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0004": {
+      "file": "aya_z1a0000__a0004.png",
+      "source_expression": "懊悔",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0018": {
+      "file": "aya_z1a0000__a0018.png",
+      "source_expression": "担忧",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0021h": {
+      "file": "aya_z1a0000__a0021h.png",
+      "source_expression": "掩饰",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0024": {
+      "file": "aya_z1a0000__a0024.png",
+      "source_expression": "欲哭",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0009": {
+      "file": "aya_z1a0000__a0009.png",
+      "source_expression": "正经",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0021": {
+      "file": "aya_z1a0000__a0021.png",
+      "source_expression": "流汗嘟哝",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0007": {
+      "file": "aya_z1a0000__a0007.png",
+      "source_expression": "病娇",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0019h": {
+      "file": "aya_z1a0000__a0019h.png",
+      "source_expression": "脸红不同意",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0016h": {
+      "file": "aya_z1a0000__a0016h.png",
+      "source_expression": "脸红卖萌",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0008h": {
+      "file": "aya_z1a0000__a0008h.png",
+      "source_expression": "脸红失望",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0023h": {
+      "file": "aya_z1a0000__a0023h.png",
+      "source_expression": "脸红委屈",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0006h": {
+      "file": "aya_z1a0000__a0006h.png",
+      "source_expression": "脸红害怕",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0017h": {
+      "file": "aya_z1a0000__a0017h.png",
+      "source_expression": "脸红得意",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0018h": {
+      "file": "aya_z1a0000__a0018h.png",
+      "source_expression": "脸红担忧",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0000__a0024h": {
+      "file": "aya_z1a0000__a0024h.png",
+      "source_expression": "脸红预哭",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "aya_z1a0010__a0001": {
+      "file": "aya_z1a0010__a0001.png",
+      "source_expression": "休闲",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0002": {
+      "file": "aya_z1a0010__a0002.png",
+      "source_expression": "愤怒",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0004": {
+      "file": "aya_z1a0010__a0004.png",
+      "source_expression": "懊悔",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0006": {
+      "file": "aya_z1a0010__a0006.png",
+      "source_expression": "害怕",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0006h": {
+      "file": "aya_z1a0010__a0006h.png",
+      "source_expression": "脸红害怕",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0007": {
+      "file": "aya_z1a0010__a0007.png",
+      "source_expression": "病娇",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0008": {
+      "file": "aya_z1a0010__a0008.png",
+      "source_expression": "失望",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0008h": {
+      "file": "aya_z1a0010__a0008h.png",
+      "source_expression": "脸红失望",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0009": {
+      "file": "aya_z1a0010__a0009.png",
+      "source_expression": "正经",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0010": {
+      "file": "aya_z1a0010__a0010.png",
+      "source_expression": "不屑",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0011": {
+      "file": "aya_z1a0010__a0011.png",
+      "source_expression": "嘟哝",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0016": {
+      "file": "aya_z1a0010__a0016.png",
+      "source_expression": "卖萌",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0016h": {
+      "file": "aya_z1a0010__a0016h.png",
+      "source_expression": "脸红卖萌",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0017": {
+      "file": "aya_z1a0010__a0017.png",
+      "source_expression": "得意",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0017h": {
+      "file": "aya_z1a0010__a0017h.png",
+      "source_expression": "脸红得意",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0018": {
+      "file": "aya_z1a0010__a0018.png",
+      "source_expression": "担忧",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0018h": {
+      "file": "aya_z1a0010__a0018h.png",
+      "source_expression": "脸红担忧",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0019": {
+      "file": "aya_z1a0010__a0019.png",
+      "source_expression": "不同意",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0019h": {
+      "file": "aya_z1a0010__a0019h.png",
+      "source_expression": "脸红不同意",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0021": {
+      "file": "aya_z1a0010__a0021.png",
+      "source_expression": "流汗嘟哝",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0021h": {
+      "file": "aya_z1a0010__a0021h.png",
+      "source_expression": "掩饰",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0023": {
+      "file": "aya_z1a0010__a0023.png",
+      "source_expression": "委屈",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0023h": {
+      "file": "aya_z1a0010__a0023h.png",
+      "source_expression": "脸红委屈",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0024": {
+      "file": "aya_z1a0010__a0024.png",
+      "source_expression": "欲哭",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0024h": {
+      "file": "aya_z1a0010__a0024h.png",
+      "source_expression": "脸红预哭",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0010__a0025": {
+      "file": "aya_z1a0010__a0025.png",
+      "source_expression": "哭",
+      "pose": "open",
+      "costume": "校服",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0100__a0001": {
+      "file": "aya_z1a0100__a0001.png",
+      "source_expression": "休闲",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0002": {
+      "file": "aya_z1a0100__a0002.png",
+      "source_expression": "愤怒",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0004": {
+      "file": "aya_z1a0100__a0004.png",
+      "source_expression": "懊悔",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0006": {
+      "file": "aya_z1a0100__a0006.png",
+      "source_expression": "害怕",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0006h": {
+      "file": "aya_z1a0100__a0006h.png",
+      "source_expression": "脸红害怕",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0007": {
+      "file": "aya_z1a0100__a0007.png",
+      "source_expression": "病娇",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0008": {
+      "file": "aya_z1a0100__a0008.png",
+      "source_expression": "失望",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0008h": {
+      "file": "aya_z1a0100__a0008h.png",
+      "source_expression": "脸红失望",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0009": {
+      "file": "aya_z1a0100__a0009.png",
+      "source_expression": "正经",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0010": {
+      "file": "aya_z1a0100__a0010.png",
+      "source_expression": "不屑",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0011": {
+      "file": "aya_z1a0100__a0011.png",
+      "source_expression": "嘟哝",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0016": {
+      "file": "aya_z1a0100__a0016.png",
+      "source_expression": "卖萌",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0016h": {
+      "file": "aya_z1a0100__a0016h.png",
+      "source_expression": "脸红卖萌",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0017": {
+      "file": "aya_z1a0100__a0017.png",
+      "source_expression": "得意",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0017h": {
+      "file": "aya_z1a0100__a0017h.png",
+      "source_expression": "脸红得意",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0018": {
+      "file": "aya_z1a0100__a0018.png",
+      "source_expression": "担忧",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0018h": {
+      "file": "aya_z1a0100__a0018h.png",
+      "source_expression": "脸红担忧",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0019": {
+      "file": "aya_z1a0100__a0019.png",
+      "source_expression": "不同意",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0019h": {
+      "file": "aya_z1a0100__a0019h.png",
+      "source_expression": "脸红不同意",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0021": {
+      "file": "aya_z1a0100__a0021.png",
+      "source_expression": "流汗嘟哝",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0021h": {
+      "file": "aya_z1a0100__a0021h.png",
+      "source_expression": "掩饰",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0023": {
+      "file": "aya_z1a0100__a0023.png",
+      "source_expression": "委屈",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0023h": {
+      "file": "aya_z1a0100__a0023h.png",
+      "source_expression": "脸红委屈",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0024": {
+      "file": "aya_z1a0100__a0024.png",
+      "source_expression": "欲哭",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0024h": {
+      "file": "aya_z1a0100__a0024h.png",
+      "source_expression": "脸红预哭",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0100__a0025": {
+      "file": "aya_z1a0100__a0025.png",
+      "source_expression": "哭",
+      "pose": "crossed",
+      "costume": "内衣完整",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0001": {
+      "file": "aya_z1a0200__a0001.png",
+      "source_expression": "休闲",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0002": {
+      "file": "aya_z1a0200__a0002.png",
+      "source_expression": "愤怒",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0004": {
+      "file": "aya_z1a0200__a0004.png",
+      "source_expression": "懊悔",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0006": {
+      "file": "aya_z1a0200__a0006.png",
+      "source_expression": "害怕",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0006h": {
+      "file": "aya_z1a0200__a0006h.png",
+      "source_expression": "脸红害怕",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0007": {
+      "file": "aya_z1a0200__a0007.png",
+      "source_expression": "病娇",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0008": {
+      "file": "aya_z1a0200__a0008.png",
+      "source_expression": "失望",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0008h": {
+      "file": "aya_z1a0200__a0008h.png",
+      "source_expression": "脸红失望",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0009": {
+      "file": "aya_z1a0200__a0009.png",
+      "source_expression": "正经",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0010": {
+      "file": "aya_z1a0200__a0010.png",
+      "source_expression": "不屑",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0011": {
+      "file": "aya_z1a0200__a0011.png",
+      "source_expression": "嘟哝",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0016": {
+      "file": "aya_z1a0200__a0016.png",
+      "source_expression": "卖萌",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0016h": {
+      "file": "aya_z1a0200__a0016h.png",
+      "source_expression": "脸红卖萌",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0017": {
+      "file": "aya_z1a0200__a0017.png",
+      "source_expression": "得意",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0017h": {
+      "file": "aya_z1a0200__a0017h.png",
+      "source_expression": "脸红得意",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0018": {
+      "file": "aya_z1a0200__a0018.png",
+      "source_expression": "担忧",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0018h": {
+      "file": "aya_z1a0200__a0018h.png",
+      "source_expression": "脸红担忧",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0019": {
+      "file": "aya_z1a0200__a0019.png",
+      "source_expression": "不同意",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0019h": {
+      "file": "aya_z1a0200__a0019h.png",
+      "source_expression": "脸红不同意",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0021": {
+      "file": "aya_z1a0200__a0021.png",
+      "source_expression": "流汗嘟哝",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0021h": {
+      "file": "aya_z1a0200__a0021h.png",
+      "source_expression": "掩饰",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0023": {
+      "file": "aya_z1a0200__a0023.png",
+      "source_expression": "委屈",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0023h": {
+      "file": "aya_z1a0200__a0023h.png",
+      "source_expression": "脸红委屈",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0024": {
+      "file": "aya_z1a0200__a0024.png",
+      "source_expression": "欲哭",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0024h": {
+      "file": "aya_z1a0200__a0024h.png",
+      "source_expression": "脸红预哭",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0200__a0025": {
+      "file": "aya_z1a0200__a0025.png",
+      "source_expression": "哭",
+      "pose": "crossed",
+      "costume": "裸露",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0300__a0001": {
+      "file": "aya_z1a0300__a0001.png",
+      "source_expression": "休闲",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0002": {
+      "file": "aya_z1a0300__a0002.png",
+      "source_expression": "愤怒",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0004": {
+      "file": "aya_z1a0300__a0004.png",
+      "source_expression": "懊悔",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0006": {
+      "file": "aya_z1a0300__a0006.png",
+      "source_expression": "害怕",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0006h": {
+      "file": "aya_z1a0300__a0006h.png",
+      "source_expression": "脸红害怕",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0007": {
+      "file": "aya_z1a0300__a0007.png",
+      "source_expression": "病娇",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0008": {
+      "file": "aya_z1a0300__a0008.png",
+      "source_expression": "失望",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0008h": {
+      "file": "aya_z1a0300__a0008h.png",
+      "source_expression": "脸红失望",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0009": {
+      "file": "aya_z1a0300__a0009.png",
+      "source_expression": "正经",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0010": {
+      "file": "aya_z1a0300__a0010.png",
+      "source_expression": "不屑",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0011": {
+      "file": "aya_z1a0300__a0011.png",
+      "source_expression": "嘟哝",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0016": {
+      "file": "aya_z1a0300__a0016.png",
+      "source_expression": "卖萌",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0016h": {
+      "file": "aya_z1a0300__a0016h.png",
+      "source_expression": "脸红卖萌",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0017": {
+      "file": "aya_z1a0300__a0017.png",
+      "source_expression": "得意",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0017h": {
+      "file": "aya_z1a0300__a0017h.png",
+      "source_expression": "脸红得意",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0018": {
+      "file": "aya_z1a0300__a0018.png",
+      "source_expression": "担忧",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0018h": {
+      "file": "aya_z1a0300__a0018h.png",
+      "source_expression": "脸红担忧",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0019": {
+      "file": "aya_z1a0300__a0019.png",
+      "source_expression": "不同意",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0019h": {
+      "file": "aya_z1a0300__a0019h.png",
+      "source_expression": "脸红不同意",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0021": {
+      "file": "aya_z1a0300__a0021.png",
+      "source_expression": "流汗嘟哝",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0021h": {
+      "file": "aya_z1a0300__a0021h.png",
+      "source_expression": "掩饰",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0023": {
+      "file": "aya_z1a0300__a0023.png",
+      "source_expression": "委屈",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0023h": {
+      "file": "aya_z1a0300__a0023h.png",
+      "source_expression": "脸红委屈",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0024": {
+      "file": "aya_z1a0300__a0024.png",
+      "source_expression": "欲哭",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0024h": {
+      "file": "aya_z1a0300__a0024h.png",
+      "source_expression": "脸红预哭",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0300__a0025": {
+      "file": "aya_z1a0300__a0025.png",
+      "source_expression": "哭",
+      "pose": "crossed",
+      "costume": "校服局部打码",
+      "width": 456,
+      "height": 1656
+    },
+    "aya_z1a0400__a0001": {
+      "file": "aya_z1a0400__a0001.png",
+      "source_expression": "休闲",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0002": {
+      "file": "aya_z1a0400__a0002.png",
+      "source_expression": "愤怒",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0004": {
+      "file": "aya_z1a0400__a0004.png",
+      "source_expression": "懊悔",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0006": {
+      "file": "aya_z1a0400__a0006.png",
+      "source_expression": "害怕",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0006h": {
+      "file": "aya_z1a0400__a0006h.png",
+      "source_expression": "脸红害怕",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0007": {
+      "file": "aya_z1a0400__a0007.png",
+      "source_expression": "病娇",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0008": {
+      "file": "aya_z1a0400__a0008.png",
+      "source_expression": "失望",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0008h": {
+      "file": "aya_z1a0400__a0008h.png",
+      "source_expression": "脸红失望",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0009": {
+      "file": "aya_z1a0400__a0009.png",
+      "source_expression": "正经",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0010": {
+      "file": "aya_z1a0400__a0010.png",
+      "source_expression": "不屑",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0011": {
+      "file": "aya_z1a0400__a0011.png",
+      "source_expression": "嘟哝",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0016": {
+      "file": "aya_z1a0400__a0016.png",
+      "source_expression": "卖萌",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0016h": {
+      "file": "aya_z1a0400__a0016h.png",
+      "source_expression": "脸红卖萌",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0017": {
+      "file": "aya_z1a0400__a0017.png",
+      "source_expression": "得意",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0017h": {
+      "file": "aya_z1a0400__a0017h.png",
+      "source_expression": "脸红得意",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0018": {
+      "file": "aya_z1a0400__a0018.png",
+      "source_expression": "担忧",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0018h": {
+      "file": "aya_z1a0400__a0018h.png",
+      "source_expression": "脸红担忧",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0019": {
+      "file": "aya_z1a0400__a0019.png",
+      "source_expression": "不同意",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0019h": {
+      "file": "aya_z1a0400__a0019h.png",
+      "source_expression": "脸红不同意",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0021": {
+      "file": "aya_z1a0400__a0021.png",
+      "source_expression": "流汗嘟哝",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0021h": {
+      "file": "aya_z1a0400__a0021h.png",
+      "source_expression": "掩饰",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0023": {
+      "file": "aya_z1a0400__a0023.png",
+      "source_expression": "委屈",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0023h": {
+      "file": "aya_z1a0400__a0023h.png",
+      "source_expression": "脸红委屈",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0024": {
+      "file": "aya_z1a0400__a0024.png",
+      "source_expression": "欲哭",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0024h": {
+      "file": "aya_z1a0400__a0024h.png",
+      "source_expression": "脸红预哭",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0400__a0025": {
+      "file": "aya_z1a0400__a0025.png",
+      "source_expression": "哭",
+      "pose": "crossed",
+      "costume": "内衣上装局部打码",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0001": {
+      "file": "aya_z1a0500__a0001.png",
+      "source_expression": "休闲",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0002": {
+      "file": "aya_z1a0500__a0002.png",
+      "source_expression": "愤怒",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0004": {
+      "file": "aya_z1a0500__a0004.png",
+      "source_expression": "懊悔",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0006": {
+      "file": "aya_z1a0500__a0006.png",
+      "source_expression": "害怕",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0006h": {
+      "file": "aya_z1a0500__a0006h.png",
+      "source_expression": "脸红害怕",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0007": {
+      "file": "aya_z1a0500__a0007.png",
+      "source_expression": "病娇",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0008": {
+      "file": "aya_z1a0500__a0008.png",
+      "source_expression": "失望",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0008h": {
+      "file": "aya_z1a0500__a0008h.png",
+      "source_expression": "脸红失望",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0009": {
+      "file": "aya_z1a0500__a0009.png",
+      "source_expression": "正经",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0010": {
+      "file": "aya_z1a0500__a0010.png",
+      "source_expression": "不屑",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0011": {
+      "file": "aya_z1a0500__a0011.png",
+      "source_expression": "嘟哝",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0016": {
+      "file": "aya_z1a0500__a0016.png",
+      "source_expression": "卖萌",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0016h": {
+      "file": "aya_z1a0500__a0016h.png",
+      "source_expression": "脸红卖萌",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0017": {
+      "file": "aya_z1a0500__a0017.png",
+      "source_expression": "得意",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0017h": {
+      "file": "aya_z1a0500__a0017h.png",
+      "source_expression": "脸红得意",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0018": {
+      "file": "aya_z1a0500__a0018.png",
+      "source_expression": "担忧",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0018h": {
+      "file": "aya_z1a0500__a0018h.png",
+      "source_expression": "脸红担忧",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0019": {
+      "file": "aya_z1a0500__a0019.png",
+      "source_expression": "不同意",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0019h": {
+      "file": "aya_z1a0500__a0019h.png",
+      "source_expression": "脸红不同意",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0021": {
+      "file": "aya_z1a0500__a0021.png",
+      "source_expression": "流汗嘟哝",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0021h": {
+      "file": "aya_z1a0500__a0021h.png",
+      "source_expression": "掩饰",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0023": {
+      "file": "aya_z1a0500__a0023.png",
+      "source_expression": "委屈",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0023h": {
+      "file": "aya_z1a0500__a0023h.png",
+      "source_expression": "脸红委屈",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0024": {
+      "file": "aya_z1a0500__a0024.png",
+      "source_expression": "欲哭",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0024h": {
+      "file": "aya_z1a0500__a0024h.png",
+      "source_expression": "脸红预哭",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0500__a0025": {
+      "file": "aya_z1a0500__a0025.png",
+      "source_expression": "哭",
+      "pose": "crossed",
+      "costume": "裸露局部打码A",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0510__a0001": {
+      "file": "aya_z1a0510__a0001.png",
+      "source_expression": "休闲",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0002": {
+      "file": "aya_z1a0510__a0002.png",
+      "source_expression": "愤怒",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0004": {
+      "file": "aya_z1a0510__a0004.png",
+      "source_expression": "懊悔",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0006": {
+      "file": "aya_z1a0510__a0006.png",
+      "source_expression": "害怕",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0006h": {
+      "file": "aya_z1a0510__a0006h.png",
+      "source_expression": "脸红害怕",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0007": {
+      "file": "aya_z1a0510__a0007.png",
+      "source_expression": "病娇",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0008": {
+      "file": "aya_z1a0510__a0008.png",
+      "source_expression": "失望",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0008h": {
+      "file": "aya_z1a0510__a0008h.png",
+      "source_expression": "脸红失望",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0009": {
+      "file": "aya_z1a0510__a0009.png",
+      "source_expression": "正经",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0010": {
+      "file": "aya_z1a0510__a0010.png",
+      "source_expression": "不屑",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0011": {
+      "file": "aya_z1a0510__a0011.png",
+      "source_expression": "嘟哝",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0016": {
+      "file": "aya_z1a0510__a0016.png",
+      "source_expression": "卖萌",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0016h": {
+      "file": "aya_z1a0510__a0016h.png",
+      "source_expression": "脸红卖萌",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0017": {
+      "file": "aya_z1a0510__a0017.png",
+      "source_expression": "得意",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0017h": {
+      "file": "aya_z1a0510__a0017h.png",
+      "source_expression": "脸红得意",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0018": {
+      "file": "aya_z1a0510__a0018.png",
+      "source_expression": "担忧",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0018h": {
+      "file": "aya_z1a0510__a0018h.png",
+      "source_expression": "脸红担忧",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0019": {
+      "file": "aya_z1a0510__a0019.png",
+      "source_expression": "不同意",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0019h": {
+      "file": "aya_z1a0510__a0019h.png",
+      "source_expression": "脸红不同意",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0021": {
+      "file": "aya_z1a0510__a0021.png",
+      "source_expression": "流汗嘟哝",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0021h": {
+      "file": "aya_z1a0510__a0021h.png",
+      "source_expression": "掩饰",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0023": {
+      "file": "aya_z1a0510__a0023.png",
+      "source_expression": "委屈",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0023h": {
+      "file": "aya_z1a0510__a0023h.png",
+      "source_expression": "脸红委屈",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0024": {
+      "file": "aya_z1a0510__a0024.png",
+      "source_expression": "欲哭",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0024h": {
+      "file": "aya_z1a0510__a0024h.png",
+      "source_expression": "脸红预哭",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0510__a0025": {
+      "file": "aya_z1a0510__a0025.png",
+      "source_expression": "哭",
+      "pose": "open",
+      "costume": "裸露局部打码",
+      "width": 592,
+      "height": 1656
+    },
+    "aya_z1a0600__a0001": {
+      "file": "aya_z1a0600__a0001.png",
+      "source_expression": "休闲",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0002": {
+      "file": "aya_z1a0600__a0002.png",
+      "source_expression": "愤怒",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0004": {
+      "file": "aya_z1a0600__a0004.png",
+      "source_expression": "懊悔",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0006": {
+      "file": "aya_z1a0600__a0006.png",
+      "source_expression": "害怕",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0006h": {
+      "file": "aya_z1a0600__a0006h.png",
+      "source_expression": "脸红害怕",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0007": {
+      "file": "aya_z1a0600__a0007.png",
+      "source_expression": "病娇",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0008": {
+      "file": "aya_z1a0600__a0008.png",
+      "source_expression": "失望",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0008h": {
+      "file": "aya_z1a0600__a0008h.png",
+      "source_expression": "脸红失望",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0009": {
+      "file": "aya_z1a0600__a0009.png",
+      "source_expression": "正经",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0010": {
+      "file": "aya_z1a0600__a0010.png",
+      "source_expression": "不屑",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0011": {
+      "file": "aya_z1a0600__a0011.png",
+      "source_expression": "嘟哝",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0016": {
+      "file": "aya_z1a0600__a0016.png",
+      "source_expression": "卖萌",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0016h": {
+      "file": "aya_z1a0600__a0016h.png",
+      "source_expression": "脸红卖萌",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0017": {
+      "file": "aya_z1a0600__a0017.png",
+      "source_expression": "得意",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0017h": {
+      "file": "aya_z1a0600__a0017h.png",
+      "source_expression": "脸红得意",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0018": {
+      "file": "aya_z1a0600__a0018.png",
+      "source_expression": "担忧",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0018h": {
+      "file": "aya_z1a0600__a0018h.png",
+      "source_expression": "脸红担忧",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0019": {
+      "file": "aya_z1a0600__a0019.png",
+      "source_expression": "不同意",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0019h": {
+      "file": "aya_z1a0600__a0019h.png",
+      "source_expression": "脸红不同意",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0021": {
+      "file": "aya_z1a0600__a0021.png",
+      "source_expression": "流汗嘟哝",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0021h": {
+      "file": "aya_z1a0600__a0021h.png",
+      "source_expression": "掩饰",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0023": {
+      "file": "aya_z1a0600__a0023.png",
+      "source_expression": "委屈",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0023h": {
+      "file": "aya_z1a0600__a0023h.png",
+      "source_expression": "脸红委屈",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0024": {
+      "file": "aya_z1a0600__a0024.png",
+      "source_expression": "欲哭",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0024h": {
+      "file": "aya_z1a0600__a0024h.png",
+      "source_expression": "脸红预哭",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "aya_z1a0600__a0025": {
+      "file": "aya_z1a0600__a0025.png",
+      "source_expression": "哭",
+      "pose": "crossed",
+      "costume": "裸露局部打码B",
+      "width": 384,
+      "height": 1656
+    },
+    "neutral": {
+      "file": "neutral.png",
+      "source_expression": "休闲",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "explain": {
+      "file": "explain.png",
+      "source_expression": "正经",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "encourage": {
+      "file": "encourage.png",
+      "source_expression": "卖萌",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "caution": {
+      "file": "caution.png",
+      "source_expression": "担忧",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    },
+    "playful": {
+      "file": "playful.png",
+      "source_expression": "得意",
+      "pose": "crossed",
+      "costume": "校服",
+      "width": 472,
+      "height": 1656
+    }
+  },
+  "transition": {
+    "sentence_motion": "dip",
+    "dip_px": 12,
+    "duration_ms": 300
+  }
 }

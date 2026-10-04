@@ -11,6 +11,9 @@
   "voice": {"voice_mode": "auto"},
   "stt": {"provider": "local", "model": "tiny"},
   "avatar_root": "assets/ayana",
+  "avatar_costume": "校服",
+  "sentence_motion": true,
+  "volume": 1,
   "subtitles": true,
   "save_history": true
 }

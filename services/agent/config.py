@@ -25,11 +25,19 @@ class Settings:
         return {k: v for k, v in self.values.items() if not any(s in k.lower() for s in ("secret", "token", "api_key"))}
 
     def update(self, patch: dict):
-        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "voice", "stt", "max_audio_ahead_ms", "max_utterances"}
+        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "avatar_costume", "sentence_motion", "volume"}
         if not isinstance(patch, dict) or set(patch) - allowed:
             raise ValueError("Unsupported settings field")
         if "provider" in patch and patch["provider"] not in {"local", "openai"}:
             raise ValueError("Provider must be local or openai")
+        if "avatar_costume" in patch:
+            mapping = json.loads((self.root / "characters/ayana/avatar-map.json").read_text(encoding="utf-8"))
+            if patch["avatar_costume"] not in {item.get("costume", "校服") for item in mapping["assets"].values()}:
+                raise ValueError("Unknown avatar costume")
+        if "sentence_motion" in patch and type(patch["sentence_motion"]) is not bool:
+            raise ValueError("sentence_motion must be boolean")
+        if "volume" in patch and (type(patch["volume"]) not in {int, float} or not 0 <= patch["volume"] <= 1):
+            raise ValueError("volume must be between 0 and 1")
         if "base_url" in patch:
             from urllib.parse import urlparse
             url = urlparse(patch["base_url"])

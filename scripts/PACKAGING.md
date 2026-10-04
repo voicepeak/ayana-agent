@@ -32,7 +32,7 @@ npm run package
 
 打包脚本从 [Python 官方 3.11.9 发布页](https://www.python.org/downloads/release/python-3119/) 下载 AMD64 嵌入式运行时并校验发布页列出的校验和，把 `.venv` 的运行依赖复制到该运行时。验证使用 `python.exe -I`，不读取系统 Python 或用户的 site-packages。桌面程序也须使用 `-I -u -m services.agent` 启动它。
 
-`.runtime/backend` 包含服务代码、Windows 执行层、协议、人设、默认配置、五张角色 PNG、小型英文发音资料，以及本地已下载的 tiny 识别模型。发布包不会复制个人配置、API 密钥、DPAPI 文件、会话历史或 GPT-SoVITS 权重。个人机器的配置应通过程序设置或用户数据目录提供。
+`.runtime/backend` 包含服务代码、Windows 执行层、协议、人设、默认配置、完整素材目录中的 234 张原始透明角色 PNG（另含五个兼容别名）、小型英文发音资料，以及本地已下载的 tiny 识别模型。发布包不会复制个人配置、API 密钥、DPAPI 文件、会话历史或 GPT-SoVITS 权重。个人机器的配置应通过程序设置或用户数据目录提供。
 
 `scripts/package_backend.py --nltk-only` 单独准备英文代码名称的发音字典和词性标注资料；纯日语合成之外的混合日语/英文内容需要它。字典保存在 `.runtime/nltk_data`，打包后保存在 `backend/nltk_data`，TTS 会自动选取。
 

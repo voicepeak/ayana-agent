@@ -23,7 +23,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 let chat: BrowserWindow | undefined;
-let avatar: BrowserWindow | undefined;
+let settingsWindow: BrowserWindow | undefined;
 let highlight: BrowserWindow | undefined;
 let tray: Tray | undefined;
 let child: ChildProcess | undefined;
@@ -69,7 +69,7 @@ function broadcast(event: Event, remember = true) {
     recentEvents.push(event);
     recentEvents = recentEvents.slice(-160);
   }
-  for (const window of [chat, avatar, highlight]) {
+  for (const window of [chat, settingsWindow, highlight]) {
     if (window !== chat && event.type.startsWith('audio.')) continue;
     if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) {
       window.webContents.send('ayana:event', event);
@@ -98,7 +98,6 @@ function hide() {
   cancel();
   runtimeSend({ type: 'session.close' });
   chat?.hide();
-  avatar?.hide();
   highlight?.hide();
 }
 
@@ -106,7 +105,6 @@ async function summon() {
   // Runtime records the foreground HWND before either assistant window gains focus.
   cancel();
   focusAfterCapture = true;
-  avatar?.showInactive();
   if (!runtimeSend({ type: 'session.start' })) {
     summonPending = true;
     chat?.showInactive();
@@ -135,7 +133,7 @@ function windowHandle(window: BrowserWindow): number {
 function registerWindows() {
   runtimeSend({
     type: 'assistant.register',
-    hwnds: [chat, avatar, highlight].filter((win): win is BrowserWindow => !!win && !win.isDestroyed()).map(windowHandle),
+    hwnds: [chat, settingsWindow, highlight].filter((win): win is BrowserWindow => !!win && !win.isDestroyed()).map(windowHandle),
   });
 }
 
@@ -155,6 +153,7 @@ function updateShortcuts(settings: Record<string, unknown>) {
     { label: `呼出 Ayana · ${summonShortcut}`, click: () => { void summon(); } },
     { label: `停止当前回复 · ${cancelShortcut}`, click: cancel },
     { label: '收起会话', click: hide },
+    { label: '设置与管理', click: () => { settingsWindow?.show(); settingsWindow?.focus(); } },
     { type: 'separator' },
     { label: '重新启动本地服务', click: () => { void restartRuntime(); } },
     { label: '退出 Ayana', click: () => { quitting = true; app.quit(); } },
@@ -248,12 +247,12 @@ async function startRuntime() {
   token = randomBytes(32).toString('hex');
   port = await freePort();
   const root = backendRoot();
-  repositoryRoot = app.isPackaged ? '' : root;
+  repositoryRoot = '';
   const bundled = path.join(process.resourcesPath, 'python', 'python.exe');
   const local = path.join(root, '.venv', 'Scripts', 'python.exe');
   const python = process.env.AYANA_PYTHON || (existsSync(bundled) ? bundled : existsSync(local) ? local : 'python');
   diagnostic(`Runtime start: packaged=${app.isPackaged} backend=${root} python=${python} data=${app.getPath('userData')}`);
-  child = spawn(python, [...(app.isPackaged ? ['-I', '-X', 'utf8', '-u'] : []), '-m', 'services.agent', '--port', String(port)], {
+  child = spawn(python, [...(app.isPackaged ? ['-I', '-X', 'utf8', '-u'] : []), '-m', 'services.agent', '--port', String(port),], {
     cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONPATH: root, AYANA_RUNTIME_TOKEN: token,
       ...(app.isPackaged ? { AYANA_DATA_DIR: app.getPath('userData') } : {}), },
@@ -308,12 +307,12 @@ async function stopRuntime(previous = child) {
 }
 
 function trustedSender(id: number) {
-  return [chat, avatar, highlight].some(win => win && !win.isDestroyed() && win.webContents.id === id);
+  return [chat, settingsWindow, highlight].some(win => win && !win.isDestroyed() && win.webContents.id === id);
 }
 
 function registerIpc() {
   ipcMain.handle('ayana:command', (event, value: unknown) => {
-    if (!trustedSender(event.sender.id) || event.sender.id !== chat?.webContents.id) return { ok: false, error: '不允许此窗口发送控制命令。' };
+    if (![chat?.webContents.id, settingsWindow?.webContents.id].includes(event.sender.id)) return { ok: false, error: '不允许此窗口发送控制命令。' };
     if (!value || typeof value !== 'object' || Array.isArray(value)) return { ok: false, error: '命令格式无效。' };
     const command = value as Record<string, unknown>;
     if (!commands.has(String(command.type)) || JSON.stringify(command).length > 2_000_000) return { ok: false, error: '命令不在允许范围内。' };
@@ -333,33 +332,40 @@ function registerIpc() {
   });
   ipcMain.handle('ayana:summon', (event) => trustedSender(event.sender.id) ? summon() : undefined);
   ipcMain.handle('ayana:hide', (event) => trustedSender(event.sender.id) ? hide() : undefined);
+  ipcMain.handle('ayana:settings', event => {
+    if (!trustedSender(event.sender.id)) return;
+    settingsWindow?.show(); settingsWindow?.focus();
+  });
+  ipcMain.handle('ayana:hide-settings', event => {
+    if (event.sender.id === settingsWindow?.webContents.id) settingsWindow?.hide();
+  });
   ipcMain.handle('ayana:choose-repository', async (event) => {
-    if (event.sender.id !== chat?.webContents.id) return null;
-    const result = await dialog.showOpenDialog(chat!, { title: '选择要一起学习的仓库', properties: ['openDirectory'] });
+    if (event.sender.id !== settingsWindow?.webContents.id) return null;
+    const result = await dialog.showOpenDialog(settingsWindow!, { title: '选择仓库上下文', properties: ['openDirectory'] });
     return result.canceled ? null : result.filePaths[0] ?? null;
   });
-  ipcMain.handle('ayana:restart', (event) => event.sender.id === chat?.webContents.id ? restartRuntime() : undefined);
+  ipcMain.handle('ayana:restart', (event) => event.sender.id === settingsWindow?.webContents.id ? restartRuntime() : undefined);
   ipcMain.handle('ayana:state', (event) => {
     if (!trustedSender(event.sender.id)) return null;
     return { connected: socket?.readyState === WebSocket.OPEN, service, version: app.getVersion(), repositoryRoot, events: recentEvents };
   });
 }
 
-function createWindow(kind: 'chat' | 'avatar' | 'highlight') {
-  const overlay = kind !== 'chat';
+function createWindow(kind: 'chat' | 'settings' | 'highlight') {
+  const overlay = kind !== 'settings';
   const { workArea } = screen.getPrimaryDisplay();
   const window = new BrowserWindow({
-    width: kind === 'chat' ? Math.min(1240, Math.max(820, workArea.width - 40)) : kind === 'avatar' ? 320 : 300,
-    height: kind === 'chat' ? Math.min(830, Math.max(480, workArea.height - 40)) : kind === 'avatar' ? Math.min(720, workArea.height) : 140,
-    minWidth: kind === 'chat' ? 820 : undefined,
-    minHeight: kind === 'chat' ? 480 : undefined,
+    width: kind === 'settings' ? Math.min(1160, workArea.width - 40) : kind === 'chat' ? Math.min(680, workArea.width) : 300,
+    height: kind === 'settings' ? Math.min(830, workArea.height - 40) : kind === 'chat' ? Math.min(760, workArea.height) : 140,
+    minWidth: kind === 'settings' ? 820 : 420,
+    minHeight: kind === 'settings' ? 480 : undefined,
     show: false, frame: !overlay, transparent: overlay, backgroundColor: overlay ? '#00000000' : '#f5f7fb',
-    alwaysOnTop: overlay, focusable: !overlay, skipTaskbar: overlay,
-    title: 'Ayana · 一起看懂', autoHideMenuBar: true,
+    alwaysOnTop: overlay, focusable: kind !== 'highlight', skipTaskbar: overlay,
+    title: kind === 'settings' ? 'Ayana · 设置与管理' : 'Ayana', autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   if (overlay) {
-    window.setIgnoreMouseEvents(true, { forward: true });
+    if (kind === 'highlight') window.setIgnoreMouseEvents(true, { forward: true });
     window.setAlwaysOnTop(true, 'screen-saver');
   }
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -378,13 +384,15 @@ function createWindow(kind: 'chat' | 'avatar' | 'highlight') {
   if (kind === 'chat') {
     window.on('close', event => { if (!quitting) { event.preventDefault(); hide(); } });
   }
+  if (kind === 'settings') window.on('close', event => { if (!quitting) { event.preventDefault(); window.hide(); } });
   return window;
 }
 
-function placeAvatar() {
+function placeCompanion() {
   const { workArea } = screen.getPrimaryDisplay();
-  const height = Math.min(720, workArea.height);
-  avatar?.setBounds({ x: workArea.x + workArea.width - 322, y: workArea.y + workArea.height - height, width: 320, height });
+  const height = Math.min(760, workArea.height);
+  const width = Math.min(680, workArea.width);
+  chat?.setBounds({ x: workArea.x + workArea.width - width, y: workArea.y + workArea.height - height, width, height });
 }
 
 async function ready() {
@@ -400,19 +408,19 @@ async function ready() {
     if (!/^[a-z0-9_-]{1,80}$/i.test(id) || !port || !token) return new Response(null, { status: 404 });
     try {
       const response = await fetch(`http://127.0.0.1:${port}/assets/${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${token}` } });
-      return new Response(await response.arrayBuffer(), { status: response.status, headers: { 'Content-Type': response.headers.get('Content-Type') || 'image/png', 'Cache-Control': 'no-cache' } });
+      return new Response(await response.arrayBuffer(), { status: response.status, headers: { 'Content-Type': response.headers.get('Content-Type') || 'image/png', 'Cache-Control': response.ok ? 'private, max-age=3600' : 'no-store' } });
     } catch { return new Response(null, { status: 503 }); }
   });
   chat = createWindow('chat');
-  avatar = createWindow('avatar');
+  settingsWindow = createWindow('settings');
   highlight = createWindow('highlight');
-  placeAvatar();
-  screen.on('display-metrics-changed', placeAvatar);
+  placeCompanion();
+  screen.on('display-metrics-changed', placeCompanion);
   // A small bundled bitmap is used so the tray remains available while offline.
   const iconPath = path.join(__dirname, '../dist/tray.png');
   const icon = existsSync(iconPath) ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty();
   tray = new Tray(icon);
-  tray.setToolTip('Ayana · 一起看懂');
+  tray.setToolTip('Ayana · 你的私人 Agent');
   tray.on('click', () => { void summon(); });
   updateShortcuts({});
   registerIpc();

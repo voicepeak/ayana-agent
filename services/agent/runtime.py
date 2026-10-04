@@ -20,6 +20,8 @@ def identifier(prefix):
 class AgentRuntime:
     def __init__(self, settings, desktop=None, tts=None, store=None):
         self.settings = settings
+        from .avatars import AvatarCatalog
+        self.avatars = AvatarCatalog(settings.root)
         if desktop is None:
             from native.windows.desktop import WindowsDesktop
             desktop = WindowsDesktop()
@@ -338,7 +340,7 @@ class AgentRuntime:
                 content = [{"type": "text", "text": json.dumps(context, ensure_ascii=False)}]
                 if self.snapshot and self.settings.values.get("send_screenshot"):
                     content.append({"type": "image_url", "image_url": {"url": "data:image/png;base64," + self.snapshot["png_base64"]}})
-                messages = [{"role": "system", "content": persona + "\n" + policy + "\n" + CONTRACT}, *self.store.context(exclude_turn=self.turn_id), {"role": "user", "content": content}]
+                messages = [{"role": "system", "content": persona + "\n" + policy + "\n" + CONTRACT + "\n" + self.avatars.prompt(self.settings.values.get("avatar_costume", "校服"))}, *self.store.context(exclude_turn=self.turn_id), {"role": "user", "content": content}]
                 streams = [OpenAIProvider(self.settings).stream_reply(messages)]
             for tool_round in range(4):
                 requests = []
@@ -352,6 +354,7 @@ class AgentRuntime:
                         if count >= self.settings.values["max_utterances"]:
                             break
                         speech = validate_speech(event)
+                        speech["asset_id"] = self.avatars.route(speech, self.settings.values.get("avatar_costume", "校服"))
                         key = str(event.get("key", count))
                         if key in keys:
                             raise ValueError("Model repeated a committed utterance key")
