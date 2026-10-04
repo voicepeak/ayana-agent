@@ -45,6 +45,6 @@
       { "from": "../../.runtime/python", "to": "python", "filter": ["**/*", "!**/__pycache__/**"] }
     ],
     "win": { "target": "portable", "icon": "public/icon.ico", "signAndEditExecutable": false },
-    "portable": { "artifactName": "Ayana-${version}-win-${arch}.exe" }
+    "portable": { "artifactName": "Ayana-${version}-win-${arch}.exe", "unpackDirName": true }
   }
 }

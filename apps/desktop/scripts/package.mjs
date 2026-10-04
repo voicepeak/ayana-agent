@@ -1,6 +1,12 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { verifyPortableIsolation } from './verify-portable.mjs';
+
+// In installed builder 26.15.3, true keeps NSIS's per-launch $PLUGINSDIR.
+// False (despite its type comment) reuses a build directory and can delete
+// another running instance's backend files after a second launch exits.
+await verifyPortableIsolation();
 
 // Reuse a previously installed official builder toolset when available. This
 // avoids downloading the same compiler again on restricted/offline networks.

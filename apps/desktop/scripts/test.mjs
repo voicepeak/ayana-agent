@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { build } from 'esbuild';
+import { verifyPortableIsolation } from './verify-portable.mjs';
+
+await verifyPortableIsolation();
 
 const source = await readFile(new URL('../public/pcm-player.js', import.meta.url), 'utf8');
 let Processor;

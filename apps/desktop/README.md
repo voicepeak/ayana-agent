@@ -61,3 +61,10 @@ runtime data lives in `%APPDATA%/Ayana`, and its settings can reference the user
 external GPT-SoVITS model environment. The source tree and lockfile remain the
 reproducible build inputs. No development machine model path is hardcoded into
 the distributed backend defaults.
+
+Portable launches extract into independent NSIS plugin directories. Reopening
+the executable while Ayana is already running cannot clean up the active
+instance's backend, Python modules or assets. `scripts/verify-portable.mjs`
+checks the installed builder's actual NSIS defines before packaging. In builder
+26.15.3, `portable.unpackDirName: true` selects this behavior; its type comment
+incorrectly describes `false`, which still generates a shared build directory.
