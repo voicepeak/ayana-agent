@@ -104,6 +104,12 @@ def main():
         os.environ.pop(name, None)
     os.environ["NO_PROXY"] = os.environ["no_proxy"] = "127.0.0.1,localhost"
     os.environ["PYTHONIOENCODING"] = "utf-8"
+    # UFO's Excel client pulls in pandas/numpy. Loading numpy's OpenBLAS
+    # extension after a socket/select thread (the relay server below) starts
+    # deadlocks during DLL initialization on Windows, so warm it first while
+    # this process is still single-threaded.
+    import numpy  # noqa: F401
+    import pandas  # noqa: F401
     control = ControlPlane(emit)
     threading.Thread(target=control.read, daemon=True).start()
     ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
@@ -190,8 +196,14 @@ def main():
 
         server = ThreadingHTTPServer(("127.0.0.1", 0), Relay)
         threading.Thread(target=server.serve_forever, daemon=True).start()
+        # Copy every config module: UFO loads "ufo" and "galaxy" from the
+        # working directory, and galaxy is pulled in lazily while a session
+        # starts. Only "ufo" is rewritten below.
+        shutil.copytree(upstream / "config", work / "config")
+        # Prompt paths default to schema values like "ufo/prompts/...", resolved
+        # against the working directory, so stage the prompts there too.
+        shutil.copytree(upstream / "ufo/prompts", work / "ufo/prompts")
         config_path = work / "config/ufo"
-        shutil.copytree(upstream / "config/ufo", config_path)
         def absolute_paths(value):
             if isinstance(value, dict):
                 return {k: absolute_paths(v) for k, v in value.items()}
@@ -208,6 +220,9 @@ def main():
             agents[name].update(API_TYPE="openai", API_BASE=f"http://127.0.0.1:{server.server_port}/v1",
                                 API_KEY=relay_token, API_MODEL=model["name"], VISUAL_MODE=True,
                                 REASONING_MODEL=False, USE_RESPONSES=False)
+        # The template is merged after the rewrite loop above, so its relative
+        # "ufo/..." prompt paths need the same absolute rewrite here.
+        agents = absolute_paths(agents)
         (config_path / "agents.yaml").write_text(yaml.safe_dump(agents), encoding="utf-8")
         system_path = config_path / "system.yaml"
         system = yaml.safe_load(system_path.read_text(encoding="utf-8"))
@@ -274,8 +289,6 @@ def main():
                 raise RuntimeError("Screenshot outside bound window")
             bounds = current["bounds"]
             size = (bounds["right"]-bounds["left"], bounds["bottom"]-bounds["top"])
-            if size[0] * size[1] > 8_000_000:
-                raise RuntimeError("目标窗口过大，请缩小窗口后重试")
             awareness = api.user.GetAwarenessFromDpiAwarenessContext(api.user.GetWindowDpiAwarenessContext(selected.handle))
             previous = api.user.SetThreadDpiAwarenessContext(ctypes.c_void_p(-1 if awareness == 0 else -4))
             try:
@@ -287,6 +300,13 @@ def main():
             if target_identity()["bounds"] != bounds:
                 raise RuntimeError("窗口在截图期间移动，请重新观察")
             picture = picture.resize(size)
+            if size[0] * size[1] > 8_000_000:
+                # A high-DPI window can exceed the model image budget. UFO uses
+                # normalized coordinates and named controls, so shrinking the
+                # screenshot keeps observations bounded without moving clicks.
+                from PIL import Image
+                factor = (8_000_000 / (size[0] * size[1])) ** .5
+                picture = picture.resize((max(1, round(picture.width*factor)), max(1, round(picture.height*factor))), Image.LANCZOS)
             captures.update(bounds=bounds, count=captures["count"]+1, after_action=bool(actions))
             if scalar is not None:
                 picture = Photographer.rescale_image(picture, scalar)

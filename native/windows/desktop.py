@@ -76,6 +76,32 @@ def _same_content(first, second, client_bounds=None):
     return right-left <= 2 and bottom-top <= 32  # insertion caret only
 
 
+def _fit_capture(image, max_pixels=8_000_000, max_bytes=6 * 1024 * 1024):
+    """Scale a capture into the observation budget instead of refusing it.
+
+    The window may be larger than the budget on high-DPI displays. Shrinking the
+    public snapshot keeps the model input bounded; action coordinates stay
+    correct because the returned transform records the applied scale.
+    """
+    from PIL import Image
+    scale = 1.0
+    for _ in range(6):
+        display = image if scale >= 1.0 else image.resize(
+            (max(1, round(image.width * scale)), max(1, round(image.height * scale))), Image.LANCZOS)
+        output = io.BytesIO()
+        display.save(output, format="PNG")
+        size = output.tell()
+        if display.width * display.height <= max_pixels and size <= max_bytes:
+            return display, output.getvalue()
+        pixel_ratio = math.sqrt(max_pixels / (display.width * display.height))
+        byte_ratio = math.sqrt(max_bytes / size) if size else 1.0
+        shrink = min(pixel_ratio, byte_ratio)
+        if not math.isfinite(shrink) or shrink >= 1.0:
+            shrink = 0.8
+        scale *= max(0.05, shrink * 0.98)
+    raise DesktopError("capture_size", "Target image is too large to observe; reduce the window size")
+
+
 @dataclass
 class _Snapshot:
     public: dict
@@ -220,23 +246,20 @@ class WindowsDesktop:
             captured = time.monotonic()
             epoch = self._monitor.epoch
             image = self._image(target)
-            if image.width * image.height > 8_000_000:
-                raise DesktopError("capture_size", "Target image exceeds 8 million pixels; reduce the window size")
-            output = io.BytesIO()
-            image.save(output, format="PNG")
-            if output.tell() > 6 * 1024 * 1024:
-                raise DesktopError("capture_size", "Target screenshot exceeds 6 MiB; reduce the window size")
+            display, png = _fit_capture(image)
             snapshot_id = f"snap-{uuid.uuid4().hex[:12]}"
             b = target["bounds"]
+            scale_x = image.width / display.width
+            scale_y = image.height / display.height
             transform = {"transform_id": f"transform-{snapshot_id}",
                          "coordinate_space": "snapshot_image_px", "screen_space": "physical_screen_px",
-                         "origin_x": b["left"], "origin_y": b["top"], "scale_x": 1.0, "scale_y": 1.0,
+                         "origin_x": b["left"], "origin_y": b["top"], "scale_x": scale_x, "scale_y": scale_y,
                          "dpi": target["dpi"], "electron_dip_scale": target["dpi"]/96,
-                         "matrix": [1, 0, b["left"], 0, 1, b["top"], 0, 0, 1]}
+                         "matrix": [scale_x, 0, b["left"], 0, scale_y, b["top"], 0, 0, 1]}
             public = {"snapshot_id": snapshot_id, "target_id": target_id,
                       "captured_at_monotonic_ms": captured * 1000,
-                      "image_size_px": {"width": image.width, "height": image.height},
-                      "png_base64": base64.b64encode(output.getvalue()).decode("ascii"),
+                      "image_size_px": {"width": display.width, "height": display.height},
+                      "png_base64": base64.b64encode(png).decode("ascii"),
                       "content_sha256": hashlib.sha256(image.tobytes()).hexdigest(),
                       "target": target, "transform": transform,
                       "coordinate_space": "snapshot_image_px", "window_state": target["window_state"]}
