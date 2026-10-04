@@ -190,3 +190,21 @@ async def test_capture_failure_invalidates_old_image_and_actions(tmp_path):
     assert runtime.snapshot is None and not runtime.actions
     assert ws.events[-1]["type"] == "snapshot.invalidated"
     await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_display_settings_do_not_restart_unchanged_voice_engine(tmp_path):
+    from unittest.mock import AsyncMock
+    cfg = settings(tmp_path)
+    cfg.values["voice"] = {"voice_mode": "sovits", "engine_root": "user-engine", "model_gpt": "user-model"}
+    tts = Tts()
+    tts.close = AsyncMock()
+    runtime = AgentRuntime(cfg, desktop=Desktop(), tts=tts)
+    await runtime.start()
+    await runtime.start_task
+    startup = runtime.start_task
+    await runtime.handle({"type": "settings.update", "settings": {"sentence_motion": False, "voice": dict(cfg.values["voice"])}})
+    assert runtime.tts is tts
+    assert runtime.start_task is startup
+    tts.close.assert_not_awaited()
+    await runtime.close()

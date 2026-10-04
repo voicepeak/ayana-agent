@@ -252,7 +252,8 @@ async function startRuntime() {
   const local = path.join(root, '.venv', 'Scripts', 'python.exe');
   const python = process.env.AYANA_PYTHON || (existsSync(bundled) ? bundled : existsSync(local) ? local : 'python');
   diagnostic(`Runtime start: packaged=${app.isPackaged} backend=${root} python=${python} data=${app.getPath('userData')}`);
-  child = spawn(python, [...(app.isPackaged ? ['-I', '-X', 'utf8', '-u'] : []), '-m', 'services.agent', '--port', String(port),], {
+  child = spawn(python, [...(app.isPackaged ? ['-I', '-X', 'utf8', '-u'] : []), '-m', 'services.agent', '--port', String(port),
+    ...(app.isPackaged ? ['--data-dir', app.getPath('userData')] : [])], {
     cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONPATH: root, AYANA_RUNTIME_TOKEN: token,
       ...(app.isPackaged ? { AYANA_DATA_DIR: app.getPath('userData') } : {}), },

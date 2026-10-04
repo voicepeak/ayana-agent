@@ -30,7 +30,9 @@ def create_app(token: str, settings=None, runtime=None):
     async def health(request: Request):
         if not authenticated(request.headers.get("authorization")):
             raise HTTPException(401)
-        return {"ok": True, "protocol_version": 1, "tts": runtime.tts.status}
+        return {"ok": True, "protocol_version": 1, "tts": runtime.tts.status,
+                "settings_file": str(settings.path), "settings_exists": settings.path.is_file(),
+                "provider": settings.values["provider"], "voice_mode": settings.values.get("voice", {}).get("voice_mode", "auto")}
 
     @app.post("/shutdown")
     async def shutdown(request: Request):

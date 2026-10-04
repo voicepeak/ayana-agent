@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+from pathlib import Path
 import uvicorn
 from .server import create_app
 
@@ -9,8 +10,10 @@ def main():
     parser = argparse.ArgumentParser(description="Ayana authenticated loopback runtime")
     parser.add_argument("--port", type=int, default=17321)
     parser.add_argument("--token", default=os.environ.get("AYANA_RUNTIME_TOKEN", ""))
+    parser.add_argument("--data-dir", type=Path, help="Explicit personal configuration and history directory")
     args = parser.parse_args()
-    app = create_app(args.token)
+    from .config import Settings
+    app = create_app(args.token, settings=Settings(data_root=args.data_dir))
     settings = app.state.runtime.settings
     logging.getLogger('ayana.runtime').warning(
         "Runtime config: path=%s exists=%s provider=%s voice=%s credentials=%s",

@@ -8,9 +8,9 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings:
-    def __init__(self, root: Path = ROOT):
+    def __init__(self, root: Path = ROOT, data_root: Path | None = None):
         self.root = root
-        self.data_root = Path(os.environ.get("AYANA_DATA_DIR", str(root))).resolve()
+        self.data_root = Path(data_root or os.environ.get("AYANA_DATA_DIR", str(root))).resolve()
         self.path = self.data_root / "config/local.json"
         self.values = json.loads((root / "config/default.json").read_text(encoding="utf-8"))
         # First personal packaged launch can seed local resource paths. No credentials in settings.
@@ -51,6 +51,10 @@ class Settings:
         for key, low, high in (("max_utterances", 1, 12), ("max_audio_ahead_ms", 2000, 15000)):
             if key in patch and (type(patch[key]) is not int or not low <= patch[key] <= high):
                 raise ValueError(f"{key} out of range")
+        if "voice" in patch:
+            if not isinstance(patch["voice"], dict):
+                raise ValueError("voice must be an object")
+            patch = {**patch, "voice": {**self.values.get("voice", {}), **patch["voice"]}}
         self.values.update(patch)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temp = self.path.with_suffix(".tmp")

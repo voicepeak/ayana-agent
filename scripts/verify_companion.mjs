@@ -55,7 +55,7 @@ try {
   await chat.getByRole('button', { name: '发送', exact: true }).click();
   await chat.waitForFunction(() => document.querySelector('.gal-lines [lang=ja]')?.textContent === 'うん、ここにいるよ。');
   await chat.waitForFunction(() => document.querySelector('.gal-translation')?.textContent === '嗯，我在这里。');
-  await chat.waitForFunction(() => document.querySelector('.character')?.src.includes('aya_z1a0010__a0009'));
+  await chat.waitForFunction(() => document.querySelector('.character')?.src.includes('aya_z1a0000__a0009'));
   await chat.waitForFunction(() => document.querySelector('.gal-lines [lang=ja]')?.textContent === '今日は、どんなことを話したい？');
   await chat.screenshot({ path: path.join(directory, 'conversation.png'), omitBackground: true });
   await chat.waitForTimeout(2000);

@@ -43,6 +43,8 @@ const stateModule = { exports: {} };
 const stateContext = vm.createContext({ window: {}, module: stateModule, exports: stateModule.exports, require: () => ({}), Date, setTimeout });
 vm.runInContext(compiled.outputFiles[0].text, stateContext);
 const { reduceEvent, initialState } = stateModule.exports;
+assert.equal(initialState.settingsLoaded, false);
+assert.equal(reduceEvent(initialState, { protocol_version: 1, type: 'settings.ready', settings: { voice: { voice_mode: 'sovits' } } }).settingsLoaded, true);
 const event = (type, payload = {}) => ({ type, protocol_version: 1, generation_id: 7, ...payload });
 let state = reduceEvent(initialState, event('utterance.ready', { utterance_id: 'speech', speech_ja: '一緒に見よう。', intent: 'encourage', intensity: .7 }));
 assert.equal(state.expression, 'neutral');

@@ -209,11 +209,16 @@ class AgentRuntime:
         elif kind == "settings.update":
             patch = cmd.get("settings", {})
             await self.cancel("settings_changed")
+            previous_voice = self.settings.values.get("voice", {})
             self.settings.update(patch)
             if "stt" in patch and self.stt:
                 await self.stt.close()
                 self.stt = None
-            if "voice" in patch:
+            if "voice" in patch and self.settings.values["voice"] != previous_voice:
+                if self.start_task and not self.start_task.done():
+                    self.start_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await self.start_task
                 await self.tts.close()
                 from services.tts.service import TtsService
                 self.tts = TtsService(self.settings.values["voice"])

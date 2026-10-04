@@ -17,6 +17,7 @@ export interface ModelState {
   task: string; voice: string; mode: 'teach' | 'execute'; target?: Target;
   snapshot?: RuntimeEvent; speeches: Speech[]; current?: string; expression: string;
   expressionAt: number; inputState: string;
+  settingsLoaded: boolean;
   presented?: string; sentenceVersion: number;
   progress: number; repository?: Repository; settings: Record<string, unknown>;
   history: Record<string, unknown>[]; windows: Target[]; evidence: Evidence[];
@@ -26,7 +27,7 @@ export interface ModelState {
 export const initialState: ModelState = {
   connected: false, service: 'starting', generation: 0, cancelledGeneration: -1,
   task: 'idle', voice: 'starting', mode: 'teach', speeches: [], expression: 'neutral', expressionAt: 0, inputState: 'idle',
-  progress: 0, sentenceVersion: 0, settings: {}, history: [], windows: [], evidence: [], actions: [], tools: [], questions: [],
+  progress: 0, sentenceVersion: 0, settingsLoaded: false, settings: {}, history: [], windows: [], evidence: [], actions: [], tools: [], questions: [],
 };
 
 export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState {
@@ -81,7 +82,7 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
       if (evidence.path) next.evidence = [...state.evidence.filter(e => e.path !== evidence.path), evidence];
       break;
     }
-    case 'settings.ready': next.settings = (event.settings ?? {}) as Record<string, unknown>; break;
+    case 'settings.ready': next.settings = (event.settings ?? {}) as Record<string, unknown>; next.settingsLoaded = true; break;
     case 'history.ready': next.history = (event.history ?? event.utterances ?? []) as Record<string, unknown>[]; break;
     case 'user.message':
     case 'desktop.question':
@@ -138,7 +139,7 @@ const previewBridge: AyanaBridge = {
   send: async () => ({ ok: false, error: '此页面仅用于界面预览。请通过桌面应用启动本地服务。' }),
   onEvent: () => () => {}, playback: () => {}, summon: async () => {}, hide: async () => {}, openSettings: async () => {}, hideSettings: async () => {},
   chooseRepository: async () => null, restart: async () => {},
-  getState: async () => ({ connected: false, service: 'preview', version: '0.2.0', repositoryRoot: '', events: [] }),
+  getState: async () => ({ connected: false, service: 'preview', version: '0.2.1', repositoryRoot: '', events: [] }),
 };
 export const bridge = window.ayana ?? previewBridge;
 
