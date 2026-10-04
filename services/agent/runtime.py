@@ -5,19 +5,30 @@ import contextlib
 import json
 import time
 import uuid
+import threading
 from collections import OrderedDict
+
+import httpx
 
 from packages.protocol import PROTOCOL_VERSION, validate_speech
 from .providers.model import CONTRACT, LocalProvider, OpenAIProvider
 from .storage import ConversationStore
+from .context import PromptHistory, repository_message
 from .tools.repository import RepositoryReader
+from .tools.registry import ToolRegistry, ToolError, arguments, string
+from .tools.policy import DirectoryPolicy
+from .tools.files import FileTools
+from .tools.web import WebTools
+from .tasks import TaskRunner
+from .capabilities import CapabilityRuntime
+from .computer_use import ComputerUse
 
 
 def identifier(prefix):
     return f"{prefix}-{uuid.uuid4().hex[:12]}"
 
 
-class AgentRuntime:
+class AgentRuntime(CapabilityRuntime):
     def __init__(self, settings, desktop=None, tts=None, store=None):
         self.settings = settings
         from .avatars import AvatarCatalog
@@ -30,6 +41,8 @@ class AgentRuntime:
             tts = TtsService(settings.values.get("voice", {}))
         self.desktop, self.tts = desktop, tts
         self.store = store or ConversationStore(settings.data_root / ".runtime/history.sqlite3")
+        self.prompt_history = PromptHistory(self.store)
+        self.model_client = None
         self.session_id = identifier("session")
         self.turn_id = ""
         self.generation = 0
@@ -45,9 +58,37 @@ class AgentRuntime:
         self.pending_condition = asyncio.Condition()
         self.actions = {}
         self.utterances = {}
+        self.last_reply_keys = {}
+        self.last_reply_turn = None
         self.mode = "teach"
         self.closed = False
         self.stt = None
+        self.command_lock = asyncio.Lock()
+        self.close_lock = asyncio.Lock()
+        self.active_task = None
+        self.deadline_task = None
+        self.task_gate = asyncio.Event()
+        self.task_gate.set()
+        self.continuation = None
+        self.write_cancel = threading.Event()
+        self.policy = DirectoryPolicy(settings.data_root / "artifacts")
+        for grant in self.store.records("directory"):
+            with contextlib.suppress(ValueError, OSError):
+                self.policy.grant(grant["root_id"], grant["path"], grant["write"])
+        self.files = FileTools(self.policy, settings.data_root, self.store)
+        self.web = WebTools(settings.search_key)
+        self.computer = ComputerUse(settings)
+        if settings.values.get("save_history", True):
+            self.web.sources.update({s["source_id"]: s for s in self.store.records("source")})
+        self.registry = self._make_tools()
+        self.approvals = {}
+        self.client_queues = {}
+        self.client_senders = {}
+        self.persistence_lock = asyncio.Lock()
+        for record in self.store.records("task"):
+            if record["state"] in {"running", "waiting_approval", "paused"}:
+                record["state"] = "interrupted"
+                self.store.put_record("task", record["task_id"], record)
 
     async def emit(self, event_type, **payload):
         self.seq += 1
@@ -55,16 +96,44 @@ class AgentRuntime:
                  "turn_id": self.turn_id, "generation_id": self.generation, "seq": self.seq,
                  "runtime_monotonic_ms": round(time.monotonic() * 1000), **payload}
         if self.settings.values.get("save_history", True):
-            self.store.commit(event)
-        gone = []
+            async with self.persistence_lock:
+                await asyncio.to_thread(self.store.commit, event)
         for ws in tuple(self.clients):
+            if ws not in self.client_queues:
+                queue = asyncio.Queue(maxsize=128)
+                self.client_queues[ws] = queue
+                self.client_senders[ws] = asyncio.create_task(self._send_events(ws, queue))
             try:
-                await asyncio.wait_for(ws.send_json(event), 2)
-            except Exception:
-                gone.append(ws)
-        for ws in gone:
-            self.clients.discard(ws)
+                self.client_queues[ws].put_nowait(event)
+            except asyncio.QueueFull:
+                self.clients.discard(ws)
+                self.client_senders[ws].cancel()
+        await asyncio.sleep(0)
         return event
+
+    async def _send_events(self, ws, queue):
+        try:
+            while True:
+                event = await queue.get()
+                try:
+                    async with asyncio.timeout(2):
+                        await ws.send_json(event)
+                finally:
+                    queue.task_done()
+        except (Exception, asyncio.CancelledError):
+            self.clients.discard(ws)
+        finally:
+            self.client_queues.pop(ws, None)
+            self.client_senders.pop(ws, None)
+            if hasattr(ws, "close"):
+                with contextlib.suppress(Exception):
+                    async with asyncio.timeout(2):
+                        await ws.close(code=1013)
+
+    def _avatar_context(self):
+        saved = self.store.recent_avatar_speeches() if self.settings.values.get("save_history", True) else []
+        live = [{"utterance_id": uid, **speech} for uid, speech in self.utterances.items()]
+        return self.avatars.recent_context([*saved, *live], self.settings.values.get("avatar_costume", "校服"))
 
     async def start(self):
         self.start_task = asyncio.create_task(self._prepare_voice())
@@ -85,8 +154,16 @@ class AgentRuntime:
         await self.emit("service.state", service="desktop", **self.desktop.status)
         if self.snapshot:
             await self.emit("snapshot.ready", **self.snapshot)
+        await self._capabilities_snapshot()
 
     async def cancel(self, reason="user"):
+        self.write_cancel.set()
+        self.approvals.clear()
+        self.files.proposals.clear()
+        self.continuation = None
+        if self.active_task and self.active_task.state in {"running", "paused", "waiting_approval"}:
+            self.active_task.transition("cancelled")
+            await self._task_event()
         old = self.generation
         self.generation += 1
         task, self.task = self.task, None
@@ -95,7 +172,14 @@ class AgentRuntime:
         action_task, self.action_task = self.action_task, None
         if action_task:
             action_task.cancel()
+        await self.computer.stop()
         self.actions.clear()
+        for utterance in self.utterances.values():
+            if utterance["generation_id"] == old and utterance.get("status", "generated") in {"generated", "playing"}:
+                utterance["status"] = "partial" if utterance.get("status") == "playing" else "cancelled"
+        # Keep recent cancelled records for late playback receipts.
+        while len(self.utterances) > 128:
+            self.utterances.pop(next(iter(self.utterances)))
         async with self.pending_condition:
             self.pending.clear()
             self.pending_condition.notify_all()
@@ -130,9 +214,17 @@ class AgentRuntime:
         return snap
 
     async def handle(self, cmd: dict):
+        async with self.command_lock:
+            if self.closed:
+                raise RuntimeError("Runtime is closed")
+            await self._handle(cmd)
+
+    async def _handle(self, cmd: dict):
         if not isinstance(cmd, dict) or not isinstance(cmd.get("type"), str):
             raise ValueError("Command requires a type")
         kind = cmd["type"]
+        if await self._capability_command(cmd):
+            return
         if kind == "assistant.register":
             for hwnd in cmd.get("hwnds", [])[:4]:
                 self.desktop.register_assistant_window(int(hwnd))
@@ -167,6 +259,8 @@ class AgentRuntime:
             await self.emit("windows.list", windows=await asyncio.to_thread(self.desktop.list_windows))
         elif kind == "repository.inspect":
             reader = RepositoryReader(cmd["root"])
+            if self.repository and str(reader.root) != self.repository["root"]:
+                await self.cancel("repository_changed")
             self.repository = await asyncio.to_thread(reader.inspect)
             await self.emit("repository.inspected", repository=self.repository, **self.repository)
         elif kind == "repository.read":
@@ -180,6 +274,8 @@ class AgentRuntime:
         elif kind == "mode.set":
             if cmd.get("mode") not in {"teach", "execute"}:
                 raise ValueError("Invalid task mode")
+            if cmd["mode"] != self.mode:
+                await self.cancel("mode_changed")
             self.mode = cmd["mode"]
             await self.emit("mode.ready", mode=self.mode)
         elif kind == "input.audio":
@@ -195,9 +291,22 @@ class AgentRuntime:
             if self.mode not in {"teach", "execute"}:
                 raise ValueError("Invalid task mode")
             await self.emit("user.message", text=text)
+            self.write_cancel = threading.Event()
+            self.task_gate.set()
+            self.active_task = TaskRunner(text, self.settings.values.get("task_limits", {}))
+            await self._task_event()
             self.task = asyncio.create_task(self._turn(text, cmd.get("repository_root"), self.generation))
+            if self.deadline_task:
+                self.deadline_task.cancel()
+            self.deadline_task = asyncio.create_task(self._watch_budget(self.active_task))
         elif kind == "tool.execute":
-            if self.mode != "execute" and cmd.get("action", {}).get("kind") != "highlight":
+            if cmd.get("action_id") in self.approvals:
+                await self._capability_command({"type": "approval.resolve", "approval_id": cmd["action_id"], "accept": True})
+                return
+            action = self.actions.get(cmd.get("action_id")) if cmd.get("action_id") else cmd.get("action", {})
+            if not isinstance(action, dict):
+                raise ValueError("Proposed action is cancelled or already used")
+            if self.mode != "execute" and action.get("kind") != "highlight":
                 raise ValueError("先选择单步执行模式，再确认具体步骤")
             if self.action_task and not self.action_task.done():
                 raise ValueError("另一个单步操作尚未结束")
@@ -247,6 +356,11 @@ class AgentRuntime:
             return
         total = utterance.get("total_samples", 0)
         played = max(0, min(total, int(cmd.get("played_samples", 0))))
+        status = {"playback.started": "playing", "playback.progress": "playing", "playback.ended": "played", "playback.cancelled": "partial"}.get(cmd["type"])
+        if status:
+            utterance.update(status=status, played_samples=played, displayed=True)
+        elif cmd["type"] == "utterance.displayed":
+            utterance["displayed"] = True
         await self.emit(cmd["type"], utterance_id=uid, played_samples=played, total_samples=total,
                         sample_rate=utterance.get("sample_rate", 0), played_audio_ms=round(played * 1000 / max(1, utterance.get("sample_rate", 1))),
                         generation_id=utterance["generation_id"])
@@ -314,6 +428,7 @@ class AgentRuntime:
             duration = audio["duration_ms"]
             self.pending.pop(uid, None)
             if audio.get("engine") == "silent":
+                self.utterances[uid]["displayed"] = True
                 await self.emit("utterance.displayed", utterance_id=uid)
                 continue
             await self._reserve_audio(uid, duration, gen)
@@ -323,48 +438,75 @@ class AgentRuntime:
             self.utterances[uid].update(total_samples=len(audio_bytes) // 4, sample_rate=audio["sample_rate"])
             await self.emit("audio.ready", utterance_id=uid, **{**audio, "format": "pcm_f32le"})
 
-    async def _turn(self, text, root, gen):
+    async def _turn(self, text, root, gen, continuation=None):
         queue = asyncio.Queue(maxsize=3)
         speaker = asyncio.create_task(self._speech_worker(queue, gen))
-        keys = {}
+        keys = dict(continuation.get("keys", {})) if continuation else {}
         count = 0
+        streams = []
         try:
             await self.emit("task.state", state="thinking")
             if root:
                 self.repository = await asyncio.to_thread(RepositoryReader(root).inspect)
                 await self.emit("repository.inspected", repository=self.repository, **self.repository)
-            if self.settings.values["provider"] == "local":
+            tool_schemas = self.registry.openai_schemas() if self.settings.values.get("native_tools", True) else None
+            tool_names = self.registry.api_name_map()
+            if continuation:
+                messages = continuation["messages"]
+                prefix_length = continuation["prefix_length"]
+                provider = OpenAIProvider(self.settings, self.model_client)
+                streams = [provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names)]
+            elif self.settings.values["provider"] == "local":
                 await self.emit("service.state", service="model", state="ready", engine="local-evidence", message="本地文件教学模式，无视觉模型")
                 streams = [LocalProvider().stream_reply(text, self.repository, self.target)]
                 messages = None
             else:
                 persona = (self.settings.root / "characters/ayana/persona.md").read_text(encoding="utf-8")
+                if self.snapshot and self.target and time.monotonic() * 1000 - self.snapshot.get("captured_at_monotonic_ms", time.monotonic() * 1000) > 30000:
+                    await self.capture()
                 policy = (self.settings.root / "characters/ayana/agent-policy.md").read_text(encoding="utf-8")
-                context = {"question": text, "mode": self.mode, "target": self.target, "repository": self.repository,
-                           "snapshot_id": self.snapshot.get("snapshot_id") if self.snapshot else None}
+                system = persona + "\n" + policy + "\n" + CONTRACT + "\n" + self.registry.prompt() + "\n" + self.avatars.prompt(self.settings.values.get("avatar_costume", "校服"))
+                self.prompt_history.select(system, self.settings.values, (self.repository or {}).get("root"), exclude_turn=self.turn_id)
+                # Keep one copy of repository evidence ahead of dialogue history.
+                evidence_prefix = repository_message(self.repository)
+                context = {"mode": self.mode, "target": self.target,
+                           "directories": self.policy.public(),
+                           "avatar_context": self._avatar_context(),
+                           "snapshot_id": self.snapshot.get("snapshot_id") if self.snapshot else None,
+                           "previous_reply_reception": self.prompt_history.last_reception(self.utterances),
+                           "previous_interrupted_reply": self._interrupted_reply(), "question": text}
                 content = [{"type": "text", "text": json.dumps(context, ensure_ascii=False)}]
                 if self.snapshot and self.settings.values.get("send_screenshot"):
                     content.append({"type": "image_url", "image_url": {"url": "data:image/png;base64," + self.snapshot["png_base64"]}})
-                messages = [{"role": "system", "content": persona + "\n" + policy + "\n" + CONTRACT + "\n" + self.avatars.prompt(self.settings.values.get("avatar_costume", "校服"))}, *self.store.context(exclude_turn=self.turn_id), {"role": "user", "content": content}]
-                streams = [OpenAIProvider(self.settings).stream_reply(messages)]
-            for tool_round in range(4):
+                previous = self.prompt_history.messages(reserve_chars=len(system) + len(json.dumps(evidence_prefix, ensure_ascii=False)) + len(content[0]["text"]) + 8800)
+                messages = [{"role": "system", "content": system}, *evidence_prefix, *previous, {"role": "user", "content": content}]
+                prefix_length = 1 + len(evidence_prefix) + len(previous)
+                if self.model_client is None:
+                    self.model_client = httpx.AsyncClient(timeout=httpx.Timeout(75, connect=12), trust_env=False)
+                provider = OpenAIProvider(self.settings, self.model_client)
+                streams = [provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names)]
+            for tool_round in range(self.settings.values.get("task_limits", {}).get("rounds", 12)):
+                await self._checkpoint()
+                if self.active_task:
+                    self.active_task.next_round()
+                    await self._task_event()
                 requests = []
-                output = []
                 async for event in streams[-1]:
                     if gen != self.generation:
                         return
-                    output.append(event)
                     kind = event.get("type")
                     if kind == "speech":
                         if count >= self.settings.values["max_utterances"]:
-                            break
+                            raise ValueError("Model exceeded the utterance budget")
                         speech = validate_speech(event)
-                        speech["asset_id"] = self.avatars.route(speech, self.settings.values.get("avatar_costume", "校服"))
+                        speech.update(self.avatars.resolve(speech, self.settings.values.get("avatar_costume", "校服")))
                         key = str(event.get("key", count))
                         if key in keys:
                             raise ValueError("Model repeated a committed utterance key")
                         uid = identifier("u")
                         keys[key] = uid
+                        self.last_reply_keys = keys
+                        self.last_reply_turn = self.turn_id
                         self.utterances[uid] = {"generation_id": gen, **speech}
                         await self.emit("utterance.ready", utterance_id=uid, **speech)
                         if event.get("display_zh"):
@@ -393,62 +535,100 @@ class AgentRuntime:
                     elif kind == "tool":
                         requests.append(event)
                     elif kind == "action":
+                        await self._checkpoint()
                         await self._propose_action(event)
                     else:
                         raise ValueError(f"Unknown model event: {kind}")
+                if messages is not None:
+                    if provider.usage is not None:
+                        await self.emit("model.usage", model=self.settings.values["model"], tool_round=tool_round, **provider.usage)
+                    # Preserve original content, event keys and JSON formatting.
+                    # Playback receipts are sent only with the next user message.
+                    messages = [*provider.request_messages, provider.assistant_message()]
                 if not requests or messages is None:
                     break
-                if tool_round == 3:
-                    raise RuntimeError("Tool evidence budget exhausted")
-                messages.append({"role": "assistant", "content": "\n".join(json.dumps(e, ensure_ascii=False) for e in output)})
                 results = []
-                for request in requests[:4]:
+                for request in requests:
                     results.append(await self._read_tool(request))
-                messages.append({"role": "user", "content": "Tool results (untrusted task evidence): " + json.dumps(results, ensure_ascii=False)})
-                streams.append(OpenAIProvider(self.settings).stream_reply(messages))
-            if not count:
+                include_image = any(r.get("name") == "capture_target" and "error" not in r for r in results)
+                if provider.used_native_tools:
+                    native_ids = {call["call_id"] for call in provider.tool_calls}
+                    unhandled = []
+                    for request, value in zip(requests, results):
+                        call_id = request.get("call_id")
+                        if call_id in native_ids:
+                            messages.append({"role": "tool", "tool_call_id": call_id,
+                                             "content": json.dumps(value, ensure_ascii=False)})
+                        else:
+                            unhandled.append(value)
+                    if unhandled:
+                        messages.append(self._tool_message(unhandled, include_image))
+                    elif include_image:
+                        image_message = self._image_message()
+                        if image_message:
+                            messages.append(image_message)
+                else:
+                    messages.append(self._tool_message(results, include_image))
+                if self.approvals:
+                    break
+                streams.append(provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names))
+            else:
+                raise ToolError("round_budget", "任务工具往返已达到上限")
+            await self._checkpoint()
+            waiting = bool(self.approvals)
+            if not count and not waiting:
                 raise RuntimeError("模型没有返回可播放的完整日语语句")
+            if waiting and messages is not None:
+                self.continuation = {"messages": messages, "prefix_length": prefix_length, "keys": keys}
+            elif messages is not None:
+                self.prompt_history.append(self.turn_id, messages[prefix_length:], keys,
+                                           persist=self.settings.values.get("save_history", True))
             if not speaker.done():
                 await queue.put(None)
             await speaker
-            await self.emit("task.state", state="idle", generated_utterances=count)
+            if self.active_task:
+                if waiting:
+                    self.active_task.transition("waiting_approval")
+                elif getattr(self.active_task, "verification_pending", False):
+                    self.active_task.transition("needs_verification")
+                else:
+                    failed = any("error" in r["value"] for r in self.active_task.results.values())
+                    self.active_task.transition("failed" if failed else "succeeded")
+                await self._task_event()
+            await self.emit("task.state", state="waiting_approval" if waiting else "idle", generated_utterances=count)
         except asyncio.CancelledError:
             raise
         except Exception as e:
             if gen == self.generation:
+                for approval_id in tuple(self.approvals):
+                    await self.emit("approval.resolved", approval_id=approval_id, accepted=False)
+                self.approvals.clear()
+                self.files.proposals.clear()
+                self.actions.clear()
+                self.continuation = None
+                if self.active_task:
+                    self.active_task.transition("failed")
+                    await self._task_event()
                 await self.emit("error", source="turn", message=str(e)[:500])
                 await self.emit("task.state", state="failed")
         finally:
+            for stream in streams:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await stream.aclose()
             if not speaker.done():
                 speaker.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await speaker
 
+    def _interrupted_reply(self):
+        if not self.last_reply_turn or (self.prompt_history.turns and self.prompt_history.turns[-1]["turn_id"] == self.last_reply_turn):
+            return []
+        return [{"key": key, "speech_ja": record["speech_ja"], "status": record.get("status", "generated"),
+                 "displayed": record.get("displayed", False), "played_samples": record.get("played_samples", 0)}
+                for key, uid in self.last_reply_keys.items() if (record := self.utterances.get(uid))]
+
     async def _read_tool(self, request):
-        name = request.get("name")
-        args = request.get("arguments", {})
-        await self.emit("tool.started", tool=name, arguments=args)
-        try:
-            if name in {"read_file", "search_text", "list_files"}:
-                if not self.repository:
-                    raise ValueError("No selected repository")
-                reader = RepositoryReader(self.repository["root"])
-                fn = getattr(reader, name)
-                result = await asyncio.to_thread(fn, **args)
-                if name == "read_file":
-                    await self.emit("evidence.ready", evidence=result, **result)
-            elif name == "capture_target":
-                snap = await self.capture()
-                result = {k: v for k, v in snap.items() if k != "png_base64"}
-            elif name == "observe_controls":
-                result = await asyncio.to_thread(self.desktop.observe_controls, self.target["target_id"])
-            else:
-                raise ValueError("Tool is not allowed")
-            await self.emit("tool.completed", tool=name, result=result)
-            return {"name": name, "result": result}
-        except Exception as e:
-            await self.emit("tool.failed", tool=name, message=str(e)[:300])
-            return {"name": name, "error": str(e)[:300]}
+        return await self._dispatch_tool(request)
 
     async def _propose_action(self, event):
         if not self.snapshot:
@@ -461,6 +641,10 @@ class AgentRuntime:
                   "coordinate_space": "snapshot_image_px"}
         self.actions[aid] = action
         await self.emit("action.proposed", action=action, label=str(event.get("label", action.get("expected_result", "执行单步操作")))[:500])
+        if self.active_task and self.active_task.state == "running":
+            if self.approvals:
+                raise ValueError("一次只提出一个需要确认的步骤")
+            await self._register_approval(action, "desktop")
 
     async def _run_action(self, cmd, gen):
         try:
@@ -481,13 +665,19 @@ class AgentRuntime:
             raise ValueError("动作没有绑定当前快照，请重新观察")
         if action.get("generation_id", self.generation) != self.generation:
             raise ValueError("Cancelled action generation")
+        if self.mode != "execute" and action.get("kind") != "highlight":
+            raise ValueError("先选择单步执行模式，再确认具体步骤")
+        target_id, snapshot_id = self.target["target_id"], self.snapshot["snapshot_id"]
+        mode = self.mode
         await self.emit("tool.started", tool="execute_step", action=action)
         await self.emit("task.state", state="acting")
         try:
             def execute():
                 if gen != self.generation:
                     raise RuntimeError("Cancelled action generation")
-                return self.desktop.execute({**action, "target_id": self.target["target_id"]}, self.snapshot["snapshot_id"])
+                if self.mode != mode:
+                    raise RuntimeError("Task mode changed; confirm the action again")
+                return self.desktop.execute({**action, "target_id": target_id}, snapshot_id)
             result = await asyncio.to_thread(execute)
             if gen != self.generation:
                 return
@@ -495,24 +685,46 @@ class AgentRuntime:
             if action.get("kind") == "highlight":
                 await self.emit("highlight.ready", **result)
             else:
-                await self.capture()
+                if result.get("result_snapshot"):
+                    self.snapshot = result["result_snapshot"]
+                    await self.emit("snapshot.ready", **self.snapshot)
+                else:
+                    await self.capture()
             await self.emit("task.state", state="idle")
+            return {k: v for k, v in result.items() if k != "result_snapshot"}
         except Exception as e:
             if gen == self.generation:
                 await self.emit("tool.failed", tool="execute_step", message=str(e)[:500])
+                self.snapshot = None
+                self.actions.clear()
+                await self.emit("snapshot.invalidated")
                 await self.emit("task.state", state="failed")
 
     async def close(self):
+        async with self.close_lock:
+            await self._close()
+
+    async def _close(self):
         if self.closed:
             return
         await self.cancel("shutdown")
+        if self.deadline_task:
+            self.deadline_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.deadline_task
         if self.start_task and not self.start_task.done():
             self.start_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self.start_task
         await self.tts.close()
+        await self.web.close()
+        if self.model_client:
+            await self.model_client.aclose()
         if self.stt:
             await self.stt.close()
         await asyncio.to_thread(self.desktop.close)
+        for sender in tuple(self.client_senders.values()):
+            sender.cancel()
+        await asyncio.gather(*tuple(self.client_senders.values()), return_exceptions=True)
         self.store.close()
         self.closed = True

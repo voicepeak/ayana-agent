@@ -16,6 +16,7 @@ import threading
 import time
 
 from services.tts.audio import condition_pcm, encode_pcm, split_sentences
+from services.tts.semantics import infer_semantics
 
 
 def exhaust_loader(result):
@@ -150,6 +151,8 @@ class SovitsEngine:
             "reference_cache_ms": (time.perf_counter() - cache_started) * 1000,
             "cpu_threads": torch.get_num_threads(),
             "nltk_data": str(nltk_data) if nltk_data else None,
+            "semantic_tail_guard_frames": int(config.get("tail_guard_frames", 4)),
+            "semantic_tail_guard_long_frames": int(config.get("long_tail_guard_frames", 6)),
         }
 
     def synthesize(self, text: str, cancellation: threading.Event) -> dict:
@@ -168,17 +171,19 @@ class SovitsEngine:
                 if not phones:
                     raise ValueError("Japanese text frontend returned no phonemes")
                 all_phones = torch.LongTensor(self.reference_phones + phones).to(upstream.device).unsqueeze(0)
-                lengths = torch.tensor([all_phones.shape[-1]], device=upstream.device)
                 bert = torch.cat([self.reference_bert, bert], 1).to(upstream.device).unsqueeze(0)
                 self._check(cancellation)
-                semantic, count = upstream.t2s_model.model.infer_panel(
-                    all_phones, lengths, self.prompt, bert,
+                semantic = infer_semantics(
+                    upstream.t2s_model.model, all_phones, self.prompt, bert,
                     top_k=int(self.config.get("top_k", 20)),
                     top_p=float(self.config.get("top_p", 0.6)),
                     temperature=float(self.config.get("temperature", 0.6)),
-                    early_stop_num=upstream.hz * upstream.max_sec)
+                    max_tokens=upstream.hz * upstream.max_sec,
+                    tail_frames=int(self.config.get("tail_guard_frames", 4)),
+                    long_tail_frames=int(self.config.get("long_tail_guard_frames", 6)),
+                    repetition_penalty=float(self.config.get("repetition_penalty", 1.35)),
+                    check_cancel=lambda: self._check(cancellation))
                 self._check(cancellation)
-                semantic = semantic[:, -count:].unsqueeze(0)
                 kwargs = {"speed": float(self.config.get("speed", 1.0))}
                 if self.speaker_embedding is not None:
                     kwargs["sv_emb"] = self.speaker_embedding

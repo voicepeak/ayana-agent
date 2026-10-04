@@ -208,3 +208,137 @@ async def test_display_settings_do_not_restart_unchanged_voice_engine(tmp_path):
     assert runtime.start_task is startup
     tts.close.assert_not_awaited()
     await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_proposed_highlight_allowed_in_teach_mode_but_click_rejected(tmp_path):
+    class ActionDesktop(Desktop):
+        def execute(self, action, snapshot):
+            return {"kind": action["kind"], "screen_rect": {"x": 0, "y": 0, "width": 30, "height": 30}}
+    runtime = AgentRuntime(settings(tmp_path), desktop=ActionDesktop(), tts=Tts())
+    ws = Ws()
+    runtime.clients.add(ws)
+    runtime.target = {"target_id": "target"}
+    runtime.snapshot = {"snapshot_id": "snap"}
+    await runtime._propose_action({"action": {"kind": "highlight"}})
+    action_id = next(iter(runtime.actions))
+    await runtime.handle({"type": "tool.execute", "action_id": action_id, "snapshot_id": "snap"})
+    await runtime.action_task
+    assert any(event["type"] == "highlight.ready" for event in ws.events)
+    await runtime._propose_action({"action": {"kind": "click"}})
+    action_id = next(iter(runtime.actions))
+    with pytest.raises(ValueError, match="单步执行"):
+        await runtime.handle({"type": "tool.execute", "action_id": action_id, "snapshot_id": "snap"})
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("save_history", [True, False])
+async def test_online_context_preserves_request_prefix_across_turns_and_receipts(tmp_path, save_history):
+    import httpx
+    from tests.test_model import sse_response
+    root = Path(__file__).resolve().parents[1]
+    cfg = Settings(root=root, data_root=tmp_path)
+    cfg.values.update(provider="openai", model="test", send_screenshot=False, save_history=save_history)
+    cfg.key = lambda: "test-key"
+    runtime = AgentRuntime(cfg, desktop=Desktop(), tts=Tts())
+    runtime.repository = {"root": "selected", "evidence": [{"content": "unique-repository-evidence"}], "files": []}
+    ws = Ws()
+    runtime.clients.add(ws)
+    calls = []
+    def respond(request):
+        calls.append(json.loads(request.content)["messages"])
+        return sse_response([{"type": "speech", "key": "s1", "speech_ja": "一緒に見よう。", "intent": "explain"},
+                             {"type": "translation", "key": "s1", "display_zh": "一起看。"}])
+    runtime.model_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    for text in ["第一轮", "第二轮", "第三轮"]:
+        await runtime.handle({"type": "turn.start", "text": text})
+        await runtime.task
+        audio = [event for event in ws.events if event["type"] == "audio.ready"][-1]
+        await runtime.handle({"type": "playback.ended", "utterance_id": audio["utterance_id"],
+                              "generation_id": runtime.generation, "played_samples": 1600})
+    assert len(calls) == 3
+    assert calls[1][:len(calls[0])] == calls[0]
+    assert calls[2][:len(calls[1])] == calls[1]
+    assert json.dumps(calls[2]).count("unique-repository-evidence") == 1
+    assistant = calls[1][-2]
+    assert json.loads(assistant["content"].splitlines()[0])["key"] == "s1"
+    assert "played_samples" not in assistant["content"]
+    reception = json.loads(calls[2][-1]["content"][0]["text"])["previous_reply_reception"]
+    assert reception[0]["status"] == "played" and reception[0]["played_samples"] == 1600
+    assert bool(runtime.store.model_turns(runtime.prompt_history.scope)) == save_history
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_commands_cannot_leave_an_untracked_old_turn(tmp_path):
+    runtime = AgentRuntime(settings(tmp_path), desktop=Desktop(), tts=Tts(.1))
+    runtime.clients.add(Ws())
+    await asyncio.gather(runtime.handle({"type": "turn.start", "text": "one"}),
+                         runtime.handle({"type": "turn.start", "text": "two"}))
+    await runtime.task
+    assert all(record["generation_id"] == runtime.generation or record["status"] == "cancelled"
+               for record in runtime.store.history())
+    await asyncio.gather(runtime.close(), runtime.close())
+    assert runtime.closed
+
+
+@pytest.mark.asyncio
+async def test_switching_back_to_teach_cancels_in_flight_input(tmp_path):
+    import threading
+    started, cancelled = threading.Event(), threading.Event()
+    class SlowDesktop(Desktop):
+        def cancel(self): cancelled.set()
+        def execute(self, action, snapshot):
+            cancelled.clear()
+            started.set()
+            cancelled.wait(2)
+            return {"status": "stopped"}
+    runtime = AgentRuntime(settings(tmp_path), desktop=SlowDesktop(), tts=Tts())
+    runtime.clients.add(Ws())
+    runtime.target = {"target_id": "target"}
+    runtime.snapshot = {"snapshot_id": "snap"}
+    runtime.mode = "execute"
+    await runtime.handle({"type": "tool.execute", "snapshot_id": "snap", "action": {"kind": "type", "text": "demo"}})
+    await asyncio.to_thread(started.wait, 1)
+    await runtime.handle({"type": "mode.set", "mode": "teach"})
+    assert cancelled.is_set() and runtime.mode == "teach" and runtime.action_task is None
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_tool_rounds_and_interrupted_output_keep_factual_context(tmp_path):
+    import httpx
+    from tests.test_model import sse_response
+    root = Path(__file__).resolve().parents[1]
+    cfg = Settings(root=root, data_root=tmp_path)
+    cfg.values.update(provider="openai", model="test", send_screenshot=False)
+    cfg.key = lambda: "test-key"
+    runtime = AgentRuntime(cfg, desktop=Desktop(), tts=Tts())
+    runtime.repository = {"root": str(root), "files": [], "evidence": []}
+    runtime.clients.add(Ws())
+    calls = []
+    def respond(request):
+        calls.append(json.loads(request.content)["messages"])
+        if len(calls) == 1:
+            return sse_response([{"type": "tool", "name": "list_files", "arguments": {}}])
+        speech = {"type": "speech", "key": "s1", "speech_ja": "一緒に見よう。"}
+        if len(calls) == 3:
+            return sse_response([speech, {"type": "unknown"}])
+        return sse_response([speech])
+    runtime.model_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    await runtime.handle({"type": "turn.start", "text": "inspect"})
+    await runtime.task
+    assert len(calls) == 2
+    await runtime.handle({"type": "turn.start", "text": "interrupted"})
+    await runtime.task
+    uid = runtime.last_reply_keys["s1"]
+    await runtime.handle({"type": "utterance.displayed", "utterance_id": uid, "generation_id": runtime.generation})
+    await runtime.handle({"type": "turn.start", "text": "continue"})
+    await runtime.task
+    assert calls[2][:len(calls[1])] == calls[1]  # tool result and complete tool round retained
+    tail = json.loads(calls[3][-1]["content"][0]["text"])
+    assert tail["previous_interrupted_reply"][0]["speech_ja"] == "一緒に見よう。"
+    assert tail["previous_interrupted_reply"][0]["displayed"] is True
+    assert tail["previous_interrupted_reply"][0]["status"] == "cancelled"
+    await runtime.close()

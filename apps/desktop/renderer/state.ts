@@ -24,11 +24,18 @@ export interface ModelState {
   history: Record<string, unknown>[]; windows: Target[]; evidence: Evidence[];
   actions: RuntimeEvent[]; tools: RuntimeEvent[]; error?: string; shortcuts?: RuntimeEvent;
   questions: { text: string; generation: number; id: string }[];
+  modelUsage?: RuntimeEvent;
+  activeTask?: Record<string, unknown>; taskHistory: Record<string, unknown>[];
+  approvals: Record<string, unknown>[]; artifacts: Record<string, unknown>[];
+  sources: Record<string, unknown>[]; directories: Record<string, unknown>[]; searchConfigured: boolean;
+  computerUse?: Record<string, unknown>; computerProgress: RuntimeEvent[]; computerResult?: Record<string, unknown>;
 }
 export const initialState: ModelState = {
   connected: false, service: 'starting', generation: 0, cancelledGeneration: -1,
   task: 'idle', voice: 'starting', mode: 'teach', speeches: [], expression: 'neutral', expressionAt: 0, inputState: 'idle',
   progress: 0, sentenceVersion: 0, summonVersion: 0, settingsLoaded: false, settings: {}, history: [], windows: [], evidence: [], actions: [], tools: [], questions: [],
+  approvals: [], artifacts: [], sources: [], directories: [], taskHistory: [], searchConfigured: false,
+  computerProgress: [],
 };
 
 export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState {
@@ -43,15 +50,50 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
     return {
       ...state, generation: Math.max(state.generation, generation),
       cancelledGeneration: Math.max(state.cancelledGeneration, cancelled),
-      current: undefined, presented: undefined, expression: 'neutral', expressionAt: 0, inputState: 'idle', progress: 0, task: 'idle', actions: [],
+      current: undefined, presented: undefined, expression: 'neutral', expressionAt: 0, inputState: 'idle', progress: 0, task: 'idle', actions: [], approvals: [],
+      computerProgress: [], computerResult: undefined,
       speeches: state.speeches.map(s => s.generation <= cancelled && s.state !== 'played'
         ? { ...s, state: s.state === 'playing' ? 'partial' : 'cancelled' } : s),
     };
   }
-  const output = ['utterance.ready', 'utterance.displayed', 'desktop.present', 'subtitle.ready', 'audio.ready', 'action.proposed', 'evidence.ready', 'playback.started', 'playback.progress'];
+  const output = ['utterance.ready', 'utterance.displayed', 'desktop.present', 'subtitle.ready', 'audio.ready', 'action.proposed', 'evidence.ready', 'playback.started', 'playback.progress', 'approval.required', 'artifact.ready', 'source.ready'];
   if (output.includes(event.type) && generation <= state.cancelledGeneration) return state;
   let next = { ...state, generation: Math.max(state.generation, generation) };
   switch (event.type) {
+    case 'capabilities.ready':
+      next.directories = (event.directories ?? []) as Record<string, unknown>[];
+      next.artifacts = (event.artifacts ?? []) as Record<string, unknown>[];
+      next.taskHistory = (event.tasks ?? []) as Record<string, unknown>[];
+      next.computerUse = event.computer_use as Record<string, unknown>;
+      next.searchConfigured = Boolean(event.search_configured); break;
+    case 'computer.progress':
+      if (generation <= state.cancelledGeneration || generation < state.generation) break;
+      next.computerProgress = [...state.computerProgress, event.progress as RuntimeEvent].slice(-30); break;
+    case 'computer.completed':
+      if (generation <= state.cancelledGeneration || generation < state.generation) break;
+      next.computerResult = event.result as Record<string, unknown>; break;
+    case 'task.updated': {
+      const task = event.task as Record<string, unknown>;
+      if (generation < state.generation) break;
+      next.activeTask = task;
+      next.taskHistory = [task, ...state.taskHistory.filter(t => t.task_id !== task.task_id)].slice(0, 30);
+      break;
+    }
+    case 'approval.required': {
+      const approval = event.approval as Record<string, unknown>;
+      next.approvals = [...state.approvals.filter(a => a.approval_id !== approval.approval_id), approval]; break;
+    }
+    case 'approval.resolved':
+      next.approvals = state.approvals.filter(a => a.approval_id !== event.approval_id);
+      next.actions = state.actions.filter(a => (a.action as Record<string, unknown>)?.action_id !== event.approval_id); break;
+    case 'artifact.ready': {
+      const artifact = event.artifact as Record<string, unknown>;
+      next.artifacts = [artifact, ...state.artifacts.filter(a => a.artifact_id !== artifact.artifact_id)].slice(0, 60); break;
+    }
+    case 'source.ready': {
+      const source = event.source as Record<string, unknown>;
+      next.sources = [source, ...state.sources.filter(s => s.source_id !== source.source_id)].slice(0, 100); break;
+    }
     case 'desktop.summoned': next.summonVersion = state.summonVersion + 1; break;
     case 'desktop.target-cue': next.targetCue = event; break;
     case 'desktop.dismiss-error': next.error = undefined; break;
@@ -86,6 +128,7 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
       break;
     }
     case 'settings.ready': next.settings = (event.settings ?? {}) as Record<string, unknown>; next.settingsLoaded = true; break;
+    case 'model.usage': next.modelUsage = event; break;
     case 'history.ready': next.history = (event.history ?? event.utterances ?? []) as Record<string, unknown>[]; break;
     case 'user.message':
     case 'desktop.question':
@@ -141,8 +184,8 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
 const previewBridge: AyanaBridge = {
   send: async () => ({ ok: false, error: '此页面仅用于界面预览。请通过桌面应用启动本地服务。' }),
   onEvent: () => () => {}, playback: () => {}, summon: async () => {}, hide: async () => {}, openSettings: async () => {}, hideSettings: async () => {},
-  chooseRepository: async () => null, restart: async () => {},
-  getState: async () => ({ connected: false, service: 'preview', version: '0.2.3', repositoryRoot: '', events: [] }),
+  chooseRepository: async () => null, chooseDirectory: async () => null, restart: async () => {},
+  getState: async () => ({ connected: false, service: 'preview', version: '0.3.0', repositoryRoot: '', events: [] }),
 };
 export const bridge = window.ayana ?? previewBridge;
 

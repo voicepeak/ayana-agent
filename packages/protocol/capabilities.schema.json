@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Ayana capability contracts v1",
+  "$defs": {
+    "tool_request": {
+      "type": "object", "required": ["type", "name", "arguments"],
+      "properties": {
+        "type": {"const": "tool"},
+        "name": {"type": "string", "pattern": "^[a-zA-Z0-9_.]{1,100}$"},
+        "call_id": {"type": "string", "pattern": "^[a-zA-Z0-9_-]{1,100}$"},
+        "arguments": {"type": "object"}
+      },
+      "additionalProperties": false
+    },
+    "task": {
+      "type": "object", "required": ["task_id", "goal", "state", "rounds", "calls"],
+      "properties": {
+        "task_id": {"type": "string"}, "goal": {"type": "string"},
+        "state": {"enum": ["running", "waiting_approval", "paused", "succeeded", "failed", "cancelled", "interrupted", "needs_verification"]},
+        "rounds": {"type": "integer", "minimum": 0}, "calls": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "artifact": {
+      "type": "object", "required": ["artifact_id", "root_id", "path", "sha256", "bytes", "can_restore"],
+      "properties": {
+        "artifact_id": {"type": "string"}, "root_id": {"type": "string"}, "path": {"type": "string"},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "bytes": {"type": "integer", "minimum": 0, "maximum": 65536},
+        "can_restore": {"type": "boolean"}, "absolute_path": {"type": "string"},
+        "created": {"type": "number"}, "changed": {"type": "boolean"}, "unavailable": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

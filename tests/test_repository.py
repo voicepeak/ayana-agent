@@ -53,3 +53,15 @@ def test_search_retains_byte_and_result_budgets(tmp_path):
     reader = RepositoryReader(str(tmp_path))
     assert reader.search_text("beyond_budget_needle") == []
     assert len(reader.search_text("match_needle")) == 40
+
+
+def test_case_variants_cannot_bypass_private_and_generated_exclusions(tmp_path):
+    (tmp_path / ".ENV.production.json").write_text('{"secret":"private"}')
+    generated = tmp_path / "NODE_MODULES"
+    generated.mkdir()
+    (generated / "private.py").write_text("private")
+    reader = RepositoryReader(str(tmp_path))
+    assert reader.list_files() == []
+    for name in (".ENV.production.json", "NODE_MODULES/private.py"):
+        with pytest.raises(ValueError, match="Private or generated"):
+            reader.read_file(name)

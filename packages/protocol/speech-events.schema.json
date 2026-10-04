@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Ayana model speech event",
   "type": "object",
-  "required": ["type", "speech_ja"],
+  "required": ["type", "speech_ja", "expression", "pose"],
   "properties": {
     "type": {"const": "speech"},
     "speech_ja": {"type": "string", "minLength": 1, "maxLength": 240},
@@ -10,7 +10,7 @@
     "intent": {"enum": ["acknowledge", "explain", "encourage", "caution", "playful"]},
     "affect": {"enum": ["neutral", "pleased", "concerned", "surprised"]},
     "intensity": {"type": "number", "minimum": 0, "maximum": 1},
-    "expression": {"type": "string", "maxLength": 80},
+    "expression": {"type": "string", "minLength": 1, "maxLength": 80, "description": "An exact Chinese expression label from the selected character catalog; choose per sentence."},
     "pose": {"enum": ["crossed", "open"]}
   },
   "additionalProperties": false

@@ -27,9 +27,10 @@ export interface AyanaBridge {
   playback(receipt: RuntimeEvent): void;
   summon(): Promise<void>;
   hide(): Promise<void>;
-  openSettings(): Promise<void>;
+  openSettings(tab?: 'tasks'): Promise<void>;
   hideSettings(): Promise<void>;
   chooseRepository(): Promise<string | null>;
+  chooseDirectory(): Promise<string | null>;
   restart(): Promise<void>;
   getState(): Promise<DesktopState>;
 }

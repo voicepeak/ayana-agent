@@ -220,8 +220,12 @@ class WindowsDesktop:
             captured = time.monotonic()
             epoch = self._monitor.epoch
             image = self._image(target)
+            if image.width * image.height > 8_000_000:
+                raise DesktopError("capture_size", "Target image exceeds 8 million pixels; reduce the window size")
             output = io.BytesIO()
             image.save(output, format="PNG")
+            if output.tell() > 6 * 1024 * 1024:
+                raise DesktopError("capture_size", "Target screenshot exceeds 6 MiB; reduce the window size")
             snapshot_id = f"snap-{uuid.uuid4().hex[:12]}"
             b = target["bounds"]
             transform = {"transform_id": f"transform-{snapshot_id}",
@@ -240,7 +244,7 @@ class WindowsDesktop:
             self._snapshots[snapshot_id] = _Snapshot(public, image, epoch, captured, focused_hwnd)
             self._targets[target_id] = target
             # Memory remains bounded even if observations happen continuously.
-            while len(self._snapshots) > 12:
+            while len(self._snapshots) > 12 or sum(s.image.width * s.image.height * len(s.image.getbands()) + len(s.public.get("png_base64", "")) for s in self._snapshots.values()) > 64 * 1024 * 1024:
                 del self._snapshots[next(iter(self._snapshots))]
             return public
 
