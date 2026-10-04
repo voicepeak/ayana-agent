@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { build } from 'esbuild';
 import { verifyPortableIsolation } from './verify-portable.mjs';
+import './test-lifecycle.mjs';
 
 await verifyPortableIsolation();
 

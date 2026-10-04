@@ -113,3 +113,45 @@ async def test_all_committed_event_types_disable_retry():
             with pytest.raises(ModelEventError):
                 _ = [event async for event in OpenAIProvider(Settings(), client).stream_reply([])]
         assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("usage_only", [False, True])
+async def test_usage_on_final_choice_or_separate_chunk_is_not_a_model_event(usage_only):
+    usage = {"prompt_tokens": 1000, "completion_tokens": 70, "total_tokens": 1070,
+             "prompt_cache_hit_tokens": 896, "prompt_cache_miss_tokens": 104}
+    requests = []
+    def respond(request):
+        requests.append(json.loads(request.content))
+        response = sse_response([VALID])
+        raw = response.text
+        chunk = {"choices": [] if usage_only else [{"delta": {}, "finish_reason": "stop"}], "usage": usage}
+        raw = raw.replace("data: [DONE]", "data: " + json.dumps(chunk) + "\n\ndata: [DONE]")
+        return httpx.Response(200, text=raw)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        provider = OpenAIProvider(Settings(), client)
+        assert [event async for event in provider.stream_reply([])] == [VALID]
+    assert provider.usage["cache_hit_ratio"] == .896
+    assert provider.usage["prompt_cache_hit_tokens"] == 896
+    assert json.loads(provider.response_text) == VALID
+    assert requests[0]["stream_options"] == {"include_usage": True}
+
+
+@pytest.mark.asyncio
+async def test_compatible_provider_cached_tokens_and_usage_reset_between_requests():
+    cfg = Settings()
+    cfg.values = {"base_url": "https://example.com/v1", "model": "test"}
+    calls = []
+    def respond(request):
+        calls.append(json.loads(request.content))
+        raw = sse_response([VALID]).text
+        if len(calls) == 1:
+            raw = raw.replace("data: [DONE]", 'data: {"choices":[],"usage":{"prompt_tokens":100,"prompt_tokens_details":{"cached_tokens":64}}}\n\ndata: [DONE]')
+        return httpx.Response(200, text=raw)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        provider = OpenAIProvider(cfg, client)
+        _ = [event async for event in provider.stream_reply([])]
+        assert provider.usage["cache_hit_ratio"] == .64
+        _ = [event async for event in provider.stream_reply([])]
+        assert provider.usage is None
+    assert "stream_options" not in calls[0]  # optional extensions must not break other endpoints

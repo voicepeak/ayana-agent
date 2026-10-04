@@ -21,7 +21,7 @@ class RepositoryReader:
         if not path.is_relative_to(self.root):
             raise ValueError("Path leaves selected repository")
         parts = path.relative_to(self.root).parts
-        if any(p in SKIP or p.startswith(".env") or p.lower() in {"credentials.json", "local.json", "id_rsa", "id_ed25519"} or p.endswith((".pem", ".key", ".dpapi")) for p in parts):
+        if any(p.casefold() in SKIP or p.casefold().startswith(".env") or p.casefold() in {"credentials.json", "local.json", "id_rsa", "id_ed25519"} or p.casefold().endswith((".pem", ".key", ".dpapi")) for p in parts):
             raise ValueError("Private or generated files are excluded")
         if path.suffix.lower() not in TEXT and path.name not in {"Dockerfile", "Makefile", "LICENSE"}:
             raise ValueError("Only text source files are readable")
@@ -30,7 +30,7 @@ class RepositoryReader:
     def list_files(self, limit=400) -> list[str]:
         out = []
         for directory, dirs, files in os.walk(self.root, followlinks=False):
-            dirs[:] = sorted(d for d in dirs if d not in SKIP and not Path(directory, d).is_symlink())
+            dirs[:] = sorted(d for d in dirs if d.casefold() not in SKIP and not Path(directory, d).is_symlink())
             for name in sorted(files):
                 p = Path(directory, name)
                 if p.suffix.lower() in TEXT or name in {"Dockerfile", "Makefile", "LICENSE"}:

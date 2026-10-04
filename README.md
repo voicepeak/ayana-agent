@@ -63,6 +63,8 @@ $env:AYANA_WINDOWS_INTEGRATION='1'
 
 完整打包步骤见 `scripts/PACKAGING.md`。真实桌面回归脚本为 `scripts/verify_desktop.mjs`，需要指定 Playwright 所在的 `node_modules`；它只对自己的练习窗口进行输入和点击。
 
+模型输入缓存使用稳定的系统/仓库前缀和独立模型轮次历史；设置页显示最近一次 API 缓存 token 回执。真实对照可运行 `python scripts/benchmark_prompt_cache.py`（默认六次联网请求，不读取用户聊天历史）。修复、实测与剩余架构问题见 [缓存与架构审查](docs/ARCHITECTURE_REVIEW_2026-10-04.md)。
+
 ## 实际边界
 
 普通权限、已解锁、可捕获且未最小化的窗口受到支持；受保护内容和管理员窗口返回明确失败。单步执行需要新鲜截图，动态页面变化会要求重新观察。发送输入不自动等于目标成功，只有实际观察结果可用于判断。

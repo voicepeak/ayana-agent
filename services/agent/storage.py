@@ -34,6 +34,8 @@ class ConversationStore:
           CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, created REAL, session_id TEXT, generation_id INTEGER, type TEXT, payload TEXT);
           CREATE TABLE IF NOT EXISTS utterances(utterance_id TEXT PRIMARY KEY, session_id TEXT, turn_id TEXT, generation_id INTEGER, speech_ja TEXT, display_zh TEXT DEFAULT '', status TEXT DEFAULT 'generated', played_samples INTEGER DEFAULT 0, total_samples INTEGER DEFAULT 0, sample_rate INTEGER DEFAULT 0, displayed INTEGER DEFAULT 0);
           CREATE TABLE IF NOT EXISTS preferences(key TEXT PRIMARY KEY, value TEXT);
+          CREATE TABLE IF NOT EXISTS model_turns(id INTEGER PRIMARY KEY, scope TEXT, payload TEXT);
+          CREATE INDEX IF NOT EXISTS model_turns_scope ON model_turns(scope, id);
         """)
 
     @locked
@@ -90,6 +92,32 @@ class ConversationStore:
                         events.append({"type": "translation", "key": r["utterance_id"], "display_zh": r["display_zh"]})
                     result.append({"role": "assistant", "content": "\n".join(json.dumps(item, ensure_ascii=False) for item in events)})
         return result[-16:]
+
+    @locked
+    def model_turns(self, scope):
+        return [json.loads(row[0]) for row in self.db.execute(
+            "SELECT payload FROM model_turns WHERE scope=? ORDER BY id", (scope,))]
+
+    @locked
+    def has_model_turns(self):
+        return self.db.execute("SELECT 1 FROM model_turns LIMIT 1").fetchone() is not None
+
+    @locked
+    def replace_model_turns(self, scope, turns):
+        with self.db:
+            self.db.execute("DELETE FROM model_turns WHERE scope=?", (scope,))
+            self.db.executemany("INSERT INTO model_turns(scope,payload) VALUES(?,?)",
+                                [(scope, json.dumps(turn, ensure_ascii=False)) for turn in turns])
+
+    @locked
+    def reception(self, turn_id, keys):
+        rows = self.db.execute(
+            "SELECT utterance_id,status,displayed,played_samples,total_samples FROM utterances WHERE turn_id=? ORDER BY rowid",
+            (turn_id,)).fetchall()
+        reverse = {uid: key for key, uid in keys.items()}
+        return [{"key": reverse[row[0]], "status": row[1], "displayed": bool(row[2]),
+                 "played_samples": row[3], "total_samples": row[4]}
+                for row in rows if row[0] in reverse]
 
     @locked
     def close(self):

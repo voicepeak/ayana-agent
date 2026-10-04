@@ -316,6 +316,8 @@ async function restartRuntime() {
   recentEvents = [];
   currentGeneration = 0;
   desktopEvent('desktop.reset');
+  // connectRuntime must be enabled before the new service is started.
+  restarting = false;
   await startRuntime();
   } finally {
     restarting = false;

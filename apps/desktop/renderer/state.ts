@@ -24,6 +24,7 @@ export interface ModelState {
   history: Record<string, unknown>[]; windows: Target[]; evidence: Evidence[];
   actions: RuntimeEvent[]; tools: RuntimeEvent[]; error?: string; shortcuts?: RuntimeEvent;
   questions: { text: string; generation: number; id: string }[];
+  modelUsage?: RuntimeEvent;
 }
 export const initialState: ModelState = {
   connected: false, service: 'starting', generation: 0, cancelledGeneration: -1,
@@ -86,6 +87,7 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
       break;
     }
     case 'settings.ready': next.settings = (event.settings ?? {}) as Record<string, unknown>; next.settingsLoaded = true; break;
+    case 'model.usage': next.modelUsage = event; break;
     case 'history.ready': next.history = (event.history ?? event.utterances ?? []) as Record<string, unknown>[]; break;
     case 'user.message':
     case 'desktop.question':
