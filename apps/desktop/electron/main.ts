@@ -41,6 +41,7 @@ let restarting = false;
 let focusAfterCapture = false;
 let summonPending = false;
 let startupSummonDone = false;
+let companionShown = false;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 let highlightTimer: ReturnType<typeof setTimeout> | undefined;
 let focusTimer: ReturnType<typeof setTimeout> | undefined;
@@ -101,6 +102,7 @@ function cancel() {
 function hide() {
   focusAfterCapture = false;
   summonPending = false;
+  companionShown = false;
   if (focusTimer) clearTimeout(focusTimer);
   cancel();
   runtimeSend({ type: 'session.close' });
@@ -110,6 +112,14 @@ function hide() {
 }
 
 async function summon() {
+  // Already waiting on the runtime: the portrait is on screen; keep it still.
+  if (summonPending) return;
+  // Repeated summon while already shown must not replay the entrance or jump.
+  if (companionShown) {
+    desktopEvent('desktop.workspace-hint');
+    chat?.focus();
+    return;
+  }
   // Runtime records the foreground HWND before either assistant window gains focus.
   cancel();
   focusAfterCapture = true;
@@ -131,6 +141,7 @@ function focusChat() {
   focusAfterCapture = false;
   if (focusTimer) clearTimeout(focusTimer);
   chat?.show();
+  companionShown = true;
   desktopEvent('desktop.summoned');
   chat?.focus();
 }

@@ -55,15 +55,15 @@ state = reduceEvent(state, event('playback.started', { utterance_id: 'speech', t
 assert.equal(state.expression, 'encourage');
 state = reduceEvent(state, event('generation.cancelled', { cancelled_generation_id: 7, generation_id: 8 }));
 assert.equal(state.current, undefined);
-assert.equal(state.expression, 'neutral');
+assert.equal(state.expression, 'encourage'); // cancellation keeps the last face on screen
 state = reduceEvent(state, event('subtitle.ready', { utterance_id: 'speech', display_zh: '旧字幕' }));
 assert.equal(state.speeches[0].zh, '');
 state = reduceEvent(state, event('utterance.ready', { generation_id: 9, utterance_id: 'new-speech', speech_ja: '次に進もう。', intent: 'explain', intensity: .25 }));
 state = reduceEvent(state, event('playback.started', { generation_id: 9, utterance_id: 'new-speech', total_samples: 100 }));
-assert.equal(state.expression, 'neutral');
+assert.equal(state.expression, 'encourage'); // a low-intensity sentence holds the previous face
 state = reduceEvent(state, event('playback.started', { seq: 91, utterance_id: 'speech', total_samples: 3000 }));
 assert.equal(state.current, 'new-speech');
-assert.equal(state.expression, 'neutral');
+assert.equal(state.expression, 'encourage');
 state = reduceEvent(state, event('input.state', { generation_id: 9, state: 'transcribing' }));
 assert.equal(state.inputState, 'transcribing');
 state = reduceEvent(state, event('desktop.cancelled', { generation_id: 9, cancelled_generation_id: 9 }));
@@ -77,7 +77,7 @@ state = reduceEvent(state, event('session.started', { target: null }));
 assert.equal(state.target, undefined);
 assert.equal(state.snapshot, undefined);
 assert.equal(state.task, 'idle');
-console.log('PASS: Worklet resampling, exact end/cancel sample counts, stale audio rejection; playback-only expressions, cancellation and low-intensity hold.');
+console.log('PASS: Worklet resampling, exact end/cancel sample counts, stale audio rejection; playback-only expressions, cancellation and low-intensity sentences hold the previous face.');
 
 let routed = reduceEvent(initialState, event('utterance.ready', { utterance_id: 'catalog-one', speech_ja: '大丈夫かな。', asset_id: 'aya_z1a0010__a0018', intensity: .1 }));
 assert.equal(routed.sentenceVersion, 0);
@@ -98,7 +98,7 @@ assert.equal(routed.expression, 'aya_z1a0000__a0017');
 routed = reduceEvent(routed, event('desktop.cancelled', { cancelled_generation_id: 7 }));
 routed = reduceEvent(routed, event('desktop.present', { utterance_id: 'catalog-two' }));
 assert.equal(routed.presented, undefined);
-console.log('PASS: full catalog IDs, sentence motion triggers once per sentence, persistent subtitles, and text-only presentation.');
+console.log('PASS: full catalog IDs, per-sentence presentation tracking, persistent subtitles, and text-only presentation.');
 
 let taskState = reduceEvent(initialState, event('task.updated', { task: { task_id: 'task-a', state: 'waiting_approval', goal: 'Edit' } }));
 taskState = reduceEvent(taskState, event('approval.required', { approval: { approval_id: 'approve-a', task_id: 'task-a', diff: '-old\n+new' } }));

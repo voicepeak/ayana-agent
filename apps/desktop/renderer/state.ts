@@ -19,7 +19,7 @@ export interface ModelState {
   expressionAt: number; inputState: string;
   settingsLoaded: boolean;
   presented?: string; sentenceVersion: number;
-  summonVersion: number; targetCue?: RuntimeEvent;
+  summonVersion: number; workspaceHintAt: number; targetCue?: RuntimeEvent;
   progress: number; repository?: Repository; settings: Record<string, unknown>;
   history: Record<string, unknown>[]; windows: Target[]; evidence: Evidence[];
   actions: RuntimeEvent[]; tools: RuntimeEvent[]; error?: string; shortcuts?: RuntimeEvent;
@@ -33,7 +33,7 @@ export interface ModelState {
 export const initialState: ModelState = {
   connected: false, service: 'starting', generation: 0, cancelledGeneration: -1,
   task: 'idle', voice: 'starting', mode: 'teach', speeches: [], expression: 'neutral', expressionAt: 0, inputState: 'idle',
-  progress: 0, sentenceVersion: 0, summonVersion: 0, settingsLoaded: false, settings: {}, history: [], windows: [], evidence: [], actions: [], tools: [], questions: [],
+  progress: 0, sentenceVersion: 0, summonVersion: 0, workspaceHintAt: 0, settingsLoaded: false, settings: {}, history: [], windows: [], evidence: [], actions: [], tools: [], questions: [],
   approvals: [], artifacts: [], sources: [], directories: [], taskHistory: [], searchConfigured: false,
   computerProgress: [],
 };
@@ -50,7 +50,7 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
     return {
       ...state, generation: Math.max(state.generation, generation),
       cancelledGeneration: Math.max(state.cancelledGeneration, cancelled),
-      current: undefined, presented: undefined, expression: 'neutral', expressionAt: 0, inputState: 'idle', progress: 0, task: 'idle', actions: [], approvals: [],
+      current: undefined, presented: undefined, inputState: 'idle', progress: 0, task: 'idle', actions: [], approvals: [],
       computerProgress: [], computerResult: undefined,
       speeches: state.speeches.map(s => s.generation <= cancelled && s.state !== 'played'
         ? { ...s, state: s.state === 'playing' ? 'partial' : 'cancelled' } : s),
@@ -95,6 +95,7 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
       next.sources = [source, ...state.sources.filter(s => s.source_id !== source.source_id)].slice(0, 100); break;
     }
     case 'desktop.summoned': next.summonVersion = state.summonVersion + 1; break;
+    case 'desktop.workspace-hint': next.workspaceHintAt = Date.now(); break;
     case 'desktop.target-cue': next.targetCue = event; break;
     case 'desktop.dismiss-error': next.error = undefined; break;
     case 'desktop.service':
@@ -185,7 +186,7 @@ const previewBridge: AyanaBridge = {
   send: async () => ({ ok: false, error: '此页面仅用于界面预览。请通过桌面应用启动本地服务。' }),
   onEvent: () => () => {}, playback: () => {}, summon: async () => {}, hide: async () => {}, openSettings: async () => {}, hideSettings: async () => {},
   chooseRepository: async () => null, chooseDirectory: async () => null, restart: async () => {},
-  getState: async () => ({ connected: false, service: 'preview', version: '0.3.0', repositoryRoot: '', events: [] }),
+  getState: async () => ({ connected: false, service: 'preview', version: '0.3.1', repositoryRoot: '', events: [] }),
 };
 export const bridge = window.ayana ?? previewBridge;
 

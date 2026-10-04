@@ -33,9 +33,10 @@ export function Icon({ name, size = 18 }: { name: string; size?: number }) {
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[name] || paths.sparkles}</svg>;
 }
 
-export function Character({ expression = 'neutral', className = '', sentenceVersion = 0, motion = true }: { expression?: string; className?: string; sentenceVersion?: number; motion?: boolean }) {
+export function Character({ expression = 'neutral', className = '', motion = true }: { expression?: string; className?: string; motion?: boolean }) {
   const [loaded, setLoaded] = useState('neutral');
   const [missing, setMissing] = useState(false);
+  const previous = useRef<string | null>(null);
   const frame = useRef<HTMLDivElement>(null);
   useEffect(() => {
     let cancelled = false;
@@ -46,9 +47,12 @@ export function Character({ expression = 'neutral', className = '', sentenceVers
     return () => { cancelled = true; };
   }, [expression]);
   useEffect(() => {
-    if (!sentenceVersion || !motion || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    // Only dip when the visible face actually changes, not on every sentence.
+    const changed = previous.current !== null && previous.current !== loaded;
+    previous.current = loaded;
+    if (!changed || !motion || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const animation = frame.current?.animate([{ transform: 'translateY(0)' }, { transform: 'translateY(12px)', offset: .35 }, { transform: 'translateY(0)' }], { duration: 300, easing: 'ease-out' });
     return () => animation?.cancel();
-  }, [sentenceVersion, motion]);
+  }, [loaded, motion]);
   return <div ref={frame} className={cn('character-frame', className)}>{missing ? <span className="asset-missing">立绘加载中，请在设置中检查素材</span> : <img className="character" src={`ayana-asset://${loaded}/`} alt="Ayana 半身立绘" draggable={false} />}</div>;
 }

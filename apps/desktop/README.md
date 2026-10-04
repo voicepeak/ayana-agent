@@ -12,7 +12,8 @@ Only chat owns an AudioWorklet; settings and highlight never create a player.
 The catalog indexes all 234 original PNGs (26 expressions, 9 outfit/pose
 combinations). The model selects a semantic expression and pose per sentence;
 the backend resolves only catalog IDs under the user-selected outfit. A 300ms,
-12px dip runs once when a sentence becomes visible. Idle and speech never float.
+12px dip runs only when the visible expression actually changes; the portrait
+holds its current face while the next sentence is generated. Idle and speech never float.
 
 The chat renderer hosts the **only** AudioWorklet player. Its bounded queue accepts
 mono float32 little-endian PCM, performs linear resampling to the device sample

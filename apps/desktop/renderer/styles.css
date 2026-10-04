@@ -223,6 +223,9 @@ select { width: 100%; outline: none; border: 1px solid var(--color-default-200);
 .target-aura em { right: -1px; bottom: -1px; border-right-width: 2px; border-bottom-width: 2px; border-radius: 0 0 10px; }
 .target-aura span { left: -1px; bottom: -1px; border-left-width: 2px; border-bottom-width: 2px; border-radius: 0 0 0 10px; }
 @keyframes target-arrival { 0% { opacity: 0; } 18% { opacity: 1; } 55% { opacity: .75; } 100% { opacity: 0; } }
+/* Repeat-summon keeps the portrait still and just names the current workspace. */
+.workspace-hint { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 4; padding: 5px 13px; border-radius: 999px; background: rgb(28 27 34 / .84); border: 1px solid rgb(226 208 184 / .45); color: #e6d7bd; font-size: 11px; letter-spacing: .3px; white-space: nowrap; max-width: 88%; overflow: hidden; text-overflow: ellipsis; pointer-events: none; animation: workspace-hint 1600ms ease-out both; }
+@keyframes workspace-hint { 0% { opacity: 0; transform: translate(-50%, -6px); } 15%, 72% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; transform: translate(-50%, -4px); } }
 .gal-heading { display: flex; align-items: center; justify-content: space-between; -webkit-app-region: drag; }
 .gal-heading strong { color: #ead5ac; font: 26px Georgia, 'Yu Mincho', serif; letter-spacing: 1px; }
 .gal-heading strong small { font: 11px 'Yu Mincho', serif; margin-left: 9px; letter-spacing: 3px; color: #b4a391; }
@@ -242,6 +245,7 @@ select { width: 100%; outline: none; border: 1px solid var(--color-default-200);
 .gal-dialogue .composer-hint span { display: none; }
 .gal-error { font-size: 11px; line-height: 1.6; background: #51383c; padding: 6px 9px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
 .gal-error button { margin-left: auto; color: inherit; border: 0; background: transparent; }
+.computer-not-ready { font-size: 10px; line-height: 1.5; color: #d8bd8b; background: rgb(81 56 60 / .35); border-left: 2px solid #b98b5e; padding: 5px 8px; margin: 4px 0 8px; }
 .action-notice { border: 0; background: transparent; color: #ead5ac; font-size: 11px; padding: 6px 0; }
 .preferences-view { padding: 16px 30px 28px; overflow-y: auto; min-height: 0; flex: 1; }
 .preferences-intro { color: var(--color-foreground-muted); font-size: 12px; line-height: 1.9; }
