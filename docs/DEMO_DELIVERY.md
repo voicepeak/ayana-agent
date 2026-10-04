@@ -70,12 +70,26 @@ Kun UI 的 Vue 组件层不能直接用于现有 React 技术栈。本版真实�
 | 交付文件 | 值 |
 | --- | --- |
 | 便携 EXE | `apps/desktop/release/Ayana-0.1.0-win-x64.exe` |
-| 大小 | 245,571,269 字节，约 234.2 MiB |
-| SHA256 | `787765B27A3BB239F080798ADDBB35EE47B73546FBA97E9828405A96EB580233` |
+| 大小 | 245,581,287 字节，约 234.2 MiB |
+| SHA256 | `2B2DE22A51B4B53A60B6906903E64E3F0916409AF56A0BE1E17C74E27E641029` |
 | 桌面入口 | `Ayana Demo.lnk`，指向上述固定文件路径 |
 | 源码远端 | `https://github.com/voicepeak/ayana-agent` 的 `main` |
 
 包内个人配置、DPAPI 凭证、历史、GPT/SoVITS 权重的扫描数量为 0。真实联网凭证只在当前用户数据目录中加密保存，源码检查未发现真实 API 密钥。
+
+## 2026-10-04 语音修复
+
+用户运行便携 EXE 后报告没有语音。旧进程的历史显示它使用默认系统语音，系统未安装日语 System.Speech 音色；随后语音 worker 启动直接退出。现场检查发现便携版的临时 `resources/backend` 已被清空，Python 的 `_pth` 等未锁定文件也被删除。
+
+已确认重复启动的打包缺陷：本机 electron-builder 26.15.3 默认让同一构建的启动器共用解压目录，第二个实例退出时会递归清理第一个实例正在使用的文件。改为每次独立的 NSIS `$PLUGINSDIR/app`，并在打包前执行已安装构建器的真实 define 生成检查，防止配置或依赖升级后重新使用共享目录。
+
+同时保留语音 worker 的具体失败原因和退出码，输出有界、经过凭证及文本过滤的故障摘要；新增启动诊断，记录实际配置路径、模型和音色模式。新便携 EXE 首次启动已确认读取 `%APPDATA%/Ayana/config/local.json`：`openai`、`deepseek-flash`、`sovits`、凭证已配置。实际播放器完整消费首句 34,240 个 32 kHz 来源样本，输出设备采样率为 96 kHz。
+
+直接从便携 EXE 验证：第二次打开的启动器正常退出，第一个主进程、Agent、连接与 worker/persona/_pth 文件全部保留；重复打开后再次完整播放 18,880 个样本。退出后从新解压目录重新启动，仍加载同一配置和音色，完整播放 17,600 个样本。记录为 `.runtime/benchmarks/portable-launcher/report.json`，三个实际播放检查均通过；验收范围仍为真实播放器样本消费，不对音箱声学效果作判断。Windows 默认 Realtek USB Audio 扬声器正常启用，主音量 8%、未静音；播放时 Ayana 会话音量 100%、未静音。
+
+首轮验收脚本保持 Node Inspector 连接，造成两次退出等待超时，其原始警告保留在 `report.json`。修正脚本为退出前断开调试器后，单独执行正常退出检查：`.runtime/benchmarks/portable-launcher/cleanup-report.json` 的配置加载与主进程/Agent/启动器正常退出全部通过，`errors=[]`，无残留测试进程。
+
+独立提交为 `81ad10b`（语音故障诊断）、`d016801`（便携解压隔离）、`230ce78`（实际配置诊断）、`cbc4c03`（便携启动器实际回归）。复现命令为 `node scripts/verify_portable_demo.mjs --playwright-root <Playwright 的 node_modules 目录>`；`--cleanup-only` 单独验证退出并保存独立报告。本轮语音单元测试 9 项通过，相关 Agent/服务与输入测试通过，桌面类型检查、Worklet/状态测试和打包构建通过。桌面入口仍指向本页交付表中的固定 EXE 路径。
 
 ## 决策与实际边界
 
