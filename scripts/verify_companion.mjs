@@ -37,6 +37,12 @@ try {
   for (const page of pages) page.on('pageerror', error => errors.push(error.message));
   await chat.waitForSelector('.companion-shell');
   await chat.waitForFunction(() => window.ayana.getState().then(state => state.connected));
+  if (realVoice) {
+    await chat.waitForFunction(() => window.ayana.getState().then(state => state.events.some(event =>
+      event.type === 'service.state' && event.service === 'tts' && event.state === 'ready'
+      && event.engine === 'gpt-sovits-ayana' && event.semantic_tail_guard_frames === 4
+      && event.semantic_tail_guard_long_frames === 6)), null, { timeout: 120000 });
+  }
   await chat.evaluate(() => {
     window.__companionEvents = [];
     window.ayana.onEvent(event => { if (event.type.startsWith('playback.') || event.type === 'error') window.__companionEvents.push(event); });
