@@ -41,8 +41,8 @@ export default function App() {
     if (kind !== 'chat' || !state.summonVersion || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     // Separate from Character's sentence dip, so the two transforms never fight.
     const portrait = portraitReveal.current?.animate([
-      { opacity: 0, transform: 'translateY(26px)' },
-      { opacity: 1, transform: 'translateY(0)' },
+      { transform: 'translateY(26px) scale(.98)' },
+      { transform: 'translateY(0) scale(1)' },
     ], { duration: 480, easing: 'cubic-bezier(.16,1,.3,1)' });
     const box = dialogue.current?.animate([
       { opacity: 0, transform: 'translateY(14px)' },
@@ -233,7 +233,7 @@ export default function App() {
       <div className="sidebar-bottom">
         <div className="shortcut-note"><Icon name="keyboard" size={17}/><div><span>随时呼出</span><kbd>Ctrl + Alt + A</kbd></div></div>
         <button className="nav-item" onClick={() => void bridge.summon()}><Icon name="message"/>呼出 Ayana</button>
-        <div className="build-label">AYANA DESKTOP <span>v0.2.2</span></div>
+        <div className="build-label">AYANA DESKTOP <span>v0.2.3</span></div>
       </div>
     </aside>
 

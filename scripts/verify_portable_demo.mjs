@@ -16,7 +16,7 @@ const args = process.argv.slice(2);
 const option = name => args.includes(name) ? args[args.indexOf(name) + 1] : undefined;
 const cleanupOnly = args.includes('--cleanup-only');
 const isolatedCompanion = args.includes('--isolated-companion');
-const executable = path.resolve(option('--exe') || path.join(root, 'apps/desktop/release/Ayana-0.2.2-win-x64.exe'));
+const executable = path.resolve(option('--exe') || path.join(root, 'apps/desktop/release/Ayana-0.2.3-win-x64.exe'));
 const require = createRequire(import.meta.url);
 const { chromium } = require(require.resolve('playwright', { paths: [option('--playwright-root') || root] }));
 const WebSocket = require(path.join(root, 'apps/desktop/node_modules/ws'));

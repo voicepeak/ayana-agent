@@ -51,7 +51,8 @@ try {
   const background = await chat.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
   assert.equal(background, 'rgba(0, 0, 0, 0)');
   await chat.screenshot({ path: path.join(directory, 'companion.png'), omitBackground: true });
-  assert.match(await chat.locator('.portrait-stage').evaluate(element => getComputedStyle(element).maskImage), /linear-gradient/);
+  assert.equal(await chat.locator('.portrait-stage').evaluate(element => getComputedStyle(element).maskImage), 'none');
+  assert.equal(await chat.locator('.portrait-reveal').evaluate(element => getComputedStyle(element).opacity), '1');
   const targetState = path.join(directory, 'appearance-target.json');
   target = spawn(python('import sys; print(sys._base_executable)'), ['-m', 'native.windows.demo_target', '--state', targetState, '--auto-close', '120'], { cwd: root, windowsHide: true, stdio: 'ignore' });
   // Observe a real owned Win32 window, rather than injecting a renderer event.
@@ -86,6 +87,19 @@ try {
   await summon();
   await chat.waitForTimeout(550);
   await chat.screenshot({ path: path.join(directory, 'companion.png'), omitBackground: true });
+  // Check actual rendered alpha, including the torso just above the dialogue.
+  const opaqueProbes = await chat.evaluate(() => {
+    const image = document.querySelector('.character');
+    const rect = image.getBoundingClientRect();
+    const box = document.querySelector('.gal-dialogue').getBoundingClientRect();
+    return { scale: devicePixelRatio, points: [
+      [rect.left + rect.width / 2, rect.top + rect.height * 160 / image.naturalHeight],
+      [rect.left + rect.width / 2, box.top - 14],
+      [rect.left + rect.width / 2, box.top + 28],
+    ] };
+  });
+  const paintedAlpha = JSON.parse(python('from PIL import Image; import sys,json; im=Image.open(sys.argv[1]).convert("RGBA"); probes=json.loads(sys.argv[2]); print(json.dumps([im.getpixel((round(x*probes["scale"]),round(y*probes["scale"])))[3] for x,y in probes["points"]]))', [path.join(directory, 'companion.png'), JSON.stringify(opaqueProbes)]));
+  assert.deepEqual(paintedAlpha, [255, 255, 255], 'Face, lower torso and dialogue overlap must be opaque in the rendered image');
   await chat.emulateMedia({ reducedMotion: 'reduce' });
   await highlight.emulateMedia({ reducedMotion: 'reduce' });
   python('from native.windows.win32 import Win32; import sys; assert Win32().focus(int(sys.argv[1]))', [String(owned.hwnd)]);
@@ -136,7 +150,7 @@ try {
   const after = await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter(window => /window=(chat|settings)/.test(window.webContents.getURL())).map(window => window.isVisible()));
   assert(after.every(visible => !visible));
   assert.deepEqual(errors, []);
-  console.log('PASS: feathered half portrait; repeated summon animation; real foreground window aura and DPI bounds; timed aura dismissal; separate settings; sentence routing, translation and motion; hide lifecycle.');
+  console.log('PASS: opaque portrait and dialogue overlap pixels; repeated summon animation; real foreground window aura and DPI bounds; timed aura dismissal; separate settings; sentence routing, translation and motion; hide lifecycle.');
 } finally {
   await application.close();
   if (target && target.exitCode === null) target.kill();

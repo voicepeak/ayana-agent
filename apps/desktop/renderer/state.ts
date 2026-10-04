@@ -142,7 +142,7 @@ const previewBridge: AyanaBridge = {
   send: async () => ({ ok: false, error: '此页面仅用于界面预览。请通过桌面应用启动本地服务。' }),
   onEvent: () => () => {}, playback: () => {}, summon: async () => {}, hide: async () => {}, openSettings: async () => {}, hideSettings: async () => {},
   chooseRepository: async () => null, restart: async () => {},
-  getState: async () => ({ connected: false, service: 'preview', version: '0.2.2', repositoryRoot: '', events: [] }),
+  getState: async () => ({ connected: false, service: 'preview', version: '0.2.3', repositoryRoot: '', events: [] }),
 };
 export const bridge = window.ayana ?? previewBridge;
 

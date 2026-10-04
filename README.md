@@ -4,7 +4,7 @@ Windows 个性化 Agent：快捷键呼出时只显示透明半身立绘、对话
 
 ## 在本机运行
 
-本机交付版可直接双击 `apps/desktop/release/Ayana-0.2.2-win-x64.exe`，桌面也有「Ayana Demo」快捷方式。它包含独立 Python、桌面程序、立绘与本地识别模型；个人模型配置保存在 `%APPDATA%/Ayana/config/local.json`。首次解包和加载音色需要等待；首次语音冷启动实测约 43 秒，期间文字输入与界面保持可用。
+本机交付版可直接双击 `apps/desktop/release/Ayana-0.2.3-win-x64.exe`，桌面也有「Ayana Demo」快捷方式。它包含独立 Python、桌面程序、立绘与本地识别模型；个人模型配置保存在 `%APPDATA%/Ayana/config/local.json`。首次解包和加载音色需要等待；首次语音冷启动实测约 43 秒，期间文字输入与界面保持可用。
 
 开发目录也可双击 `启动 Ayana.cmd`，后续修改仍按下面的流程构建。
 
