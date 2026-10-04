@@ -42,6 +42,7 @@ let focusAfterCapture = false;
 let summonPending = false;
 let startupSummonDone = false;
 let companionShown = false;
+let refreshSummon = false;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 let highlightTimer: ReturnType<typeof setTimeout> | undefined;
 let focusTimer: ReturnType<typeof setTimeout> | undefined;
@@ -103,6 +104,7 @@ function hide() {
   focusAfterCapture = false;
   summonPending = false;
   companionShown = false;
+  refreshSummon = false;
   if (focusTimer) clearTimeout(focusTimer);
   cancel();
   runtimeSend({ type: 'session.close' });
@@ -114,19 +116,17 @@ function hide() {
 async function summon() {
   // Already waiting on the runtime: the portrait is on screen; keep it still.
   if (summonPending) return;
-  // Repeated summon while already shown must not replay the entrance or jump.
-  if (companionShown) {
-    desktopEvent('desktop.workspace-hint');
-    chat?.focus();
-    return;
-  }
+  // A repeat summon still re-captures the foreground window (so the user can switch
+  // workspace) but must not replay the portrait entrance.
+  const refresh = companionShown;
   // Runtime records the foreground HWND before either assistant window gains focus.
   cancel();
   focusAfterCapture = true;
+  refreshSummon = refresh;
   if (!runtimeSend({ type: 'session.start' })) {
     summonPending = true;
     chat?.showInactive();
-    desktopEvent('desktop.summoned');
+    if (!refresh) desktopEvent('desktop.summoned');
     desktopEvent('desktop.service', { state: service, message: '本地服务正在启动…' });
     return;
   }
@@ -141,8 +141,13 @@ function focusChat() {
   focusAfterCapture = false;
   if (focusTimer) clearTimeout(focusTimer);
   chat?.show();
+  const refresh = refreshSummon;
+  refreshSummon = false;
   companionShown = true;
-  desktopEvent('desktop.summoned');
+  // A repeat summon names the freshly captured workspace instead of replaying the entrance.
+  // Deferred so the runtime's session.started target reaches the renderer first.
+  if (refresh) setTimeout(() => desktopEvent('desktop.workspace-hint'), 0);
+  else desktopEvent('desktop.summoned');
   chat?.focus();
 }
 
