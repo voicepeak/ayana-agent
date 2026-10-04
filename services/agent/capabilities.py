@@ -34,6 +34,7 @@ class CapabilityRuntime:
         registry.add("capture_target", "重新截图；新图片随后交给模型", arguments(), self._capture_tool)
         registry.add("observe_controls", "读取当前绑定窗口的控件", arguments(), self._controls_tool)
         registry.add("computer.run", "执行模式：在用户绑定的当前窗口完成明确要求的桌面任务。自动观察、输入或点击、核实结果；不能启动应用、跨窗口操作或执行命令。只有用户要求操作桌面时使用。", arguments({"goal": string(4000)}, ["goal"]), self._computer_tool, "write")
+        registry.set_availability("computer.run", lambda: bool(self.computer.status["available"]))
         registry.add("web.search", "公网搜索；重要结论继续 web.fetch 核对原文", arguments({"query": string(1000), "count": integer(1, 10)}, ["query"]), self._web_search)
         registry.add("web.fetch", "读取公网网页或 source_id 的正文", arguments({"url": string(3000)}, ["url"]), self._web_fetch)
         path_args = {"root_id": string(100), "path": string()}

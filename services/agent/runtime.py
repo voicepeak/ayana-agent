@@ -491,6 +491,7 @@ class AgentRuntime(CapabilityRuntime):
                     self.active_task.next_round()
                     await self._task_event()
                 requests = []
+                round_keys = {}
                 async for event in streams[-1]:
                     if gen != self.generation:
                         return
@@ -501,10 +502,20 @@ class AgentRuntime(CapabilityRuntime):
                         speech = validate_speech(event)
                         speech.update(self.avatars.resolve(speech, self.settings.values.get("avatar_costume", "校服")))
                         key = str(event.get("key", count))
-                        if key in keys:
+                        if key in round_keys:
                             raise ValueError("Model repeated a committed utterance key")
                         uid = identifier("u")
-                        keys[key] = uid
+                        round_keys[key] = uid
+                        # The same key may return in a later tool round or after
+                        # an approval. Keep stored keys unique so both sentences
+                        # and their receipts survive; a repeat inside one stream
+                        # is still rejected above.
+                        stored = key
+                        suffix = 2
+                        while stored in keys:
+                            stored = f"{key}#{suffix}"
+                            suffix += 1
+                        keys[stored] = uid
                         self.last_reply_keys = keys
                         self.last_reply_turn = self.turn_id
                         self.utterances[uid] = {"generation_id": gen, **speech}
@@ -522,7 +533,8 @@ class AgentRuntime(CapabilityRuntime):
                                 await putting
                         count += 1
                     elif kind == "translation":
-                        uid = keys.get(str(event.get("key")))
+                        key = str(event.get("key"))
+                        uid = round_keys.get(key) or keys.get(key)
                         if not uid:
                             raise ValueError("Translation references an uncommitted sentence")
                         await self.emit("subtitle.ready", utterance_id=uid, display_zh=str(event.get("display_zh", ""))[:1200])

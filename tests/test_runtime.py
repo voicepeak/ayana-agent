@@ -7,6 +7,7 @@ import pytest
 
 from services.agent.config import Settings
 from services.agent.runtime import AgentRuntime
+from services.agent.tools.registry import ToolError
 
 
 class Ws:
@@ -342,3 +343,53 @@ async def test_tool_rounds_and_interrupted_output_keep_factual_context(tmp_path)
     assert tail["previous_interrupted_reply"][0]["displayed"] is True
     assert tail["previous_interrupted_reply"][0]["status"] == "cancelled"
     await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_repeated_speech_key_across_tool_rounds_keeps_both_sentences(tmp_path):
+    import httpx
+    from tests.test_model import sse_response
+    root = Path(__file__).resolve().parents[1]
+    cfg = Settings(root=root, data_root=tmp_path)
+    cfg.values.update(provider="openai", model="test", send_screenshot=False)
+    cfg.key = lambda: "test-key"
+    runtime = AgentRuntime(cfg, desktop=Desktop(), tts=Tts())
+    runtime.repository = {"root": str(tmp_path), "files": [], "evidence": []}
+    ws = Ws()
+    runtime.clients.add(ws)
+    calls = []
+    def respond(request):
+        calls.append(json.loads(request.content)["messages"])
+        if len(calls) == 1:
+            return sse_response([{"type": "speech", "key": "s1", "speech_ja": "まず入口を見よう。"},
+                                 {"type": "tool", "name": "list_files", "arguments": {}}])
+        return sse_response([{"type": "speech", "key": "s1", "speech_ja": "次に進もう。"},
+                             {"type": "translation", "key": "s1", "display_zh": "接着往下。"}])
+    runtime.model_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    await runtime.handle({"type": "turn.start", "text": "inspect"})
+    await runtime.task
+    speeches = [event for event in ws.events if event["type"] == "utterance.ready"]
+    assert [event["speech_ja"] for event in speeches] == ["まず入口を見よう。", "次に進もう。"]
+    assert len({event["utterance_id"] for event in speeches}) == 2
+    assert not any(event["type"] == "error" for event in ws.events)
+    subtitle = next(event for event in ws.events if event["type"] == "subtitle.ready")
+    assert subtitle["display_zh"] == "接着往下。"
+    # The second round's sentence, not the first, receives the translation.
+    assert subtitle["utterance_id"] == speeches[1]["utterance_id"]
+    await runtime.close()
+
+
+def test_computer_tool_is_hidden_until_available(tmp_path):
+    runtime = AgentRuntime(settings(tmp_path), desktop=Desktop(), tts=Tts())
+    names = [item["function"]["name"] for item in runtime.registry.openai_schemas()]
+    assert "computer__run" not in names
+    runtime.computer = type("Stub", (), {"status": {"available": True}})()
+    names = [item["function"]["name"] for item in runtime.registry.openai_schemas()]
+    assert "computer__run" in names
+
+
+@pytest.mark.asyncio
+async def test_unavailable_tool_execution_is_rejected(tmp_path):
+    runtime = AgentRuntime(settings(tmp_path), desktop=Desktop(), tts=Tts())
+    with pytest.raises(ToolError, match="不可用"):
+        await runtime.registry.execute("computer.run", {"goal": "打开设置"})

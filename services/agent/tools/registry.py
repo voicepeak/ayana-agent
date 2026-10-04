@@ -53,14 +53,33 @@ def string(maximum=1000):
 class ToolRegistry:
     def __init__(self):
         self.tools = {}
+        self.availability = {}
 
     def add(self, name, description, schema, handler, effect="read"):
         self.tools[name] = Tool(name, description, schema, handler, effect)
+
+    def set_availability(self, name, predicate):
+        """Hide a registered tool from the model while its predicate is false."""
+        self.availability[name] = predicate
+
+    def available(self, tool):
+        predicate = self.availability.get(tool.name)
+        if predicate is None:
+            return True
+        try:
+            return bool(predicate())
+        except Exception:
+            return False
+
+    def active_tools(self):
+        return [tool for tool in self.tools.values() if self.available(tool)]
 
     async def execute(self, name, args):
         tool = self.tools.get(name)
         if not tool:
             raise ToolError("unknown_tool", "工具未注册")
+        if not self.available(tool):
+            raise ToolError("tool_unavailable", "该工具当前不可用；请先完成所需配置")
         validate(args, tool.parameters)
         result = tool.handler(**args)
         return await result if inspect.isawaitable(result) else result
@@ -68,7 +87,7 @@ class ToolRegistry:
     def prompt(self):
         return "Registered tools (exact arguments; stop after requesting tools to receive results):\n" + json.dumps([
             {"name": t.name, "description": t.description, "arguments": t.parameters, "effect": t.effect}
-            for t in self.tools.values()], ensure_ascii=False, sort_keys=True)
+            for t in self.active_tools()], ensure_ascii=False, sort_keys=True)
 
     @staticmethod
     def api_name(name):
@@ -79,7 +98,7 @@ class ToolRegistry:
         """Native function-calling schema for providers that accept a tools array."""
         return [{"type": "function", "function": {
             "name": self.api_name(t.name), "description": t.description, "parameters": t.parameters,
-        }} for t in self.tools.values()]
+        }} for t in self.active_tools()]
 
     def api_name_map(self):
-        return {self.api_name(t.name): t.name for t in self.tools.values()}
+        return {self.api_name(t.name): t.name for t in self.active_tools()}
