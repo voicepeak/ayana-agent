@@ -91,7 +91,7 @@ export function TaskPanel({ state, send }: { state: ModelState; send: (command: 
     <section className="agent-access"><h3>文件访问范围</h3><p>{fullAccess ? 'Full access 已允许访问任意本机路径。下列目录授权会在关闭后继续生效。' : '产出目录用于保存新文件。修改其他目录的文本，需要你在这里授权。'}</p>
       {state.directories.filter(item => item.root_id !== 'filesystem').map(item => <div className="agent-directory" key={String(item.root_id)}><span><strong>{item.root_id === 'output' ? '默认产出目录' : item.write ? '可修改文本' : '只读目录'}</strong><small>{String(item.path)}</small></span>{item.root_id !== 'output' && <Button variant="light" onClick={() => void send({ type: 'directory.revoke', root_id: item.root_id })}>撤销</Button>}</div>)}
       <div className="agent-buttons"><Button onClick={() => void choose(false)}>添加只读目录</Button><Button onClick={() => void choose(true)}>授权文本修改</Button></div>
-      <p className="agent-search-status">{state.searchConfigured ? '联网搜索已配置。' : '联网搜索尚未配置；可以直接读取你提供的网址。'} 搜索使用独立凭证，可通过配置脚本加密保存。</p>
+      <p className="agent-search-status">{state.searchConfigured ? '联网搜索已可用。' : '当前搜索方式缺少凭据；可配置凭据或切换到 Bing。'} 默认使用 Bing，无需 API Key；配置 Brave 凭据后可使用 Brave 搜索。</p>
     </section>
     {!!state.taskHistory.length && <details className="agent-task-history"><summary>最近任务</summary>{state.taskHistory.map(item => <p key={String(item.task_id)}><span>{taskLabels[String(item.state)] || String(item.state)}</span> {String(item.goal)}</p>)}</details>}
   </section>;

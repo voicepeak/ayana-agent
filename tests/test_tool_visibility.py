@@ -11,12 +11,26 @@ from services.agent.tools.registry import ToolError
 def agent(tmp_path):
     cfg = Settings(Path(__file__).resolve().parents[1], data_root=tmp_path)
     cfg.search_key = lambda: ""
+    cfg.values['search_provider'] = 'brave'
     cfg.values["send_screenshot"] = True
     return AgentRuntime(cfg, desktop=object(), tts=object())
 
 
 def names(runtime):
     return {tool.name for tool in runtime.registry.active_tools()}
+
+
+def test_keyless_default_search_is_visible_and_explicit_brave_requires_key(tmp_path):
+    runtime = agent(tmp_path)
+    runtime.settings.values['search_provider'] = 'auto'
+    assert 'web.search' in names(runtime)
+    assert runtime.web.selected_search_provider == 'bing'
+    runtime.settings.values['search_provider'] = 'brave'
+    assert 'web.search' not in names(runtime)
+    runtime.settings.search_key = lambda: 'fixture-key'
+    assert 'web.search' in names(runtime)
+    assert runtime.web.selected_search_provider == 'brave'
+    runtime.store.close()
 
 
 def test_missing_search_target_execute_mode_and_backup_filter_model_choices(tmp_path):

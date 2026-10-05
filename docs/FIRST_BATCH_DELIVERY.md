@@ -2,6 +2,8 @@
 
 版本：0.3.0。日期：2026-10-04。
 
+2026-10-05 更新：最新源码默认使用免 Key 的 Bing RSS（有 Brave Key 时自动选择 Brave）。下面的凭据要求及验收数据记录的是 0.3.0 首批状态；新版搜索实现、复用清单与适配细节见 [ByteMind 复用评估](BYTEMIND_REUSE.md)，运行包入口以 README 为准。
+
 ## 已实现
 
 - 原生工具调用：在线模型默认使用 OpenAI 兼容的 `tools` 接口（配置项 `native_tools`），流式解析 `delta.tool_calls`，并以 `role:"tool"` 按 `tool_call_id` 回传结果；与既有 NDJSON 语音/翻译事件并存。真实 DeepSeek 模型在自然语言请求下会自行调用工具（例如直接说“新建文件…保存”即可触发 `files.create`）。端点不支持时可设 `native_tools=false` 退回 NDJSON 工具事件。

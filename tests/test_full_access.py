@@ -184,6 +184,44 @@ async def test_full_access_desktop_receipt_and_auto_confirmation(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_desktop_schema_rejects_unsupported_input_before_execution(tmp_path):
+    runtime = runtime_for(tmp_path)
+    activate(runtime)
+    runtime.target = {'target_id': 'target'}
+    runtime.snapshot = {'snapshot_id': 'fresh'}
+    for action in [
+        {'kind': 'scroll', 'point': {'x': 1, 'y': 1}, 'delta': 21},
+        {'kind': 'scroll', 'point': {'x': 1, 'y': 1}, 'delta': 0},
+        {'kind': 'key', 'key': 'ctrl+a'},
+        {'kind': 'click'}, {'kind': 'scroll'}, {'kind': 'type'}, {'kind': 'key'},
+    ]:
+        with pytest.raises(ToolError) as error:
+            await runtime.registry.execute('desktop.step', {'snapshot_id': 'fresh', **action})
+        assert error.value.code == 'invalid_arguments'
+        assert runtime.snapshot['snapshot_id'] == 'fresh'
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_desktop_failure_preserves_executor_reason_and_invalidates_snapshot(tmp_path):
+    from native.windows.desktop import DesktopError
+    class FailedDesktop(Desktop):
+        def execute(self, action, snapshot_id):
+            raise DesktopError('target_occluded', 'Target point is covered by another window')
+    runtime = runtime_for(tmp_path)
+    runtime.desktop = FailedDesktop()
+    activate(runtime)
+    runtime.target = {'target_id': 'target'}
+    runtime.snapshot = {'snapshot_id': 'fresh'}
+    with pytest.raises(ToolError) as error:
+        await runtime.registry.execute('desktop.step', {'snapshot_id': 'fresh', 'kind': 'click', 'point': {'x': 1, 'y': 1}})
+    assert error.value.code == 'target_occluded'
+    assert 'covered' in str(error.value)
+    assert runtime.snapshot is None
+    await runtime.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('native', [True, False])
 async def test_model_dispatches_real_shell_and_receives_receipt(tmp_path, native):
     runtime = runtime_for(tmp_path)

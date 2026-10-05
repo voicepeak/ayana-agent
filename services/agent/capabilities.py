@@ -35,7 +35,7 @@ class CapabilityRuntime:
         registry.set_availability("observe_controls", lambda: bool(self.target))
         registry.add("web.search", "公网搜索；重要结论继续 web.fetch 核对原文", arguments({"query": string(1000), "count": integer(1, 10)}, ["query"]), self._web_search)
         registry.add("web.fetch", "读取公网网页或 source_id 的正文", arguments({"url": string(3000)}, ["url"]), self._web_fetch)
-        registry.set_availability("web.search", lambda: bool(self.settings.search_key()))
+        registry.set_availability("web.search", lambda: self.web.search_available)
         path_args = {"root_id": string(100), "path": string()}
         registry.add("files.read", "读取文本；可按 start_line/max_lines 分段。普通模式 root_id 为 repository 或授权目录 ID；Full access 可用 root_id=filesystem 加任意绝对路径。省略 root_id 时优先仓库，否则 output。完整 UTF-8 文件返回 sha256；修改前必须完整读取", arguments({**path_args, "start_line": integer(1, 1000000), "max_lines": integer(1, 200)}, ["path"]), self._file_read)
         registry.add("files.create", "执行模式：在授权目录创建新文本文件，绝不覆盖", arguments({**path_args, "content": string(40000)}, [*path_args, "content"]), self._file_create, "write")
@@ -56,7 +56,8 @@ class CapabilityRuntime:
         registry.add("desktop.step", "Full access：根据当前截图直接执行一个桌面动作并返回观察结果；snapshot_id 必须与最新截图一致。click/scroll 需要截图坐标 point；type 使用 text；key 使用 key；不得猜测坐标", arguments({
             "snapshot_id": string(100), "kind": {"type": "string", "enum": ["click", "type", "scroll", "highlight", "key"]},
             "point": arguments({"x": integer(0, 20000), "y": integer(0, 20000)}, ["x", "y"]),
-            "text": string(4000), "key": string(100), "delta": integer(-100, 100),
+            "text": string(4000), "key": {"type": "string", "enum": ["enter", "tab", "escape", "backspace", "left", "up", "right", "down", "home", "end", "pageup", "pagedown"]},
+            "delta": {**integer(-20, 20), "description": "滚动刻度，必须非零；省略时为 -3"},
             "expected_result": string(1000), "expected_text": string(1000)}, ["snapshot_id", "kind"]), self._desktop_step, "write")
         registry.set_availability("desktop.step", lambda: self.full_access and bool(self.target and self.snapshot))
         for name in ("apps.search", "apps.open", "files.open", "web.open", "windows.list", "windows.select"):
@@ -106,7 +107,12 @@ class CapabilityRuntime:
             raise ToolError("full_access_required", "请先开启 Full access")
         if not self.snapshot or snapshot_id != self.snapshot["snapshot_id"]:
             raise ToolError("stale_snapshot", "请重新观察最新截图")
-        result = await self._execute({"snapshot_id": snapshot_id, "action": action}, self.generation)
+        required = {"click": "point", "scroll": "point", "type": "text", "key": "key"}.get(action["kind"])
+        if required and required not in action:
+            raise ToolError("invalid_arguments", f"{action['kind']} 需要 {required}")
+        if action["kind"] == "scroll" and action.get("delta", -3) == 0:
+            raise ToolError("invalid_arguments", "滚动刻度必须非零")
+        result = await self._execute({"snapshot_id": snapshot_id, "action": action}, self.generation, raise_errors=True)
         if result is None:
             raise ToolError("desktop_incomplete", "桌面操作未完成，请重新观察")
         if action["kind"] != "highlight":
@@ -373,7 +379,8 @@ class CapabilityRuntime:
         await self.emit("capabilities.ready", directories=self.policy.public(),
                         full_access=self.full_access,
                         computer_use=self.computer.status,
-                        search_configured=bool(self.settings.search_key()),
+                        search_configured=self.web.search_available,
+                        search_provider=self.web.selected_search_provider,
                         artifacts=await asyncio.to_thread(self.files.inventory),
                         tasks=self.store.records("task") if self.settings.values.get("save_history", True) else [])
         await self._task_event()

@@ -12,6 +12,8 @@ Windows 个性化 Agent：快捷键呼出时只显示透明半身立绘、对话
 
 Full access 版为 `apps/desktop/release/Ayana-0.3.2-full-access-win-x64.exe`，包含话题管理和访问权限开关。退出旧版后启动，在「任务与结果」开启 Full access 即可。
 
+最新搜索修复版为 `apps/desktop/release/Ayana-0.3.2-bing-search-win-x64.exe`，包含上述功能及默认免 Key 的 Bing 搜索；与当前通用交付包内容一致。
+
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e '.[test,stt]'
@@ -30,7 +32,7 @@ npm --prefix apps/desktop start
 
 在线模型默认使用原生 function calling（配置项 `native_tools`，默认 `true`）：请求携带注册工具的 `tools` schema，流式解析 `delta.tool_calls`，并以 `role:"tool"` 回传真实结果。因此在对话框里直接描述需求，模型会自行选择工具（读取网页、写入授权文件等），无需在提示里点名工具。若目标端点不支持 `tools`，可将 `native_tools` 设为 `false` 退回既有 NDJSON 工具事件协议。
 
-「设置与管理 → 任务与结果」提供 **Full access** 开关（`full_access`，默认关闭，选择保存在本机）。开启后在对话中直接使用任意本机路径，读写仓库、操作应用、运行 PowerShell 命令；文件修改与恢复会直接应用并保留备份，桌面步骤无需逐次确认。`shell.run` 返回真实退出码与有上限的输出，命令超时、取消、切换开关或关闭助手会停止其进程树；用于持久启动桌面应用请用应用打开工具。关闭开关会停止当前任务并恢复原有目录授权、执行模式与确认规则。Full access 使用当前 Windows 用户权限；在线模型、搜索凭证和 UFO 桌面组件仍需按对应功能配置。
+「设置与管理 → 任务与结果」提供 **Full access** 开关（`full_access`，默认关闭，选择保存在本机）。开启后在对话中直接使用任意本机路径，读写仓库、操作应用、运行 PowerShell 命令；文件修改与恢复会直接应用并保留备份，桌面步骤无需逐次确认。`shell.run` 返回真实退出码与有上限的输出，命令超时、取消、切换开关或关闭助手会停止其进程树；用于持久启动桌面应用请用应用打开工具。关闭开关会停止当前任务并恢复原有目录授权、执行模式与确认规则。Full access 使用当前 Windows 用户权限；在线模型、可选 Brave 搜索凭证和 UFO 桌面组件仍需按对应功能配置，默认 Bing 搜索无需凭证。
 
 ## 体验流程
 
@@ -40,8 +42,12 @@ npm --prefix apps/desktop start
 4. 有语音时，立绘跟随实际播放句切换；仅文字时逐句呈现。思考下一句时沿用当前立绘，只有表情真正变化时才下沉 12px 并在 300ms 内回到原位；可在设置关闭，系统减少动态效果也会禁用。
 5. 按住麦克风说话、松开识别，文本可修改后发送。**Ctrl+Alt+Space** 立即打断，关闭呼出面板也会停止输出。
 6. 需要理解代码或观察窗口时，在设置里选择仓库和目标；需要执行桌面操作时选择「单步执行」并确认具体步骤。
-7. 首批新增网页读取、联网搜索接入、文本创建/修改/恢复，以及可暂停和取消的任务循环。对话框启用执行模式后可保存文件；管理窗口的「任务与结果」展示来源、文件与修改差异。搜索需要独立凭证，完整用法与实测边界见 [首批交付说明](docs/FIRST_BATCH_DELIVERY.md)。
+7. 首批新增网页读取、联网搜索接入、文本创建/修改/恢复，以及可暂停和取消的任务循环。对话框启用执行模式后可保存文件；管理窗口的「任务与结果」展示来源、文件与修改差异。Bing 搜索无需凭据；完整用法与实测边界见 [首批交付说明](docs/FIRST_BATCH_DELIVERY.md)。
 8. 执行模式现在可直接要求“打开记事本”“打开计算器”“打开这个网址”，也能查找并打开授权目录中的文件/文件夹。应用启动后，模型可选定新窗口继续观察。工具清单及限制见 [系统打开工具交付](docs/SYSTEM_TOOLS_DELIVERY.md)。
+
+联网搜索默认 `search_provider=auto`：没有搜索凭据时使用 Bing RSS，无需 API Key；配置 Brave Key 后使用 Brave，也可显式选择 `bing` 或 `brave`。Bing RSS 路线参考 ByteMind 的实现；返回结果保留真实 URL、摘要和来源 ID，空结果或验证页面会明确报错。搜索引擎可能调整 RSS 行为，应继续用 `web.fetch` 核对原文。
+
+Brave 凭据可通过 `.venv\Scripts\python.exe scripts/configure_search.py --installed` 隐藏输入并使用 Windows DPAPI 加密保存。若 Brave 直连失败，可加 `--proxy http://127.0.0.1:7892`（使用本机实际 HTTP 代理端口）；`search_proxy` 只作用于固定 Brave API，网页读取和 Bing RSS 仍使用原有公网地址验证。模型 API Key 与 Brave Search API Key 是独立凭据。
 
 安全演示窗口：`.\.venv\Scripts\python.exe -m native.windows.demo_target`。它仅是练习应用，不会操作其他用户软件。
 

@@ -6,6 +6,7 @@ import ipaddress
 import json
 import socket
 import uuid
+import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
 from urllib.parse import urljoin
 
@@ -86,12 +87,24 @@ class BodyText(HTMLParser):
 
 
 class WebTools:
-    def __init__(self, key_provider, transport=None):
+    def __init__(self, key_provider, transport=None, search_proxy=None, search_provider=None):
         self.key_provider = key_provider
+        self.search_proxy = search_proxy or (lambda: "")
+        self.search_provider = search_provider or (lambda: "auto")
         self.client = httpx.AsyncClient(transport=transport or PublicTransport(), timeout=25,
                                        follow_redirects=False, trust_env=False,
                                        headers={"User-Agent": "Ayana/0.3 public-evidence"})
         self.sources = {}
+
+    @property
+    def selected_search_provider(self):
+        value = self.search_provider()
+        return ("brave" if self.key_provider() else "bing") if value == "auto" else value
+
+    @property
+    def search_available(self):
+        provider = self.selected_search_provider
+        return provider == "bing" or (provider == "brave" and bool(self.key_provider()))
 
     def remember(self, value):
         sid = "source-" + uuid.uuid4().hex[:12]
@@ -101,10 +114,10 @@ class WebTools:
             self.sources.pop(next(iter(self.sources)))
         return value
 
-    async def download(self, url, headers=None):
+    async def download(self, url, headers=None, client=None):
         public_url(url)
         for hop in range(5):
-            async with self.client.stream("GET", url, headers=headers) as response:
+            async with (client or self.client).stream("GET", url, headers=headers) as response:
                 if response.is_redirect:
                     location = response.headers.get("location")
                     if not location or hop == 4:
@@ -144,12 +157,27 @@ class WebTools:
                               "truncated": len(content) > 12000, "fetched_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()})
 
     async def search(self, query, count=5):
+        provider = self.selected_search_provider
+        if provider == "bing":
+            return await self._bing_search(query, count)
+        if provider != "brave":
+            raise ToolError("search_unconfigured", "搜索方式必须为 auto、bing 或 brave")
         key = self.key_provider()
         if not key:
             raise ToolError("search_unconfigured", "搜索尚未配置 AYANA_SEARCH_API_KEY；仍可读取你提供的网址")
         url = str(httpx.URL("https://api.search.brave.com/res/v1/web/search", params={"q": query, "count": count}))
         async with asyncio.timeout(25):
-            _, _, raw, _ = await self.download(url, {"X-Subscription-Token": key, "Accept": "application/json"})
+            headers = {"X-Subscription-Token": key, "Accept": "application/json"}
+            proxy = self.search_proxy()
+            if proxy:
+                # Only the fixed Brave API endpoint uses the trusted local
+                # proxy's DNS. Arbitrary web.fetch targets retain DNS pinning.
+                # Credentialed requests still refuse all redirects.
+                async with httpx.AsyncClient(proxy=proxy, trust_env=False, timeout=25,
+                                             follow_redirects=False, headers={"User-Agent": "Ayana/0.3 public-evidence"}) as client:
+                    _, _, raw, _ = await self.download(url, headers, client=client)
+            else:
+                _, _, raw, _ = await self.download(url, headers)
         data = json.loads(raw)
         result = []
         for item in data.get("web", {}).get("results", [])[:count]:
@@ -159,6 +187,42 @@ class WebTools:
                 continue
             result.append(self.remember({"title": str(item.get("title", ""))[:500], "url": verified_url,
                                          "summary": str(item.get("description", ""))[:1800], "published": item.get("page_age")}))
+        return result
+
+    async def _bing_search(self, query, count):
+        # Adapted from ByteMind's RSS search approach, commit f259496e.
+        # https://github.com/1024XEngineer/bytemind/blob/f259496ed7f959b3400c57e2d3d4d0a548d4b6a3/internal/tools/web_search.go
+        url = str(httpx.URL("https://www.bing.com/search", params={"q": query, "format": "rss"}))
+        async with asyncio.timeout(25):
+            _, _, raw, _ = await self.download(url)
+        if b"<!DOCTYPE" in raw.upper() or b"<!ENTITY" in raw.upper():
+            raise ToolError("search_invalid_response", "搜索响应包含不支持的 XML 声明")
+        try:
+            feed = ET.fromstring(raw)
+        except ET.ParseError:
+            raise ToolError("search_invalid_response", "搜索未返回 RSS，可能触发了验证或服务页面发生变化") from None
+        if feed.tag != "rss":
+            raise ToolError("search_invalid_response", "搜索响应不是 RSS")
+        def plain(value, limit):
+            parser = BodyText()
+            parser.feed(value or "")
+            return " ".join("".join(parser.text).split())[:limit]
+        result, seen = [], set()
+        for item in feed.findall("./channel/item"):
+            try:
+                link = str(public_url((item.findtext("link") or "").strip()))
+            except ToolError:
+                continue
+            if link in seen:
+                continue
+            seen.add(link)
+            result.append(self.remember({"title": plain(item.findtext("title"), 500) or link,
+                "url": link, "summary": plain(item.findtext("description"), 1800),
+                "provider": "bing", "rank": len(result) + 1}))
+            if len(result) >= count:
+                break
+        if not result:
+            raise ToolError("search_empty", "搜索未返回有效结果；请调整关键词或稍后再试")
         return result
 
     async def close(self):

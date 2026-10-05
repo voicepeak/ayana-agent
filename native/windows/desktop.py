@@ -46,7 +46,7 @@ def _same_geometry(first, second):
             and first.get("client_bounds_image_px") == second.get("client_bounds_image_px"))
 
 
-def _same_content(first, second, client_bounds=None):
+def _same_content(first, second, client_bounds=None, dpi=96):
     """Ignore frame activation and only a narrow blinking insertion caret.
 
     Everything else, including very small button text changes, invalidates
@@ -73,7 +73,8 @@ def _same_content(first, second, client_bounds=None):
     if bounds is None:
         return True
     left, top, right, bottom = bounds
-    return right-left <= 2 and bottom-top <= 32  # insertion caret only
+    scale = max(1, dpi / 96)
+    return right-left <= math.ceil(2 * scale) and bottom-top <= math.ceil(32 * scale)  # insertion caret only
 
 
 def _fit_capture(image, max_pixels=8_000_000, max_bytes=6 * 1024 * 1024):
@@ -303,7 +304,7 @@ class WindowsDesktop:
             if self._api.focused_window(target["hwnd"]) != snapshot.focused_hwnd:
                 raise DesktopError("focused_control_changed", "Focused control changed; observe again before typing")
         current = self._image(target)
-        if not _same_content(snapshot.image, current, snapshot.public["target"].get("client_bounds_image_px")):
+        if not _same_content(snapshot.image, current, snapshot.public["target"].get("client_bounds_image_px"), target["dpi"]):
             raise DesktopError("content_changed", "Target contents changed; refresh the screenshot and action preview")
         return snapshot, target, kind
 
@@ -375,7 +376,7 @@ class WindowsDesktop:
             if foreground != target["hwnd"] and not self._api.focus(target["hwnd"]):
                 raise DesktopError("focus_failed", "Windows refused target focus recovery; no input was sent")
             # Revalidate content after focus recovery; focused controls can reflow.
-            if not _same_content(snapshot.image, self._image(target), public["target"].get("client_bounds_image_px")):
+            if not _same_content(snapshot.image, self._image(target), public["target"].get("client_bounds_image_px"), target["dpi"]):
                 raise DesktopError("content_changed", "Target changed after focus recovery; observe again")
             self._guard(target, epoch)
             point = None
@@ -446,7 +447,7 @@ class WindowsDesktop:
                 self._snapshots.pop(snapshot_id, None)
             after = self.capture(target["target_id"])
             controls = self.observe_controls(target["target_id"])
-            changed = not _same_content(snapshot.image, self._snapshots[after["snapshot_id"]].image, public["target"].get("client_bounds_image_px"))
+            changed = not _same_content(snapshot.image, self._snapshots[after["snapshot_id"]].image, public["target"].get("client_bounds_image_px"), target["dpi"])
             expected = str(action.get("expected_text", ""))
             verified = any(expected in str(control.get("name", "")) or expected in str(control.get("value", "")) for control in controls) if expected else None
             return {"kind": kind, "status": "input_sent", "target_id": target["target_id"],

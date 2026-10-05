@@ -83,7 +83,8 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             with contextlib.suppress(ValueError, OSError):
                 self.policy.grant(grant["root_id"], grant["path"], grant["write"])
         self.files = FileTools(self.policy, settings.data_root, self.store)
-        self.web = WebTools(settings.search_key)
+        self.web = WebTools(lambda: settings.search_key(), search_proxy=lambda: settings.values.get("search_proxy", ""),
+                            search_provider=lambda: settings.values.get("search_provider", "auto"))
         self.system = SystemTools(self.policy)
         self.window_choices = {}
         self.computer = ComputerUse(settings)
@@ -733,7 +734,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             if gen == self.generation:
                 await self.emit("tool.failed", tool="execute_step", message=str(e)[:500])
 
-    async def _execute(self, cmd, gen):
+    async def _execute(self, cmd, gen, *, raise_errors=False):
         action = cmd.get("action", {})
         if cmd.get("action_id"):
             action = self.actions.pop(cmd["action_id"], None)
@@ -777,6 +778,8 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 self.actions.clear()
                 await self.emit("snapshot.invalidated")
                 await self.emit("task.state", state="failed")
+            if raise_errors:
+                raise ToolError(getattr(e, "code", "desktop_incomplete"), str(e)[:500]) from None
 
     async def close(self):
         async with self.close_lock:

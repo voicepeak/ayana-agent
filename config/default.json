@@ -8,6 +8,8 @@
   "send_screenshot": true,
   "native_tools": true,
   "full_access": false,
+  "search_proxy": "",
+  "search_provider": "auto",
   "max_utterances": 8,
   "model_max_tokens": 6000,
   "task_limits": {"rounds": 12, "calls": 24, "seconds": 180},

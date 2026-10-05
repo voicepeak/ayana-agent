@@ -17,6 +17,7 @@ const directory = path.join(root, '.runtime/benchmarks/capabilities-desktop', St
 const data = path.join(directory, 'data');
 const verifyOpen = argv.includes('--system-open');
 const verifyWeb = !argv.includes('--skip-web');
+const verifySearch = argv.includes('--keyless-search');
 const fixturePython = argv.includes('--fixture-python') ? argv[argv.indexOf('--fixture-python') + 1]
   : [path.join(root, '.venv/Scripts/python.exe'), path.join(root, '.runtime/testenv/Scripts/python.exe')].find(existsSync);
 let fixture;
@@ -47,6 +48,7 @@ function response(messages) {
     if (result.name === 'files.read') return tool('files.propose_edit', { root_id: 'output', path: 'demo-config.json', base_sha256: result.result.sha256, content: '{"port":8080}\n' });
   }
   if (question.includes('网页')) return result ? reply('fetched') : tool('web.fetch', { url: 'https://example.com' });
+  if (question.includes('联网搜索验证')) return result ? reply('searched') : tool('web.search', { query: 'Python asyncio documentation', count: 3 });
   return reply('done');
 }
 const server = createServer(async (request, res) => {
@@ -59,7 +61,7 @@ const server = createServer(async (request, res) => {
   res.end('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] }) + '\n\ndata: [DONE]\n\n');
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-writeFileSync(path.join(data, 'config/local.json'), JSON.stringify({ provider: 'openai', model: 'fixture', base_url: `http://127.0.0.1:${server.address().port}/v1`, voice: { voice_mode: 'silent' }, save_history: false, send_screenshot: false, hotkey: 'Ctrl+Alt+Shift+F10', cancel_hotkey: 'Ctrl+Alt+Shift+F11' }));
+writeFileSync(path.join(data, 'config/local.json'), JSON.stringify({ provider: 'openai', model: 'fixture', base_url: `http://127.0.0.1:${server.address().port}/v1`, voice: { voice_mode: 'silent' }, save_history: false, send_screenshot: false, search_provider: verifySearch ? 'bing' : 'auto', hotkey: 'Ctrl+Alt+Shift+F10', cancel_hotkey: 'Ctrl+Alt+Shift+F11' }));
 let app;
 let launcher;
 const report = { scope: 'Real Electron, authenticated IPC, Python runtime and file writes; deterministic local model fixture' + (verifyWeb ? '; public page fetch' : ''), packaged, checks: {}, skipped_checks: verifyWeb ? [] : ['public_page_fetch'], errors: [] };
@@ -140,6 +142,19 @@ try {
     await ask('读取示例网页');
     await controls.getByText('Example Domain', { exact: true }).waitFor({ timeout: 30000 });
     report.checks.real_source_card = true;
+  }
+  if (verifySearch) {
+    await chat.evaluate(() => window.ayana.summon());
+    await ask('联网搜索验证');
+    await chat.waitForFunction(() => window.__qaEvents.some(e => e.type === 'tool.completed' && e.tool === 'web.search'), null, { timeout: 30000 });
+    const hits = await chat.evaluate(() => window.__qaEvents.filter(e => e.type === 'tool.completed' && e.tool === 'web.search').at(-1)?.result);
+    assert(hits.length > 0 && hits.length <= 3);
+    assert(hits.every(hit => hit.provider === 'bing' && hit.url.startsWith('http') && hit.source_id));
+    await controls.getByText(hits[0].title, { exact: true }).first().waitFor();
+    await controls.getByText('联网搜索已可用。', { exact: false }).waitFor();
+    report.checks.keyless_bing_search = true;
+    report.checks.search_results_visible = true;
+    report.search_sample = hits.map(({ title, url }) => ({ title, url }));
   }
   await controls.getByRole('heading', { name: '文件访问范围' }).scrollIntoViewIfNeeded();
   await controls.getByRole('button', { name: '授权文本修改' }).waitFor();

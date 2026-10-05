@@ -99,6 +99,16 @@ class CoordinateTests(unittest.TestCase):
         ImageDraw.Draw(second).rectangle((100, 100, 105, 105), fill="red")
         self.assertFalse(_same_content(first, second, client))
 
+    def test_high_dpi_caret_blink_is_excluded_but_text_changes_are_not(self):
+        first = Image.new("RGB", (704, 544), "white")
+        second = first.copy()
+        client = {"left": 12, "top": 52, "right": 692, "bottom": 532}
+        ImageDraw.Draw(second).rectangle((100, 100, 102, 149), fill="black")
+        self.assertFalse(_same_content(first, second, client))
+        self.assertTrue(_same_content(first, second, client, dpi=168))
+        ImageDraw.Draw(second).rectangle((103, 100, 106, 149), fill="black")
+        self.assertFalse(_same_content(first, second, client, dpi=168))
+
 
 class FocusRecoveryTests(unittest.TestCase):
     def focus_api(self, mode):

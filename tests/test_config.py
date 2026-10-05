@@ -1,10 +1,31 @@
 import json
 from pathlib import Path
+import pytest
 
 from services.agent.config import Settings
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_local_search_proxy_can_be_saved_and_disabled(tmp_path):
+    settings = Settings(root=ROOT, data_root=tmp_path)
+    settings.update({'search_proxy': 'http://127.0.0.1:7892'})
+    assert Settings(root=ROOT, data_root=tmp_path).values['search_proxy'] == 'http://127.0.0.1:7892'
+    settings.update({'search_proxy': ''})
+    assert Settings(root=ROOT, data_root=tmp_path).values['search_proxy'] == ''
+
+
+@pytest.mark.parametrize('value', [None, True, 'socks5://127.0.0.1:7892', 'http://proxy.example:7892',
+                                  'http://user:password@127.0.0.1:7892', 'http://127.0.0.1',
+                                  'http://127.0.0.1:7892/path', 'http://127.0.0.1:7892?key=x',
+                                  'http://127.0.0.1:99999'])
+def test_invalid_search_proxy_does_not_change_settings(tmp_path, value):
+    settings = Settings(root=ROOT, data_root=tmp_path)
+    previous = dict(settings.values)
+    with pytest.raises(ValueError):
+        settings.update({'search_proxy': value})
+    assert settings.values == previous
 
 
 def test_explicit_unicode_profile_wins_over_inherited_profile(tmp_path, monkeypatch):

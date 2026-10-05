@@ -31,13 +31,26 @@ class Settings:
         return clean(self.values)
 
     def update(self, patch: dict):
-        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "avatar_costume", "sentence_motion", "volume", "task_limits", "model_max_tokens", "native_tools", "full_access"}
+        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "avatar_costume", "sentence_motion", "volume", "task_limits", "model_max_tokens", "native_tools", "full_access", "search_proxy", "search_provider"}
         if not isinstance(patch, dict) or set(patch) - allowed:
             raise ValueError("Unsupported settings field")
         if "native_tools" in patch and type(patch["native_tools"]) is not bool:
             raise ValueError("native_tools must be boolean")
         if "full_access" in patch and type(patch["full_access"]) is not bool:
             raise ValueError("full_access must be boolean")
+        if "search_provider" in patch and (not isinstance(patch["search_provider"], str) or patch["search_provider"] not in {"auto", "bing", "brave"}):
+            raise ValueError("search_provider must be auto, bing or brave")
+        if "search_proxy" in patch:
+            from urllib.parse import urlparse
+            value = patch["search_proxy"]
+            if not isinstance(value, str) or len(value) > 500:
+                raise ValueError("Invalid search_proxy")
+            if value:
+                proxy = urlparse(value)
+                if (proxy.scheme not in {"http", "https"} or proxy.hostname not in {"127.0.0.1", "localhost", "::1"}
+                        or proxy.username or proxy.password or proxy.path not in {"", "/"}
+                        or proxy.query or proxy.fragment or not proxy.port):
+                    raise ValueError("search_proxy must be a local HTTP/HTTPS proxy with a port")
         if "provider" in patch and patch["provider"] not in {"local", "openai"}:
             raise ValueError("Provider must be local or openai")
         if "avatar_costume" in patch:
