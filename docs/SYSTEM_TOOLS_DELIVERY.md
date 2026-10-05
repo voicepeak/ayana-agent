@@ -17,7 +17,7 @@
 | `windows.list` | 发现可见窗口及当前身份，返回真实窗口 ID |
 | `windows.select` | 选择真实窗口作为后续观察/桌面任务目标，把新截图交给模型 |
 
-新工具已注册到原生 `tools` schema 和 NDJSON 工具路径，两种调用方式复用执行规则。现在共注册 20 个工具；实际可用数量取决于 Windows、桌面组件和模型配置。
+新工具已注册到原生 `tools` schema 和 NDJSON 工具路径，两种调用方式复用执行规则。本次 v0.3.2 交付时共注册 20 个工具；后续源码已整理为 18 个并按条件筛选，见 [工具接口整理](TOOL_SIMPLIFICATION.md)。实际可用数量取决于 Windows、桌面组件和模型配置。
 
 打开应用使用 Windows `ShellExecuteExW`，应用入口与参数来自服务端发现结果，模型只提交 ID。文本文件用固定记事本入口和独立参数打开，不能通过文件关联把 Python/JavaScript 源码执行。路径授权、私有文件排除和 junction 检查保留；文件打开支持更多格式，不扩大完整文本读取/修改的范围。[Microsoft ShellExecuteExW](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shellexecuteexw)、[应用注册](https://learn.microsoft.com/en-us/windows/win32/shell/app-registration)
 

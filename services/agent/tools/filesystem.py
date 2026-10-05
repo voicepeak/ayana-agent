@@ -44,7 +44,7 @@ def read_text(policy, root_id, path, start_line=None, max_lines=None):
         if type(start_line) is not int or start_line < 1 or type(max_lines) is not int or not 1 <= max_lines <= 200:
             raise ToolError("invalid_arguments", "读取行号必须为正整数，最多读取 200 行")
         complete = within_limit and valid_utf8 and start_line == 1 and max_lines >= len(lines)
-        result.update(content="\n".join(lines[start_line - 1:start_line - 1 + max_lines]),
+        result.update(content=text if complete else "\n".join(lines[start_line - 1:start_line - 1 + max_lines]),
                       start_line=start_line, complete=complete,
                       truncated=not within_limit or len(lines) > start_line - 1 + max_lines)
     else:

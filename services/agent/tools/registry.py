@@ -54,6 +54,7 @@ class ToolRegistry:
     def __init__(self):
         self.tools = {}
         self.availability = {}
+        self.visibility = {}
 
     def add(self, name, description, schema, handler, effect="read"):
         self.tools[name] = Tool(name, description, schema, handler, effect)
@@ -61,6 +62,10 @@ class ToolRegistry:
     def set_availability(self, name, predicate):
         """Hide a registered tool from the model while its predicate is false."""
         self.availability[name] = predicate
+
+    def set_visibility(self, name, predicate):
+        """Filter model choices; executor authorization remains in the handler."""
+        self.visibility[name] = predicate
 
     def available(self, tool):
         predicate = self.availability.get(tool.name)
@@ -72,7 +77,17 @@ class ToolRegistry:
             return False
 
     def active_tools(self):
-        return [tool for tool in self.tools.values() if self.available(tool)]
+        result = []
+        for tool in self.tools.values():
+            if not self.available(tool):
+                continue
+            try:
+                if tool.name in self.visibility and not self.visibility[tool.name]():
+                    continue
+            except Exception:
+                continue
+            result.append(tool)
+        return result
 
     async def execute(self, name, args):
         tool = self.tools.get(name)

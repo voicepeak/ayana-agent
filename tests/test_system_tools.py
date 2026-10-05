@@ -153,7 +153,14 @@ async def test_native_model_search_open_select_receives_real_tool_result_and_new
     tools, requests = system
     calls = []
     def respond(request):
-        messages = json.loads(request.content)['messages']
+        body = json.loads(request.content)
+        messages = body['messages']
+        names = {item['function']['name'] for item in body['tools']}
+        if len(calls) < 3:
+            assert 'capture_target' not in names and 'observe_controls' not in names
+        else:
+            assert 'capture_target' in names and 'observe_controls' in names
+        assert 'Registered tools (' not in messages[0]['content']
         calls.append(messages)
         if len(calls) == 1:
             return native_tool_sse('find-app', 'apps__search', json.dumps({'query': '示例'}))

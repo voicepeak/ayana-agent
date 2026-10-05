@@ -41,6 +41,18 @@ def native_tool_sse(call_id, name, arguments, finish="tool_calls"):
     return httpx.Response(200, text="".join(lines), headers={"Content-Type": "text/event-stream"})
 
 
+@pytest.mark.asyncio
+async def test_ndjson_tool_api_names_normalize_only_using_current_schema_mapping():
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: sse_response([
+        {"type": "tool", "name": "apps__search", "arguments": {"query": "notepad"}},
+        {"type": "tool", "name": "unknown__tool", "arguments": {}},
+    ]))) as client:
+        provider = OpenAIProvider(Settings(), client)
+        events = [event async for event in provider.stream_reply(
+            [{"role": "user", "content": "open notepad"}], tool_names={"apps__search": "apps.search"})]
+    assert [event["name"] for event in events] == ["apps.search", "unknown__tool"]
+
+
 VALID = {"type": "speech", "key": "s1", "speech_ja": "一緒に見よう。", "intent": "explain"}
 
 

@@ -384,6 +384,8 @@ def test_computer_tool_is_hidden_until_available(tmp_path):
     names = [item["function"]["name"] for item in runtime.registry.openai_schemas()]
     assert "computer__run" not in names
     runtime.computer = type("Stub", (), {"status": {"available": True}})()
+    runtime.target = {"target_id": "selected"}
+    runtime.mode = "execute"
     names = [item["function"]["name"] for item in runtime.registry.openai_schemas()]
     assert "computer__run" in names
 

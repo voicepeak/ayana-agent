@@ -8,6 +8,7 @@ import threading
 import time
 import hashlib
 import os
+import re
 from pathlib import Path
 
 from .tasks import TaskRunner
@@ -22,9 +23,12 @@ class CapabilityRuntime:
         registry.add("capture_target", "重新截图；新图片随后交给模型", arguments(), self._capture_tool)
         registry.add("observe_controls", "读取当前绑定窗口的控件", arguments(), self._controls_tool)
         registry.add("computer.run", "执行模式：在用户绑定的当前窗口完成明确要求的桌面任务。自动观察、输入或点击、核实结果；不能启动应用、跨窗口操作或执行命令。只有用户要求操作桌面时使用。", arguments({"goal": string(4000)}, ["goal"]), self._computer_tool, "write")
-        registry.set_availability("computer.run", lambda: bool(self.computer.status["available"]))
+        registry.set_availability("computer.run", lambda: bool(self.target and self.computer.status["available"]))
+        registry.set_availability("capture_target", lambda: bool(self.target and self.settings.values.get("send_screenshot")))
+        registry.set_availability("observe_controls", lambda: bool(self.target))
         registry.add("web.search", "公网搜索；重要结论继续 web.fetch 核对原文", arguments({"query": string(1000), "count": integer(1, 10)}, ["query"]), self._web_search)
         registry.add("web.fetch", "读取公网网页或 source_id 的正文", arguments({"url": string(3000)}, ["url"]), self._web_fetch)
+        registry.set_availability("web.search", lambda: bool(self.settings.search_key()))
         path_args = {"root_id": string(100), "path": string()}
         registry.add("files.read", "读取授权范围内文本；可按 start_line/max_lines 分段。root_id 可为 repository（当前只读仓库）或授权目录 ID；省略时优先仓库，否则 output。完整 UTF-8 文件返回 sha256；修改前必须完整读取", arguments({**path_args, "start_line": integer(1, 1000000), "max_lines": integer(1, 200)}, ["path"]), self._file_read)
         registry.add("files.create", "执行模式：在授权目录创建新文本文件，绝不覆盖", arguments({**path_args, "content": string(40000)}, [*path_args, "content"]), self._file_create, "write")
@@ -42,7 +46,30 @@ class CapabilityRuntime:
         registry.add("windows.select", "执行模式：选定 windows.list 返回的窗口作为观察/桌面任务目标，同时返回新截图。不能用旧窗口 ID 操作已关闭或被替换的窗口", arguments({"window_id": string(100)}, ["window_id"]), self._windows_select, "write")
         for name in ("apps.search", "apps.open", "files.open", "web.open", "windows.list", "windows.select"):
             registry.set_availability(name, lambda: os.name == "nt")
+        for tool in registry.tools.values():
+            if tool.effect == "write":
+                registry.set_visibility(tool.name, lambda: self.mode == "execute")
+        registry.set_visibility("files.propose_restore", self._has_restorable_artifact)
         return registry
+
+    def _has_restorable_artifact(self):
+        return any(record.get("backup") and (self.files.versions / record["backup"]).is_file()
+                   and self.policy.roots.get(record["root_id"], {}).get("write")
+                   for record in self.store.records("artifact"))
+
+    def _tool_prompt(self):
+        text = ("Prefer native function calls using the supplied function schemas. "
+                "Keep speech and translation as NDJSON events. "
+                "Only currently supplied tools are available; their set may change after a tool result."
+                if self.settings.values.get("native_tools", True) else self.registry.prompt())
+        return "<ayana_tools>\n" + text + "\n</ayana_tools>"
+
+    def _model_tools(self, messages=None):
+        if messages and messages[0].get("role") == "system":
+            messages[0] = {**messages[0], "content": re.sub(r"<ayana_tools>\n.*?\n</ayana_tools>",
+                lambda _: self._tool_prompt(), messages[0]["content"], count=1, flags=re.S)}
+        native = self.settings.values.get("native_tools", True)
+        return (self.registry.openai_schemas() if native else None, self.registry.api_name_map())
 
     async def _apps_search(self, **args):
         return await asyncio.to_thread(self.system.apps.search, **args)

@@ -149,6 +149,10 @@ class OpenAIProvider:
                             kind = event.get("type")
                             if not isinstance(kind, str) or kind not in EVENT_TYPES:
                                 raise ModelEventError("Model event requires a supported type field")
+                            if kind == "tool" and isinstance(event.get("name"), str):
+                                # Providers may emit a schema's API name inside NDJSON.
+                                # Normalize only names supplied in this round, never guess aliases.
+                                event = {**event, "name": (tool_names or {}).get(event["name"], event["name"])}
                             event_count += 1
                             yield event
                     for call in delta.get("tool_calls") or []:

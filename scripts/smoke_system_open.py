@@ -55,9 +55,11 @@ Application.Run(new Form { Text="Ayana Open Probe", Width=480, Height=300 }); } 
     desktop = OwnedDesktop()
     agent = AgentRuntime(settings, desktop, SilentTts())
     agent.system = SystemTools(agent.policy, catalog=ApplicationCatalog(lambda: [app_record('Ayana Open Probe', executable)]))
-    report = {'scope': 'Native ShellExecuteEx, owned application, real HWND identity and screenshot', 'live_model': live_model, 'errors': []}
+    report = {'scope': 'Native ShellExecuteEx, owned application, real HWND identity and screenshot', 'live_model': live_model, 'errors': [], 'tool_calls': []}
     original_emit = agent.emit
     async def emit(kind, **payload):
+        if kind == 'tool.started':
+            report['tool_calls'].append(payload['tool'])
         if kind in {'error', 'tool.failed'}:
             report['errors'].append(payload.get('message', kind))
         return await original_emit(kind, **payload)

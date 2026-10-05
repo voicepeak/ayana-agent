@@ -452,10 +452,10 @@ class AgentRuntime(CapabilityRuntime):
             if root:
                 self.repository = await asyncio.to_thread(RepositoryReader(root).inspect)
                 await self.emit("repository.inspected", repository=self.repository, **self.repository)
-            tool_schemas = self.registry.openai_schemas() if self.settings.values.get("native_tools", True) else None
-            tool_names = self.registry.api_name_map()
+            tool_schemas, tool_names = self._model_tools()
             if continuation:
                 messages = continuation["messages"]
+                tool_schemas, tool_names = self._model_tools(messages)
                 prefix_length = continuation["prefix_length"]
                 provider = OpenAIProvider(self.settings, self.model_client)
                 streams = [provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names)]
@@ -468,7 +468,7 @@ class AgentRuntime(CapabilityRuntime):
                 if self.snapshot and self.target and time.monotonic() * 1000 - self.snapshot.get("captured_at_monotonic_ms", time.monotonic() * 1000) > 30000:
                     await self.capture()
                 policy = (self.settings.root / "characters/ayana/agent-policy.md").read_text(encoding="utf-8")
-                system = persona + "\n" + policy + "\n" + CONTRACT + "\n" + self.registry.prompt() + "\n" + self.avatars.prompt(self.settings.values.get("avatar_costume", "校服"))
+                system = persona + "\n" + policy + "\n" + CONTRACT + "\n" + self._tool_prompt() + "\n" + self.avatars.prompt(self.settings.values.get("avatar_costume", "校服"))
                 self.prompt_history.select(system, self.settings.values, (self.repository or {}).get("root"), exclude_turn=self.turn_id)
                 # Keep one copy of repository evidence ahead of dialogue history.
                 evidence_prefix = repository_message(self.repository)
@@ -586,6 +586,7 @@ class AgentRuntime(CapabilityRuntime):
                     messages.append(self._tool_message(results, include_image))
                 if self.approvals:
                     break
+                tool_schemas, tool_names = self._model_tools(messages)
                 streams.append(provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names))
             else:
                 raise ToolError("round_budget", "任务工具往返已达到上限")

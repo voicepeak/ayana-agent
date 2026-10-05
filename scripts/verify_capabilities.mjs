@@ -16,6 +16,7 @@ const { _electron, chromium } = require(require.resolve('playwright', { paths: [
 const directory = path.join(root, '.runtime/benchmarks/capabilities-desktop', String(Date.now()));
 const data = path.join(directory, 'data');
 const verifyOpen = argv.includes('--system-open');
+const verifyWeb = !argv.includes('--skip-web');
 const fixturePython = argv.includes('--fixture-python') ? argv[argv.indexOf('--fixture-python') + 1]
   : [path.join(root, '.venv/Scripts/python.exe'), path.join(root, '.runtime/testenv/Scripts/python.exe')].find(existsSync);
 let fixture;
@@ -61,7 +62,7 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 writeFileSync(path.join(data, 'config/local.json'), JSON.stringify({ provider: 'openai', model: 'fixture', base_url: `http://127.0.0.1:${server.address().port}/v1`, voice: { voice_mode: 'silent' }, save_history: false, send_screenshot: false, hotkey: 'Ctrl+Alt+Shift+F10', cancel_hotkey: 'Ctrl+Alt+Shift+F11' }));
 let app;
 let launcher;
-const report = { scope: 'Real Electron, authenticated IPC, Python runtime and file writes; deterministic local model fixture; public page fetch', packaged, checks: {}, errors: [] };
+const report = { scope: 'Real Electron, authenticated IPC, Python runtime and file writes; deterministic local model fixture' + (verifyWeb ? '; public page fetch' : ''), packaged, checks: {}, skipped_checks: verifyWeb ? [] : ['public_page_fetch'], errors: [] };
 try {
   if (verifyOpen) {
     assert(fixturePython, 'Use --fixture-python to provide a test interpreter');
@@ -134,10 +135,12 @@ try {
   await controls.waitForFunction(() => document.querySelector('.agent-task .state-succeeded'));
   assert.equal(JSON.parse(readFileSync(file, 'utf8')).port, 3000);
   report.checks.review_and_restore = true;
-  await chat.evaluate(() => window.ayana.summon());
-  await ask('读取示例网页');
-  await controls.getByText('Example Domain', { exact: true }).waitFor({ timeout: 30000 });
-  report.checks.real_source_card = true;
+  if (verifyWeb) {
+    await chat.evaluate(() => window.ayana.summon());
+    await ask('读取示例网页');
+    await controls.getByText('Example Domain', { exact: true }).waitFor({ timeout: 30000 });
+    report.checks.real_source_card = true;
+  }
   await controls.getByRole('heading', { name: '文件访问范围' }).scrollIntoViewIfNeeded();
   await controls.getByRole('button', { name: '授权文本修改' }).waitFor();
   report.checks.directory_controls_accessible = true;

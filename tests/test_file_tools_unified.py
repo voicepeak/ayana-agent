@@ -23,6 +23,8 @@ def test_ranged_read_preserves_whole_file_hash_and_original_full_text(tmp_path):
     full = read_text(policy, "output", "notes.md")
     assert full["content"].encode() == raw
     assert full["complete"] and not full["truncated"]
+    covering = read_text(policy, "output", "notes.md", 1, 200)
+    assert covering["complete"] and covering["content"].encode() == raw
 
 
 def test_large_or_replacement_decoded_excerpt_cannot_supply_edit_hash(tmp_path):
