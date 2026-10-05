@@ -14,6 +14,8 @@ from pathlib import Path
 from .policy import check_plain
 from .registry import ToolError
 from .filesystem import FileBrowser, read_text
+from .document_formats import DOCUMENT_FORMATS
+from .documents import DocumentReader
 
 LIMIT = 65536
 
@@ -65,6 +67,7 @@ class FileTools:
     def __init__(self, policy, data_root, store):
         self.policy, self.store = policy, store
         self.browser = FileBrowser(policy)
+        self.documents = DocumentReader(policy)
         self.versions = Path(data_root) / ".runtime/artifact-versions"
         self.proposals = {}
         self.lock = threading.RLock()
@@ -79,7 +82,13 @@ class FileTools:
             check_plain(old)
             old.unlink(missing_ok=True)
 
-    def read(self, root_id, path, start_line=None, max_lines=None, cursor=None):
+    def read(self, root_id, path, start_line=None, max_lines=None, cursor=None, start_unit=None, max_units=None):
+        if Path(path).suffix.lower() in DOCUMENT_FORMATS:
+            if start_line is not None or max_lines is not None:
+                raise ToolError("invalid_arguments", "文档请使用 start_unit/max_units；文本使用 start_line/max_lines")
+            return self.documents.read(root_id, path, start_unit or 1, 20 if max_units is None else max_units, cursor)
+        if start_unit is not None or max_units is not None:
+            raise ToolError("invalid_arguments", "文本请使用 start_line/max_lines")
         return read_text(self.policy, root_id, path, start_line, max_lines, cursor)
 
     @staticmethod

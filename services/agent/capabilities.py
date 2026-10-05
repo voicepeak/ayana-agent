@@ -34,6 +34,7 @@ class CapabilityRuntime:
         return self._process_manager
 
     async def _stop_background(self, reason):
+        self.files.documents.close()
         await asyncio.to_thread(self.files.browser.close)
         if reason not in {"new_turn", "microphone_input", "target_changed", "summon", "new_computer_task"}:
             if hasattr(self, "_process_manager"):
@@ -52,7 +53,7 @@ class CapabilityRuntime:
         registry.add("web.fetch", "读取公网网页或 source_id 的正文", arguments({"url": string(3000)}, ["url"]), self._web_fetch)
         registry.set_availability("web.search", lambda: self.web.search_available, "当前搜索服务尚未配置完成")
         path_args = {"root_id": string(100), "path": string()}
-        registry.add("files.read", "读取文本；start_line/max_lines 分段，next_cursor 非空时用 cursor 续读，同一路径不变。普通模式 root_id 为 repository 或授权目录 ID；Full access 可用 root_id=filesystem 加绝对路径。省略 root_id 时优先仓库，否则 output。complete=true 才表示完整读取；修改前必须完整读取", arguments({**path_args, "start_line": integer(1, 1000000), "max_lines": integer(1, 200), "cursor": string(12000)}, ["path"]), self._file_read)
+        registry.add("files.read", "读取文本或 PDF/DOCX/XLSX/PPTX。文本用 start_line/max_lines；文档用 start_unit/max_units，单元为页、段落/表格行、单元格或幻灯片，返回真实出处。扫描 PDF 返回 requires_ocr；Excel 只读取已有值和公式，不重算。next_cursor 非空时保持路径用 cursor 续读。普通模式使用 repository 或授权目录；Full access 可用 filesystem 加绝对路径。省略 root_id 优先仓库，否则 output。修改文本前必须 complete=true", arguments({**path_args, "start_line": integer(1, 1000000), "max_lines": integer(1, 200), "start_unit": integer(1, 1000000), "max_units": integer(1, 50), "cursor": string(12000)}, ["path"]), self._file_read)
         registry.add("files.create", "执行模式：在授权目录创建新文本文件，绝不覆盖", arguments({**path_args, "content": string(40000)}, [*path_args, "content"]), self._file_create, "write")
         registry.add("files.propose_edit", "读取后，用 base_sha256 和完整新内容修改文件。Full access 直接应用并保存备份；普通模式提出差异等待用户确认", arguments({**path_args, "base_sha256": string(64), "content": {"type": "string", "maxLength": 40000}}, [*path_args, "base_sha256", "content"]), self._file_propose, "preview")
         registry.add("files.propose_restore", "恢复 artifact_id 的备份。Full access 直接恢复；普通模式生成差异等待确认", arguments({"artifact_id": string(100)}, ["artifact_id"]), self._file_restore, "preview")

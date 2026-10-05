@@ -19,7 +19,7 @@ EVENT_PREFIX = b"AYANA_COMPUTER "
 
 class WindowsJob:
     """Closing this handle stops the worker and every descendant it owns."""
-    def __init__(self, pid):
+    def __init__(self, pid, memory_limit=None):
         import ctypes as C
         from ctypes import wintypes as W
         class Limits(C.Structure):
@@ -47,6 +47,9 @@ class WindowsJob:
             raise OSError(C.get_last_error(), "Cannot own computer-use process")
         limits = Extended()
         limits.basic.flags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if memory_limit is not None:
+            limits.basic.flags |= 0x100  # JOB_OBJECT_LIMIT_PROCESS_MEMORY
+            limits.process_memory = memory_limit
         process = self.api.OpenProcess(0x0100 | 0x0001, False, pid)
         try:
             if not process or not self.api.SetInformationJobObject(self.handle, 9, C.byref(limits), C.sizeof(limits)) or not self.api.AssignProcessToJobObject(self.handle, process):
