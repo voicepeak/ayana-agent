@@ -47,7 +47,7 @@ class CapabilityRuntime:
         search_args = {"root_id": string(100), "query": string(200), "path": {"type": "string", "maxLength": 1000}, "limit": integer(1, 100)}
         registry.add("files.find", "按文件或目录名称片段查找，返回真实路径。root_id 省略时优先当前只读仓库，否则 output；遍历有上限。不搜索文件内容", arguments(search_args, ["query"]), self._files_find)
         registry.add("files.search", "在授权范围的文本内容中搜索，返回路径、行号和原文。root_id 省略时优先当前只读仓库，否则 output；最多检查 400 文件，每文件 64 KiB。不按文件名匹配", arguments(search_args, ["query"]), self._files_search)
-        registry.add("files.open", "执行模式：打开授权目录内真实存在的文件或目录，path 为空打开目录根。文本/源码用记事本，PDF/Office/影音用默认应用。不能执行脚本或安装程序", arguments({"root_id": string(100), "path": {"type": "string", "maxLength": 1000}}, ["root_id", "path"]), self._files_open, "write")
+        registry.add("files.open", "执行模式：打开授权目录内真实文件或目录；可选 app_id 为 apps.search 返回的应用 ID，用指定文档应用打开该文件。省略 app_id 时文本用记事本，其他文件用默认应用。不支持的指定应用返回原因，可用桌面工具继续。不能执行脚本或传任意参数；open_requested 仍需核实目标文件", arguments({"root_id": string(100), "path": {"type": "string", "maxLength": 1000}, "app_id": string(100)}, ["root_id", "path"]), self._files_open, "write")
         registry.add("web.open", "执行模式：用默认浏览器打开用户要求的 HTTP/HTTPS 网址，包括用户提供的本地开发网址。这不会读取页面，也不会提交表单", arguments({"url": string(3000)}, ["url"]), self._web_open, "write")
         registry.add("windows.list", "列出本机可见应用窗口，返回可信 window_id。打开应用后使用它查找窗口，不要猜测 ID", arguments(), self._windows_list)
         registry.add("windows.select", "执行模式：选定 windows.list 返回的窗口作为观察/桌面任务目标，同时返回新截图。不能用旧窗口 ID 操作已关闭或被替换的窗口", arguments({"window_id": string(100)}, ["window_id"]), self._windows_select, "write")

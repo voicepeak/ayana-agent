@@ -23,6 +23,30 @@ def app_record(name, target, aliases=(), parameters=None, source="应用"):
             "target": str(target), "aliases": list(aliases), "parameters": parameters, "source": source}
 
 
+def resolve_shortcut(path):
+    """Resolve only a catalog-discovered link; its path is data, not PS source."""
+    check_plain(Path(path))
+    if os.name != "nt":
+        raise ToolError("platform_unavailable", "快捷方式解析仅支持 Windows")
+    powershell = Path(os.environ.get("SystemRoot", "C:/Windows")) / "System32/WindowsPowerShell/v1.0/powershell.exe"
+    script = ("$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new(); "
+              "$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:AYANA_DOCUMENT_SHORTCUT); "
+              "@{target=$s.TargetPath;parameters=$s.Arguments} | ConvertTo-Json -Compress")
+    try:
+        completed = subprocess.run([str(powershell), "-NoProfile", "-NonInteractive", "-Command", script],
+                                   env={**os.environ, "AYANA_DOCUMENT_SHORTCUT": str(path)},
+                                   capture_output=True, timeout=8, creationflags=subprocess.CREATE_NO_WINDOW)
+        if completed.returncode or len(completed.stdout) > 16384:
+            raise ValueError("shortcut resolution failed")
+        value = json.loads(completed.stdout.decode("utf-8-sig"))
+        target = Path(value["target"])
+        if not target.is_absolute() or target.suffix.lower() != ".exe":
+            raise ValueError("not an executable shortcut")
+        return str(target), value.get("parameters") or None
+    except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError):
+        raise ToolError("unsupported_document_app", "无法解析该应用入口；可使用桌面工具打开文件") from None
+
+
 def discover_apps():
     if os.name != "nt":
         return []
@@ -146,13 +170,14 @@ class ApplicationCatalog:
 
 
 class SystemTools:
-    def __init__(self, policy, opener=None, catalog=None):
+    def __init__(self, policy, opener=None, catalog=None, shortcut_resolver=None):
         if opener is None:
             from native.windows.shell import open_target
             opener = open_target
         self.policy, self.opener = policy, opener
         self.browser = FileBrowser(policy)
         self.apps = catalog or ApplicationCatalog()
+        self.shortcut_resolver = shortcut_resolver or resolve_shortcut
 
     def open_app(self, app_id, cancelled):
         app = self.apps.get(app_id)
@@ -172,20 +197,40 @@ class SystemTools:
     def find_files(self, root_id, query, path="", limit=30):
         return self.browser.find(root_id, query, path, limit)
 
-    def open_file(self, root_id, path, cancelled):
+    def open_file(self, root_id, path, cancelled, app_id=None):
         target = self.policy.resolve(root_id, path, allow_root=True)
         if not target.exists():
             raise ToolError("file_missing", "要打开的文件或目录不存在")
         is_directory = target.is_dir()
         if not is_directory and not is_openable(target):
             raise ToolError("unsupported_open", "仅支持文本、文档、图片、影音和目录；启动应用请使用 apps.open")
-        if not is_directory and is_text(target):
+        app = None
+        if app_id:
+            app = self.apps.get(app_id)
+            executable, parameters = app["target"], app["parameters"]
+            if Path(executable).suffix.lower() == ".lnk":
+                executable, parameters = self.shortcut_resolver(executable)
+            executable = Path(executable)
+            check_plain(executable)
+            # Document launch adapters accept a file path, never model-supplied
+            # arguments. Unknown apps can still use the bound-window UI tools.
+            adapters = {"code.exe": ["--reuse-window", "--"], "code - insiders.exe": ["--reuse-window", "--"],
+                        "notepad.exe": [], "notepad++.exe": [], "wordpad.exe": [],
+                        "winword.exe": [], "excel.exe": [], "powerpnt.exe": [], "soffice.exe": [],
+                        "acrobat.exe": [], "acrord32.exe": [], "sumatrapdf.exe": [], "mspaint.exe": []}
+            if parameters or executable.name.lower() not in adapters or not executable.is_file():
+                raise ToolError("unsupported_document_app", "该应用暂不支持直接打开文档参数；可选择应用窗口后用桌面工具打开指定文件")
+            arguments = [*adapters[executable.name.lower()], str(target)]
+            result = self.opener(str(executable), subprocess.list2cmdline(arguments), cancelled)
+            app = {"app_id": app_id, "application": app["name"], "executable_name": executable.name}
+        elif not is_directory and is_text(target):
             # Opening source through its file association can execute it.
             notepad = Path(os.environ.get("SystemRoot", "C:/Windows")) / "System32/notepad.exe"
             result = self.opener(str(notepad), subprocess.list2cmdline([str(target)]), cancelled)
         else:
             result = self.opener(str(target), None, cancelled)
-        return {**result, "kind": "directory" if is_directory else "file", "root_id": root_id, "path": path, "absolute_path": str(target)}
+        return {**result, "kind": "directory" if is_directory else "file", "root_id": root_id, "path": path,
+                "absolute_path": str(target), **(app or {})}
 
     def open_url(self, url, cancelled):
         if not isinstance(url, str) or len(url) > 3000 or any(ord(character) < 32 for character in url):
