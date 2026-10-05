@@ -72,7 +72,7 @@ class AgentRuntime(CapabilityRuntime):
         self.task_gate.set()
         self.continuation = None
         self.write_cancel = threading.Event()
-        self.policy = DirectoryPolicy(settings.data_root / "artifacts")
+        self.policy = DirectoryPolicy(settings.data_root / "artifacts", repository=lambda: (self.repository or {}).get("root"))
         for grant in self.store.records("directory"):
             with contextlib.suppress(ValueError, OSError):
                 self.policy.grant(grant["root_id"], grant["path"], grant["write"])
@@ -473,7 +473,7 @@ class AgentRuntime(CapabilityRuntime):
                 # Keep one copy of repository evidence ahead of dialogue history.
                 evidence_prefix = repository_message(self.repository)
                 context = {"mode": self.mode, "target": self.target,
-                           "directories": self.policy.public(),
+                           "directories": self.policy.public(include_repository=True),
                            "avatar_context": self._avatar_context(),
                            "snapshot_id": self.snapshot.get("snapshot_id") if self.snapshot else None,
                            "previous_reply_reception": self.prompt_history.last_reception(self.utterances),

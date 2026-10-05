@@ -6,7 +6,7 @@ import stat
 from pathlib import Path
 
 from .registry import ToolError
-from .repository import SKIP, TEXT
+from .formats import SKIP, is_text
 
 
 def check_plain(path):
@@ -19,11 +19,25 @@ def check_plain(path):
 
 
 class DirectoryPolicy:
-    def __init__(self, output):
-        output = Path(output).absolute()
-        output.mkdir(parents=True, exist_ok=True)
-        self.roots = {"output": {"path": output, "write": True}}
-        self.check_root(output)
+    def __init__(self, output=None, repository=None):
+        self.roots = {}
+        self.repository = repository
+        if output is not None:
+            output = Path(output).absolute()
+            output.mkdir(parents=True, exist_ok=True)
+            self.roots["output"] = {"path": output, "write": True}
+            self.check_root(output)
+
+    def root(self, root_id):
+        if root_id == "repository" and self.repository is not None:
+            path = self.repository()
+            if path:
+                return {"path": Path(path).absolute(), "write": False}
+            raise ToolError("unknown_root", "请先选择仓库")
+        grant = self.roots.get(root_id)
+        if not grant:
+            raise ToolError("unknown_root", "目录没有授权")
+        return grant
 
     @staticmethod
     def check_root(root):
@@ -38,20 +52,24 @@ class DirectoryPolicy:
         self.roots[root_id] = {"path": root, "write": bool(write)}
         return self.public()
 
-    def public(self):
-        return [{"root_id": key, "path": str(item["path"]), "write": item["write"]} for key, item in self.roots.items()]
+    def public(self, include_repository=False):
+        roots = dict(self.roots)
+        if include_repository and self.repository is not None:
+            try:
+                roots["repository"] = self.root("repository")
+            except ToolError:
+                pass
+        return [{"root_id": key, "path": str(item["path"]), "write": item["write"]} for key, item in roots.items()]
 
     def path(self, root_id, relative, write=False):
         target = self.resolve(root_id, relative, write=write)
-        if target.suffix.lower() not in TEXT | {".csv"}:
-            raise ToolError("unsupported_file", "首批只支持文本文件")
+        if not is_text(target):
+            raise ToolError("unsupported_file", "只支持文本文件")
         return target
 
     def resolve(self, root_id, relative, write=False, allow_root=False):
         """Resolve an authorized resource; callers enforce operation/format rules."""
-        grant = self.roots.get(root_id)
-        if not grant:
-            raise ToolError("unknown_root", "目录没有授权")
+        grant = self.root(root_id)
         if write and not grant["write"]:
             raise ToolError("write_denied", "请在管理窗口授权该目录的文本修改")
         if allow_root and isinstance(relative, str) and relative in {"", "."}:

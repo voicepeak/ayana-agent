@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .policy import check_plain
 from .registry import ToolError
+from .filesystem import FileBrowser, read_text
 
 LIMIT = 65536
 
@@ -63,6 +64,7 @@ def protect_existing(path):
 class FileTools:
     def __init__(self, policy, data_root, store):
         self.policy, self.store = policy, store
+        self.browser = FileBrowser(policy)
         self.versions = Path(data_root) / ".runtime/artifact-versions"
         self.proposals = {}
         self.lock = threading.RLock()
@@ -77,20 +79,8 @@ class FileTools:
             check_plain(old)
             old.unlink(missing_ok=True)
 
-    def read(self, root_id, path):
-        target = self.policy.path(root_id, path)
-        check_plain(target)
-        if not target.is_file():
-            raise ToolError("file_missing", "目标文本文件不存在")
-        with target.open("rb") as source:
-            raw = source.read(LIMIT + 1)
-        if len(raw) > LIMIT or b"\0" in raw:
-            raise ToolError("unsupported_file", "只支持不超过 64 KiB 的完整文本")
-        try:
-            content = raw.decode("utf-8")
-        except UnicodeDecodeError:
-            raise ToolError("unsupported_encoding", "文件不是 UTF-8，原文件保持不变") from None
-        return {"root_id": root_id, "path": path, "content": content, "sha256": digest(raw), "bytes": len(raw)}
+    def read(self, root_id, path, start_line=None, max_lines=None):
+        return read_text(self.policy, root_id, path, start_line, max_lines)
 
     @staticmethod
     def content_bytes(content):

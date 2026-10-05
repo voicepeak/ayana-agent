@@ -13,11 +13,8 @@ import httpx
 
 from .policy import check_plain
 from .registry import ToolError
-from .repository import TEXT
-
-DOCUMENTS = {".pdf", ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp", ".rtf"}
-MEDIA = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".mp3", ".wav", ".m4a", ".flac", ".mp4", ".mkv", ".mov", ".avi"}
-OPENABLE = TEXT | {".csv"} | DOCUMENTS | MEDIA
+from .formats import is_text, is_openable
+from .filesystem import FileBrowser
 
 
 def app_record(name, target, aliases=(), parameters=None, source="应用"):
@@ -154,6 +151,7 @@ class SystemTools:
             from native.windows.shell import open_target
             opener = open_target
         self.policy, self.opener = policy, opener
+        self.browser = FileBrowser(policy)
         self.apps = catalog or ApplicationCatalog()
 
     def open_app(self, app_id, cancelled):
@@ -168,26 +166,8 @@ class SystemTools:
         return {**result, "app_id": app_id, "name": app["name"], "kind": "application",
                 "executable_name": Path(target).name if Path(target).suffix.lower() == ".exe" and not app["parameters"] else None}
 
-    def list_files(self, root_id, path="", limit=100):
-        directory = self.policy.resolve(root_id, path, allow_root=True)
-        if not directory.is_dir():
-            raise ToolError("not_directory", "目标不是目录")
-        entries = []
-        with os.scandir(directory) as items:
-            for item in items:
-                relative = Path(item.path).relative_to(self.policy.roots[root_id]["path"]).as_posix()
-                try:
-                    target = self.policy.resolve(root_id, relative)
-                    is_directory = target.is_dir()
-                    if not is_directory and not target.is_file():
-                        continue
-                    entries.append({"path": relative, "kind": "directory" if is_directory else "file",
-                                    "openable": is_directory or target.suffix.lower() in OPENABLE})
-                except (ToolError, OSError):
-                    continue
-                if len(entries) > limit:
-                    break
-        return {"root_id": root_id, "path": path, "entries": sorted(entries[:limit], key=lambda entry: (entry["kind"] != "directory", entry["path"].casefold())), "truncated": len(entries) > limit}
+    def list_files(self, root_id, path="", limit=100, recursive=False, text_only=False):
+        return self.browser.list(root_id, path, limit, recursive, text_only)
 
     def find_files(self, root_id, query, path="", limit=30):
         root = self.policy.resolve(root_id, path, allow_root=True)
@@ -203,7 +183,7 @@ class SystemTools:
                     visited += 1
                     if visited > 5000 or time.monotonic() > deadline:
                         return {"root_id": root_id, "matches": matches, "truncated": True}
-                    relative = Path(item.path).relative_to(self.policy.roots[root_id]["path"]).as_posix()
+                    relative = Path(item.path).relative_to(self.policy.root(root_id)["path"]).as_posix()
                     try:
                         target = self.policy.resolve(root_id, relative)
                         is_directory = target.is_dir()
@@ -211,7 +191,7 @@ class SystemTools:
                             stack.append((target, depth + 1))
                         if query.casefold() in item.name.casefold():
                             matches.append({"path": relative, "kind": "directory" if is_directory else "file",
-                                            "openable": is_directory or target.suffix.lower() in OPENABLE})
+                                            "openable": is_directory or is_openable(target)})
                     except (ToolError, OSError):
                         continue
                     if len(matches) >= limit:
@@ -223,9 +203,9 @@ class SystemTools:
         if not target.exists():
             raise ToolError("file_missing", "要打开的文件或目录不存在")
         is_directory = target.is_dir()
-        if not is_directory and target.suffix.lower() not in OPENABLE:
+        if not is_directory and not is_openable(target):
             raise ToolError("unsupported_open", "仅支持文本、文档、图片、影音和目录；启动应用请使用 apps.open")
-        if not is_directory and target.suffix.lower() in TEXT | {".csv"}:
+        if not is_directory and is_text(target):
             # Opening source through its file association can execute it.
             notepad = Path(os.environ.get("SystemRoot", "C:/Windows")) / "System32/notepad.exe"
             result = self.opener(str(notepad), subprocess.list2cmdline([str(target)]), cancelled)

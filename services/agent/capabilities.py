@@ -24,17 +24,9 @@ class CapabilityRuntime:
             if not self.repository:
                 raise ToolError("no_repository", "请先选择仓库")
             return await asyncio.to_thread(getattr(RepositoryReader(self.repository["root"]), method), **args)
-        async def read_file(**args):
-            result = await repository("read_file", **args)
-            await self.emit("evidence.ready", evidence=result, **result)
-            return result
         async def search_text(**args):
             return await repository("search_text", **args)
-        async def list_files(**args):
-            return await repository("list_files", **args)
-        registry.add("read_file", "读取已选择仓库的源码", arguments({"path": string(), "start_line": integer(1, 1000000), "max_lines": integer(1, 200)}, ["path"]), read_file)
         registry.add("search_text", "在所选仓库搜索关键词", arguments({"query": string(120), "limit": integer(1, 100)}, ["query"]), search_text)
-        registry.add("list_files", "列举所选仓库文本文件", arguments({"limit": integer(1, 400)}), list_files)
         registry.add("capture_target", "重新截图；新图片随后交给模型", arguments(), self._capture_tool)
         registry.add("observe_controls", "读取当前绑定窗口的控件", arguments(), self._controls_tool)
         registry.add("computer.run", "执行模式：在用户绑定的当前窗口完成明确要求的桌面任务。自动观察、输入或点击、核实结果；不能启动应用、跨窗口操作或执行命令。只有用户要求操作桌面时使用。", arguments({"goal": string(4000)}, ["goal"]), self._computer_tool, "write")
@@ -42,13 +34,13 @@ class CapabilityRuntime:
         registry.add("web.search", "公网搜索；重要结论继续 web.fetch 核对原文", arguments({"query": string(1000), "count": integer(1, 10)}, ["query"]), self._web_search)
         registry.add("web.fetch", "读取公网网页或 source_id 的正文", arguments({"url": string(3000)}, ["url"]), self._web_fetch)
         path_args = {"root_id": string(100), "path": string()}
-        registry.add("files.read", "读取完整 UTF-8 文本与 sha256；root_id 来自授权目录", arguments(path_args, path_args), self._file_read)
+        registry.add("files.read", "读取授权范围内文本；可按 start_line/max_lines 分段。root_id 可为 repository（当前只读仓库）或授权目录 ID；省略时优先仓库，否则 output。完整 UTF-8 文件返回 sha256；修改前必须完整读取", arguments({**path_args, "start_line": integer(1, 1000000), "max_lines": integer(1, 200)}, ["path"]), self._file_read)
         registry.add("files.create", "执行模式：在授权目录创建新文本文件，绝不覆盖", arguments({**path_args, "content": string(40000)}, [*path_args, "content"]), self._file_create, "write")
         registry.add("files.propose_edit", "读取后，用 base_sha256 和完整新内容提出差异，等待用户确认", arguments({**path_args, "base_sha256": string(64), "content": {"type": "string", "maxLength": 40000}}, [*path_args, "base_sha256", "content"]), self._file_propose, "preview")
         registry.add("files.propose_restore", "为 artifact_id 的备份生成恢复差异，等待确认", arguments({"artifact_id": string(100)}, ["artifact_id"]), self._file_restore, "preview")
         registry.add("apps.search", "按名称查找本机安装应用，返回可供 apps.open 使用的真实 app_id；支持中文名及常见 Windows 应用英文别名", arguments({"query": string(200), "limit": integer(1, 20)}, ["query"]), self._apps_search)
         registry.add("apps.open", "执行模式：打开 apps.search 返回的应用 ID。不能传命令或启动参数。返回 Windows 请求回执及能观察到的窗口", arguments({"app_id": string(100)}, ["app_id"]), self._apps_open, "write")
-        registry.add("files.list", "列举授权目录中的文件和子目录；path 为空时列举目录根。包括 PDF/Office/图片名称，不读取内容", arguments({"root_id": string(100), "path": {"type": "string", "maxLength": 1000}, "limit": integer(1, 100)}, ["root_id"]), self._files_list)
+        registry.add("files.list", "列举授权范围的文件和目录。root_id 省略时优先当前只读仓库 repository，否则 output；path 为空列举根。recursive 递归列举，text_only 仅列文本，遍历有上限", arguments({"root_id": string(100), "path": {"type": "string", "maxLength": 1000}, "limit": integer(1, 400), "recursive": {"type": "boolean"}, "text_only": {"type": "boolean"}}), self._files_list)
         registry.add("files.find", "在授权目录内按名称片段查找文件或目录；遍历有上限，返回真实相对路径", arguments({"root_id": string(100), "query": string(200), "path": {"type": "string", "maxLength": 1000}, "limit": integer(1, 100)}, ["root_id", "query"]), self._files_find)
         registry.add("files.open", "执行模式：打开授权目录内真实存在的文件或目录，path 为空打开目录根。文本/源码用记事本，PDF/Office/影音用默认应用。不能执行脚本或安装程序", arguments({"root_id": string(100), "path": {"type": "string", "maxLength": 1000}}, ["root_id", "path"]), self._files_open, "write")
         registry.add("web.open", "执行模式：用默认浏览器打开用户要求的 HTTP/HTTPS 网址，包括用户提供的本地开发网址。这不会读取页面，也不会提交表单", arguments({"url": string(3000)}, ["url"]), self._web_open, "write")
@@ -61,8 +53,11 @@ class CapabilityRuntime:
     async def _apps_search(self, **args):
         return await asyncio.to_thread(self.system.apps.search, **args)
 
-    async def _files_list(self, **args):
-        return await asyncio.to_thread(self.system.list_files, **args)
+    def _file_root(self, root_id=None):
+        return root_id or ("repository" if self.repository else "output")
+
+    async def _files_list(self, root_id=None, **args):
+        return await asyncio.to_thread(self.files.browser.list, self._file_root(root_id), **args)
 
     async def _files_find(self, **args):
         return await asyncio.to_thread(self.system.find_files, **args)
@@ -227,8 +222,11 @@ class CapabilityRuntime:
         await self.emit("source.ready", source={k: v for k, v in result.items() if k != "content"})
         return result
 
-    async def _file_read(self, **args):
-        return await asyncio.to_thread(self.files.read, **args)
+    async def _file_read(self, root_id=None, **args):
+        result = await asyncio.to_thread(self.files.read, self._file_root(root_id), **args)
+        if result["root_id"] == "repository":
+            await self.emit("evidence.ready", evidence=result, **result)
+        return result
 
     def _write_allowed(self):
         if self.mode != "execute":

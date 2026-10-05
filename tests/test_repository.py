@@ -1,6 +1,7 @@
 from pathlib import Path
 import pytest
 from services.agent.tools.repository import RepositoryReader
+from services.agent.tools.registry import ToolError
 
 
 def test_real_evidence_paths_and_line_numbers(tmp_path):
@@ -18,12 +19,14 @@ def test_traversal_and_secret_files_denied(tmp_path):
     reader = RepositoryReader(str(tmp_path))
     assert reader.list_files() == []
     for file in (".env", "config/local.json"):
-        with pytest.raises(ValueError, match="Private"):
+        with pytest.raises(ToolError) as failure:
             reader.read_file(file)
+        assert failure.value.code == "private_path"
     outside = tmp_path.parent / "outside.py"
     outside.write_text("secret")
-    with pytest.raises(ValueError, match="leaves"):
+    with pytest.raises(ToolError) as failure:
         reader.read_file("../outside.py")
+    assert failure.value.code == "path_escape"
 
 
 def test_search_finds_source_beyond_display_preview(tmp_path):
@@ -43,8 +46,9 @@ def test_search_excludes_electron_build_and_binary_files(tmp_path):
     reader = RepositoryReader(str(tmp_path))
     assert "apps/desktop/dist-electron/main.js" not in reader.list_files()
     assert reader.search_text("generated_needle") == []
-    with pytest.raises(ValueError, match="Private or generated"):
+    with pytest.raises(ToolError) as failure:
         reader.read_file("apps/desktop/dist-electron/main.js")
+    assert failure.value.code == "private_path"
 
 
 def test_search_retains_byte_and_result_budgets(tmp_path):
@@ -63,5 +67,6 @@ def test_case_variants_cannot_bypass_private_and_generated_exclusions(tmp_path):
     reader = RepositoryReader(str(tmp_path))
     assert reader.list_files() == []
     for name in (".ENV.production.json", "NODE_MODULES/private.py"):
-        with pytest.raises(ValueError, match="Private or generated"):
+        with pytest.raises(ToolError) as failure:
             reader.read_file(name)
+        assert failure.value.code == "private_path"

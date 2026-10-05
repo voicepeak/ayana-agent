@@ -322,7 +322,7 @@ async def test_tool_rounds_and_interrupted_output_keep_factual_context(tmp_path)
     def respond(request):
         calls.append(json.loads(request.content)["messages"])
         if len(calls) == 1:
-            return sse_response([{"type": "tool", "name": "list_files", "arguments": {}}])
+            return sse_response([{"type": "tool", "name": "files.list", "arguments": {"recursive": True, "text_only": True}}])
         speech = {"type": "speech", "key": "s1", "speech_ja": "一緒に見よう。"}
         if len(calls) == 3:
             return sse_response([speech, {"type": "unknown"}])
@@ -362,7 +362,7 @@ async def test_repeated_speech_key_across_tool_rounds_keeps_both_sentences(tmp_p
         calls.append(json.loads(request.content)["messages"])
         if len(calls) == 1:
             return sse_response([{"type": "speech", "key": "s1", "speech_ja": "まず入口を見よう。"},
-                                 {"type": "tool", "name": "list_files", "arguments": {}}])
+                                 {"type": "tool", "name": "files.list", "arguments": {"recursive": True, "text_only": True}}])
         return sse_response([{"type": "speech", "key": "s1", "speech_ja": "次に進もう。"},
                              {"type": "translation", "key": "s1", "display_zh": "接着往下。"}])
     runtime.model_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
