@@ -94,8 +94,20 @@ class CapabilityRuntime:
                    for record in self.store.records("artifact"))
 
     def _tool_prompt(self):
-        from .prompts import tool_prompt
-        return tool_prompt(self.registry, native_tools=self.settings.values.get("native_tools", True), full_access=self.full_access)
+        text = ("Prefer native function calls using the supplied function schemas. "
+                "Keep speech and translation as NDJSON events. "
+                "Only currently supplied tools are available; their set may change after a tool result."
+                if self.settings.values.get("native_tools", True) else self.registry.prompt())
+        access = ("Full access is ON. All local paths and shell.run are authorized. Writes and desktop actions execute without per-step approval. "
+                  "Use root_id=filesystem and absolute paths for filesystem tools. "
+                  "Stay within the user's task, check actual results, and stop on cancellation."
+                  if self.full_access else "Full access is OFF. Directory grants, execution mode and user approval rules apply. shell.run is unavailable.")
+        guidance = ("Use dedicated file/app/web tools for their operations. Use computer.run for a whole bound-window task, "
+                    "desktop.step for an observed single action or recovery; do not repeatedly switch executors. "
+                    "Tool failures are evidence for you: explain what happened in ordinary language, and either recover, "
+                    "ask for the missing information, or report blocked. Never present raw error codes as instructions to the user. "
+                    "Unavailable capabilities (not callable): " + json.dumps({item["name"]: item["reason"] for item in self.registry.catalog() if not item["available"]}, ensure_ascii=False))
+        return "<ayana_tools>\n" + text + "\n" + access + "\n" + guidance + "\n</ayana_tools>"
 
     def _model_tools(self, messages=None):
         if messages and messages[0].get("role") == "system":
