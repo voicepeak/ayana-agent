@@ -217,3 +217,111 @@ async def test_compatible_provider_cached_tokens_and_usage_reset_between_request
         _ = [event async for event in provider.stream_reply([])]
         assert provider.usage is None
     assert "stream_options" not in calls[0]  # optional extensions must not break other endpoints
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", ["你好。", "Hello!", "説明の途中", "こちらを見よう https://example.com。"])
+async def test_invalid_first_speech_retries_before_any_commit(invalid):
+    calls = []
+    def respond(request):
+        calls.append(json.loads(request.content))
+        return sse_response([{**VALID, "speech_ja": invalid}] if len(calls) == 1 else [VALID])
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        events = [event async for event in OpenAIProvider(Settings(), client).stream_reply([])]
+    assert events == [VALID] and len(calls) == 2
+    assert "Chinese only in display_zh" in calls[1]["messages"][-1]["content"]
+
+
+def repaired_response(value):
+    return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(value, ensure_ascii=False)}}]})
+
+
+@pytest.mark.asyncio
+async def test_bad_later_sentence_is_repaired_without_replaying_tools_and_history():
+    calls = []
+    tool = {"type": "tool", "name": "files.create", "arguments": {"path": "note.md", "content": "hello"}}
+    bad = {**VALID, "key": "s2", "speech_ja": "你好呀。", "expression": "卖萌"}
+    def respond(request):
+        body = json.loads(request.content)
+        calls.append(body)
+        if body["stream"]:
+            return sse_response([VALID, tool, bad, {"type": "translation", "key": "s2", "display_zh": "你好呀。"}])
+        return repaired_response({"speech_ja": "こんにちは。"})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        provider = OpenAIProvider(Settings(), client)
+        events = [event async for event in provider.stream_reply([])]
+    assert len(calls) == 2 and calls[1]["stream"] is False and "tools" not in calls[1]
+    assert events == [VALID, tool, {**bad, "speech_ja": "こんにちは。"},
+                      {"type": "translation", "key": "s2", "display_zh": "你好呀。"}]
+    assert "你好呀" not in json.loads(provider.assistant_message()["content"].splitlines()[2])["speech_ja"]
+    assert [e["type"] for e in map(json.loads, provider.response_text.splitlines())] == ["speech", "tool", "speech", "translation"]
+
+
+@pytest.mark.asyncio
+async def test_truncated_trailing_subtitle_is_rebuilt_from_committed_speech():
+    calls = []
+    def respond(request):
+        body = json.loads(request.content)
+        calls.append(body)
+        if body["stream"]:
+            raw = sse_response([VALID]).text
+            chunk = {"choices": [{"delta": {"content": '{"type":"translation","key":"s1","display_zh":"未完'}, "finish_reason": None}]}
+            raw = raw.replace('data: [DONE]', 'data: ' + json.dumps(chunk) + '\n\ndata: [DONE]')
+            return httpx.Response(200, text=raw)
+        return repaired_response({"display_zh": "一起看看吧。"})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        provider = OpenAIProvider(Settings(), client)
+        events = [event async for event in provider.stream_reply([])]
+    assert events == [VALID, {"type": "translation", "key": "s1", "display_zh": "一起看看吧。"}]
+    assert len(calls) == 2 and "未完" not in provider.response_text
+    assert json.loads(calls[1]["messages"][-1]["content"]) == {"sentence": VALID["speech_ja"]}
+
+
+@pytest.mark.asyncio
+async def test_invalid_sentence_repair_fails_closed_without_raw_response():
+    calls = []
+    def respond(request):
+        body = json.loads(request.content)
+        calls.append(body)
+        if body["stream"]:
+            return sse_response([VALID, {**VALID, "key": "s2", "speech_ja": "你好。"}])
+        return repaired_response({"speech_ja": "private-model-key"})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        committed = []
+        with pytest.raises(ModelEventError) as caught:
+            async for event in OpenAIProvider(Settings(), client).stream_reply([]):
+                committed.append(event)
+    assert committed == [VALID] and len(calls) == 2
+    assert "private-model-key" not in str(caught.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("arguments", ['{"path":', '[]'])
+async def test_invalid_native_arguments_never_become_empty_executable_arguments(arguments):
+    calls = []
+    def respond(request):
+        calls.append(request)
+        return native_tool_sse("call_1", "files__create", arguments)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(ModelEventError):
+            _ = [event async for event in OpenAIProvider(Settings(), client).stream_reply([])]
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_repaired_content_retains_native_tool_calls_once():
+    def respond(request):
+        if not json.loads(request.content)["stream"]:
+            return repaired_response({"speech_ja": "こんにちは。"})
+        content = sse_response([VALID, {**VALID, "key": "s2", "speech_ja": "你好。"}]).text
+        calls = native_tool_sse("call_1", "files__create", '{"path":"note.md"}').text
+        return httpx.Response(200, text=content.replace('data: [DONE]\n\n', '') + calls)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        provider = OpenAIProvider(Settings(), client)
+        events = [event async for event in provider.stream_reply([], tool_names={"files__create": "files.create"})]
+    assert [e["type"] for e in events] == ["speech", "speech", "tool"]
+    message = provider.assistant_message()
+    assert message["tool_calls"][0]["id"] == "call_1"
+    assert len(message["tool_calls"]) == 1
+    assert [e["type"] for e in map(json.loads, message["content"].splitlines())] == ["speech", "speech"]
+    assert "你好" not in message["content"]

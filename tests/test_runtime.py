@@ -391,6 +391,41 @@ def test_computer_tool_is_hidden_until_available(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_late_model_failure_does_not_discard_committed_audio(tmp_path):
+    import httpx
+    from tests.test_model import sse_response, VALID
+    cfg = Settings(root=Path(__file__).resolve().parents[1], data_root=tmp_path)
+    cfg.values.update(provider="openai", model="test", send_screenshot=False)
+    cfg.key = lambda: "test-key"
+    runtime = AgentRuntime(cfg, desktop=Desktop(), tts=Tts(.05))
+    ws = Ws()
+    runtime.clients.add(ws)
+    runtime.model_client = httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda request: sse_response([VALID, {**VALID, "key": "s2"}, {"type": "unknown"}])))
+    await runtime.handle({"type": "turn.start", "text": "hello"})
+    await runtime.task
+    speeches = [e for e in ws.events if e["type"] == "utterance.ready"]
+    audio = [e for e in ws.events if e["type"] == "audio.ready"]
+    assert len(speeches) == 2
+    assert [e["utterance_id"] for e in audio] == [e["utterance_id"] for e in speeches]
+    assert any(e["type"] == "error" and e["source"] == "turn" for e in ws.events)
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_speech_drain_does_not_hang_when_worker_exits_with_full_queue(tmp_path):
+    runtime = AgentRuntime(settings(tmp_path), desktop=Desktop(), tts=Tts())
+    queue = asyncio.Queue(maxsize=1)
+    await queue.put("pending")
+    async def stop():
+        await asyncio.sleep(.01)
+    speaker = asyncio.create_task(stop())
+    await asyncio.wait_for(runtime._drain_speech(queue, speaker), .5)
+    assert queue.qsize() == 1
+    await runtime.close()
+
+
+@pytest.mark.asyncio
 async def test_unavailable_tool_execution_is_rejected(tmp_path):
     runtime = AgentRuntime(settings(tmp_path), desktop=Desktop(), tts=Tts())
     with pytest.raises(ToolError, match="不可用"):

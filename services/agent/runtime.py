@@ -483,6 +483,18 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             self.utterances[uid].update(total_samples=len(audio_bytes) // 4, sample_rate=audio["sample_rate"])
             await self.emit("audio.ready", utterance_id=uid, **{**audio, "format": "pcm_f32le"})
 
+    async def _drain_speech(self, queue, speaker):
+        if not speaker.done():
+            ending = asyncio.create_task(queue.put(None))
+            try:
+                await asyncio.wait({ending, speaker}, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                if not ending.done():
+                    ending.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await ending
+        await speaker
+
     async def _turn(self, text, root, gen, continuation=None):
         queue = asyncio.Queue(maxsize=3)
         speaker = asyncio.create_task(self._speech_worker(queue, gen))
@@ -653,9 +665,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                                            persist=self.settings.values.get("save_history", True))
             await self._conversation_snapshot()
             await self._history_snapshot()
-            if not speaker.done():
-                await queue.put(None)
-            await speaker
+            await self._drain_speech(queue, speaker)
             if self.active_task:
                 if waiting:
                     self.active_task.transition("waiting_approval")
@@ -681,6 +691,11 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                     await self._task_event()
                 await self.emit("error", source="turn", message=str(e)[:500])
                 await self.emit("task.state", state="failed")
+                # A later malformed model event must not cut off valid speech
+                # already committed to the queue. A new turn/cancel still
+                # interrupts this drain through the normal generation guard.
+                with contextlib.suppress(Exception):
+                    await self._drain_speech(queue, speaker)
         finally:
             for stream in streams:
                 with contextlib.suppress(asyncio.CancelledError, Exception):

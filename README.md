@@ -12,7 +12,7 @@ Windows 个性化 Agent：快捷键呼出时只显示透明半身立绘、对话
 
 Full access 版为 `apps/desktop/release/Ayana-0.3.2-full-access-win-x64.exe`，包含话题管理和访问权限开关。退出旧版后启动，在「任务与结果」开启 Full access 即可。
 
-最新搜索修复版为 `apps/desktop/release/Ayana-0.3.2-bing-search-win-x64.exe`，包含上述功能及默认免 Key 的 Bing 搜索；与当前通用交付包内容一致。
+最新对话修复版为 `apps/desktop/release/Ayana-0.3.2-dialogue-fix-win-x64.exe`，包含上述功能及默认免 Key 的 Bing 搜索；与当前通用交付包内容一致。新增非日语句子重试/单句修复、损坏末尾字幕补回和报错时有效语音保留，详情见 [对话异常修复](docs/DIALOGUE_RECOVERY.md)。
 
 ```powershell
 python -m venv .venv
