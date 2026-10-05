@@ -167,6 +167,99 @@ async def test_detailed_answers_exceed_chat_budget_and_clock_is_current(tmp_path
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("detail,limit", [("normal", 2), ("detailed", 12)])
+async def test_speech_overflow_preserves_translations_and_completion(tmp_path, detail, limit):
+    def respond(request):
+        events = [plan("answer", (), detail)]
+        for i in range(limit + 2):
+            events.extend([speech(str(i)), {"type": "translation", "key": str(i), "display_zh": f"结果 {i}"}])
+        return sse_response([*events, {"type": "task", "status": "complete"}])
+    runtime = make_runtime(tmp_path, respond)
+    runtime.settings.values.update(max_utterances=2, detailed_max_utterances=12)
+    synthesized = []
+    original = runtime.tts.synthesize
+    async def synthesize(text, generation):
+        synthesized.append(text)
+        return await original(text, generation)
+    runtime.tts.synthesize = synthesize
+    try:
+        await ask(runtime, "解释这个结果")
+        assert runtime.active_task.state == "succeeded"
+        events = next(iter(runtime.clients)).events
+        ready = [e for e in events if e["type"] == "utterance.ready"]
+        assert len(ready) == limit + 2 and len(synthesized) == limit
+        assert [e["audio_enabled"] for e in ready] == [True] * limit + [False, False]
+        assert len([e for e in events if e["type"] == "subtitle.ready"]) == limit + 2
+        assert not any(e["type"] == "error" for e in events)
+        assert len(runtime.prompt_history.turns[-1]["keys"]) == limit + 2
+        assert all(not runtime.utterances[e["utterance_id"]].get("displayed") for e in ready[limit:])
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_exhausted_speech_budget_continues_tools_and_verified_completion(tmp_path):
+    calls = []
+    def respond(request):
+        calls.append(json.loads(request.content)["messages"])
+        if len(calls) == 1:
+            return sse_response([plan(), speech("s1"), speech("s2"),
+                {"type": "tool", "call_id": "save", "name": "files.create",
+                 "arguments": {"root_id": "output", "path": "result.txt", "content": "saved"}}])
+        if len(calls) == 2:
+            return sse_response([speech("s3"), {"type": "tool", "call_id": "read", "name": "files.read",
+                "arguments": {"root_id": "output", "path": "result.txt"}}])
+        return sse_response([speech("s4"), complete("保存指定内容", "read", "/content", "saved")])
+    runtime = make_runtime(tmp_path, respond)
+    runtime.settings.values["max_utterances"] = 2
+    try:
+        await runtime.handle({"type": "turn.start", "text": "保存并核实内容", "mode": "execute"})
+        await runtime.task
+        assert runtime.active_task.state == "succeeded" and len(calls) == 3
+        assert (tmp_path / "artifacts/result.txt").read_text() == "saved"
+        assert [record["audio_enabled"] for record in runtime.utterances.values()] == [True, True, False, False]
+        budget = next(m["content"] for m in reversed(calls[1]) if m["content"].startswith("Current speech_budget:"))
+        assert '"remaining": 0' in budget and '"used": 2' in budget
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("emit_speech", [True, False])
+async def test_approval_continuation_does_not_reset_audio_budget(tmp_path, emit_speech):
+    calls = []
+    def respond(request):
+        calls.append(json.loads(request.content)["messages"])
+        if len(calls) == 1:
+            return sse_response([plan(), speech(), {"type": "tool", "name": "files.read",
+                "arguments": {"root_id": "output", "path": "note.md"}}])
+        if len(calls) == 2:
+            result = json.loads(calls[-1][-1]["content"].split(": ", 1)[1])[0]["result"]
+            return sse_response([{"type": "tool", "name": "files.propose_edit", "arguments": {
+                "root_id": "output", "path": "note.md", "base_sha256": result["sha256"], "content": "after"}}])
+        report = complete("保存指定内容", runtime.active_task.effects[-1], "/path", "note.md")
+        reply = [speech("s2"), {"type": "translation", "key": "s2", "display_zh": "已检查。"}] if emit_speech else []
+        return sse_response([*reply, report])
+    runtime = make_runtime(tmp_path, respond)
+    runtime.settings.values["max_utterances"] = 1
+    path = tmp_path / "artifacts/note.md"
+    path.write_text("before")
+    try:
+        await runtime.handle({"type": "turn.start", "text": "修改文件", "mode": "execute"})
+        await runtime.task
+        assert runtime.active_task.state == "waiting_approval"
+        assert runtime.continuation["audio_count"] == 1
+        await runtime.handle({"type": "approval.resolve", "approval_id": next(iter(runtime.approvals)), "accept": True})
+        await runtime.task
+        assert path.read_text() == "after"
+        assert runtime.active_task.state == "succeeded", runtime.active_task.reason
+        assert [record["audio_enabled"] for record in runtime.utterances.values()] == ([True, False] if emit_speech else [True])
+        assert not any(e["type"] == "error" for e in next(iter(runtime.clients)).events)
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("persist", [True, False])
 async def test_grounded_objects_are_topic_local_and_survive_compaction_and_restart(tmp_path, persist):
     prompts = []

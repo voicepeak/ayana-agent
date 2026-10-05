@@ -43,10 +43,26 @@ const compiled = await build({ entryPoints: ['renderer/state.ts'], bundle: true,
 const stateModule = { exports: {} };
 const stateContext = vm.createContext({ window: {}, module: stateModule, exports: stateModule.exports, require: () => ({}), Date, setTimeout });
 vm.runInContext(compiled.outputFiles[0].text, stateContext);
-const { reduceEvent, initialState } = stateModule.exports;
+const { reduceEvent, initialState, nextTextSpeech } = stateModule.exports;
 assert.equal(initialState.settingsLoaded, false);
 assert.equal(reduceEvent(initialState, { protocol_version: 1, type: 'settings.ready', settings: { voice: { voice_mode: 'sovits' } } }).settingsLoaded, true);
 const event = (type, payload = {}) => ({ type, protocol_version: 1, generation_id: 7, ...payload });
+let overflow = reduceEvent(initialState, event('utterance.ready', { utterance_id: 'voiced', speech_ja: '一緒に見よう。' }));
+overflow = reduceEvent(overflow, event('utterance.ready', { utterance_id: 'text-only', speech_ja: '確認したよ。', audio_enabled: false }));
+overflow = reduceEvent(overflow, event('subtitle.ready', { utterance_id: 'text-only', display_zh: '检查过了。' }));
+assert.equal(nextTextSpeech(overflow, false), undefined); // wait for queued audio
+assert.equal(nextTextSpeech(overflow, true)?.id, 'voiced'); // silent mode still presents every sentence
+overflow = reduceEvent(overflow, event('playback.started', { utterance_id: 'voiced', total_samples: 100 }));
+assert.equal(nextTextSpeech(overflow, false), undefined); // do not overwrite active speech
+overflow = reduceEvent(overflow, event('playback.ended', { utterance_id: 'voiced', played_samples: 100, total_samples: 100 }));
+assert.equal(nextTextSpeech(overflow, false)?.id, 'text-only');
+assert.equal(nextTextSpeech(overflow, false)?.zh, '检查过了。');
+overflow = reduceEvent(overflow, event('desktop.present', { utterance_id: 'text-only' }));
+assert.equal(overflow.presented, 'text-only');
+assert.equal(nextTextSpeech(overflow, false), undefined);
+overflow = reduceEvent(overflow, event('utterance.ready', { utterance_id: 'cancelled-text', speech_ja: '次を見よう。', audio_enabled: false }));
+overflow = reduceEvent(overflow, event('generation.cancelled', { cancelled_generation_id: 7, generation_id: 8 }));
+assert.equal(nextTextSpeech(overflow, false), undefined);
 let state = reduceEvent(initialState, event('utterance.ready', { utterance_id: 'speech', speech_ja: '一緒に見よう。', intent: 'encourage', intensity: .7 }));
 assert.equal(state.expression, 'neutral');
 state = reduceEvent(state, event('audio.ready', { utterance_id: 'speech' }));

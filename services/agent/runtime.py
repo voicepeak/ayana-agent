@@ -528,11 +528,18 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                     await ending
         await speaker
 
+    def _speech_budget(self, used=0):
+        normal = self.settings.values["max_utterances"]
+        detailed = max(normal, self.settings.values.get("detailed_max_utterances", 32))
+        limit = detailed if self.active_task and self.active_task.detail == "detailed" else normal
+        return {"normal": normal, "detailed": detailed, "used": used, "remaining": max(0, limit - used)}
+
     async def _turn(self, text, root, gen, continuation=None):
         queue = asyncio.Queue(maxsize=3)
         speaker = asyncio.create_task(self._speech_worker(queue, gen))
         keys = dict(continuation.get("keys", {})) if continuation else {}
         count = 0
+        audio_count = continuation.get("audio_count", 0) if continuation else 0
         streams = []
         try:
             await self.emit("task.state", state="thinking")
@@ -562,8 +569,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 evidence_prefix = repository_message(self.repository)
                 context = {"mode": "execute" if self._execution_enabled() else "teach", "full_access": self.full_access, "target": self.target,
                            "local_clock": local_clock(), "work_context": self._work_context(),
-                           "speech_budget": {"normal": self.settings.values["max_utterances"],
-                                             "detailed": max(self.settings.values["max_utterances"], self.settings.values.get("detailed_max_utterances", 32))},
+                           "speech_budget": self._speech_budget(audio_count),
                            "directories": self.policy.public(include_repository=True),
                            "avatar_context": self._avatar_context(),
                            "snapshot_id": self.snapshot.get("snapshot_id") if self.snapshot else None,
@@ -593,12 +599,10 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                         return
                     kind = event.get("type")
                     if kind == "speech":
-                        speech_limit = self.settings.values["max_utterances"]
-                        if self.active_task and self.active_task.detail == "detailed":
-                            speech_limit = max(speech_limit, self.settings.values.get("detailed_max_utterances", 32))
-                        if count >= speech_limit:
-                            raise ValueError("Model exceeded the utterance budget")
                         speech = validate_speech(event)
+                        # Narration limits must not abort tools, final reports or
+                        # translations. Overflow sentences remain readable.
+                        speech["audio_enabled"] = self._speech_budget(audio_count)["remaining"] > 0
                         speech.update(self.avatars.resolve(speech, self.settings.values.get("avatar_costume", "校服")))
                         key = str(event.get("key", count))
                         if key in round_keys:
@@ -621,7 +625,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                         await self.emit("utterance.ready", utterance_id=uid, **speech)
                         if event.get("display_zh"):
                             await self.emit("subtitle.ready", utterance_id=uid, display_zh=str(event["display_zh"])[:1200])
-                        if not speaker.done():
+                        if speech["audio_enabled"] and not speaker.done():
                             putting = asyncio.create_task(queue.put((uid, speech["speech_ja"])))
                             done, _ = await asyncio.wait({putting, speaker}, return_when=asyncio.FIRST_COMPLETED)
                             if speaker in done and not putting.done():
@@ -630,6 +634,8 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                                     await putting
                             else:
                                 await putting
+                        if speech["audio_enabled"]:
+                            audio_count += 1
                         count += 1
                     elif kind == "translation":
                         key = str(event.get("key"))
@@ -686,7 +692,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                             "Already spoken sentences do not prove completion. Check exact fields and escaped newlines. "
                             "Compare the actual values against the user's request; fix unmet outcomes rather than weakening "
                             "the planned conditions. Unverified conditions: " + json.dumps(task.completion_feedback(), ensure_ascii=False)
-                            + ". Remaining speech sentences: " + str(max(0, self.settings.values["max_utterances"] - count)))})
+                            + ". Remaining speech sentences: " + str(self._speech_budget(audio_count)["remaining"]))})
                         tool_schemas, tool_names = self._model_tools(messages)
                         streams.append(provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names))
                         continue
@@ -695,6 +701,12 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 results = []
                 for request in requests:
                     results.append(await self._read_tool(request))
+                # Keep native assistant tool calls adjacent to their results.
+                messages.insert(len(messages) - 1, {"role": "system", "content": (
+                    "Current speech_budget: " + json.dumps(self._speech_budget(audio_count))
+                    + ". This budget applies across all tool rounds and approvals in this task. "
+                    "Keep narration brief; continue required tools and task reports even when remaining is zero. "
+                    "Additional speech will be displayed as text without audio.")})
                 include_image = any(r.get("name") in {"capture_target", "windows.select", "desktop.step"} and "error" not in r for r in results)
                 if provider.used_native_tools:
                     native_ids = {call["call_id"] for call in provider.tool_calls}
@@ -722,10 +734,11 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 raise ToolError("round_budget", "任务工具往返已达到上限")
             await self._checkpoint()
             waiting = bool(self.approvals)
-            if not count and not waiting:
+            if not count and not keys and not waiting:
                 raise RuntimeError("模型没有返回可播放的完整日语语句")
             if waiting and messages is not None:
-                self.continuation = {"messages": messages, "prefix_length": prefix_length, "keys": keys}
+                self.continuation = {"messages": messages, "prefix_length": prefix_length, "keys": keys,
+                                     "audio_count": audio_count}
             elif messages is not None:
                 self.prompt_history.append(self.turn_id, messages[prefix_length:], keys,
                                            persist=self.settings.values.get("save_history", True))

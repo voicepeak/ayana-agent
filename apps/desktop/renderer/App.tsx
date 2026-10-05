@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Button, Character, Icon, Input } from './components';
-import { bridge, useRuntime, type ModelState, type Speech } from './state';
+import { bridge, useRuntime, nextTextSpeech, type ModelState, type Speech } from './state';
 import avatarCatalog from '../../../characters/ayana/avatar-map.json';
 import { TaskPanel, taskLabels as agentTaskLabels } from './TaskPanel';
 import { ConversationControls, ConversationHistory } from './Conversations';
@@ -206,18 +206,15 @@ export default function App() {
 
   const presented = state.speeches.find(speech => speech.id === state.presented);
   const textOnly = (state.settings.voice as Record<string, unknown> | undefined)?.voice_mode === 'silent' || state.voice === 'failed';
+  const nextText = nextTextSpeech(state, textOnly);
   useEffect(() => {
-    if (kind !== 'chat' || !textOnly) return;
-    const candidates = state.speeches.filter(speech => speech.generation === state.generation && speech.state !== 'cancelled' && speech.state !== 'partial');
-    const index = candidates.findIndex(speech => speech.id === state.presented);
-    const next = candidates[index + 1];
-    if (!next) return;
+    if (kind !== 'chat' || !nextText) return;
     const timer = setTimeout(() => {
-      dispatch({ protocol_version: 1, type: 'desktop.present', utterance_id: next.id, generation_id: next.generation });
-      void bridge.send({ type: 'utterance.displayed', utterance_id: next.id, generation_id: next.generation });
-    }, index < 0 ? 0 : Math.max(1800, (candidates[index]?.ja.length || 20) * 90));
+      dispatch({ protocol_version: 1, type: 'desktop.present', utterance_id: nextText.id, generation_id: nextText.generation });
+      void bridge.send({ type: 'utterance.displayed', utterance_id: nextText.id, generation_id: nextText.generation });
+    }, !presented ? 0 : Math.max(1800, (presented.ja.length || 20) * 90));
     return () => clearTimeout(timer);
-  }, [kind, textOnly, state.speeches.length, state.presented, state.generation, dispatch]);
+  }, [kind, nextText?.id, nextText?.generation, state.presented, state.generation, dispatch]);
 
   if (kind === 'highlight') return state.targetCue?.variant === 'summon'
     ? <div key={String(state.targetCue.cue_id)} className="target-aura" aria-label="Ayana 正在观察这个窗口"><i/><b/><em/><span/></div>

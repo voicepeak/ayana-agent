@@ -7,6 +7,7 @@ export interface Speech {
   id: string; ja: string; zh: string; intent: string; generation: number;
   intensity: number; affect: string;
   assetId: string;
+  audioEnabled?: boolean;
   state: 'generated' | 'playing' | 'played' | 'partial' | 'cancelled';
   played: number; total: number;
 }
@@ -198,7 +199,7 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
         next.pendingCostume = { assetId: String(event.asset_id), generation };
       }
       if (!state.speeches.some(s => s.id === event.utterance_id)) {
-        next.speeches = [...state.speeches, { id: String(event.utterance_id), ja: String(event.speech_ja), zh: '', intent: String(event.intent || 'explain'), assetId: String(event.asset_id || ''), generation, intensity: Number(event.intensity || 0), affect: String(event.affect || 'neutral'), state: 'generated' as const, played: 0, total: 0 }].slice(-80);
+        next.speeches = [...state.speeches, { id: String(event.utterance_id), ja: String(event.speech_ja), zh: '', intent: String(event.intent || 'explain'), assetId: String(event.asset_id || ''), audioEnabled: event.audio_enabled !== false, generation, intensity: Number(event.intensity || 0), affect: String(event.affect || 'neutral'), state: 'generated' as const, played: 0, total: 0 }].slice(-80);
       }
       break;
     case 'subtitle.ready':
@@ -251,6 +252,16 @@ const previewBridge: AyanaBridge = {
   getState: async () => ({ connected: false, service: 'preview', version: '0.3.3', repositoryRoot: '', events: [] }),
 };
 export const bridge = window.ayana ?? previewBridge;
+
+export function nextTextSpeech(state: ModelState, textOnly: boolean): Speech | undefined {
+  const candidates = state.speeches.filter(speech => speech.generation === state.generation
+    && speech.state !== 'cancelled' && speech.state !== 'partial');
+  const index = candidates.findIndex(speech => speech.id === state.presented);
+  const next = candidates[index + 1];
+  if (!textOnly && (state.current || next?.audioEnabled !== false
+    || candidates.slice(0, index + 1).some(speech => speech.audioEnabled !== false && speech.state !== 'played'))) return;
+  return next;
+}
 
 export function useRuntime(isChat: boolean) {
   const [state, dispatch] = useReducer(reduceEvent, initialState);
