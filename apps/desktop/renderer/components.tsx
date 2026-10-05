@@ -3,6 +3,9 @@ import {
   cn, kunVariantClasses, kunRoundedClasses, kunFocusRingClasses, kunControlSizeClasses,
   type KunUIColor, type KunUIVariant,
 } from '@kungal/ui-core';
+import avatarCatalog from '../../../characters/ayana/avatar-map.json';
+
+const avatarAssets: Record<string, { costume: string }> = avatarCatalog.assets;
 
 export function Button({ color = 'default', variant = 'flat', className, children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { color?: KunUIColor; variant?: KunUIVariant }) {
   return <button className={cn('kun-button', kunVariantClasses(variant, color), kunRoundedClasses.md, kunFocusRingClasses[color], kunControlSizeClasses.sm, className)} {...props}>{children}</button>;
@@ -38,21 +41,65 @@ export function Character({ expression = 'neutral', className = '', motion = tru
   const [missing, setMissing] = useState(false);
   const previous = useRef<string | null>(null);
   const frame = useRef<HTMLDivElement>(null);
+  const figure = useRef<HTMLDivElement>(null);
+  const shimmer = useRef<HTMLDivElement>(null);
+  const loadedRef = useRef(loaded);
+  loadedRef.current = loaded;
+  const changingCostume = useRef(false);
   useEffect(() => {
     let cancelled = false;
+    const animations: Animation[] = [];
+    changingCostume.current = false;
     const next = new Image();
-    next.onload = () => { if (!cancelled) { setLoaded(expression); setMissing(false); } };
+    next.onload = async () => {
+      if (cancelled) return;
+      const oldCostume = avatarAssets[loadedRef.current]?.costume;
+      const newCostume = avatarAssets[expression]?.costume;
+      const costumeChanged = oldCostume && newCostume && oldCostume !== newCostume;
+      const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      // Preload first, then hide the old portrait in the light before revealing the new one.
+      if (costumeChanged && !reduced && figure.current && shimmer.current) {
+        changingCostume.current = true;
+        const glow = shimmer.current.animate([
+          { opacity: 0, transform: 'scale(.88)' },
+          { opacity: 1, transform: 'scale(1)', offset: .3 },
+          { opacity: .65, transform: 'scale(1.05)', offset: .55 },
+          { opacity: 0, transform: 'scale(1.16)' },
+        ], { duration: 900, easing: 'ease-out' });
+        const fade = figure.current.animate([
+          { opacity: 1, filter: 'brightness(1)' },
+          { opacity: 0, filter: 'brightness(1.8)' },
+        ], { duration: 260, fill: 'forwards', easing: 'ease-in' });
+        animations.push(glow, fade);
+        try { await fade.finished; } catch { return; }
+        if (cancelled) return;
+        setLoaded(expression);
+        setMissing(false);
+        const reveal = figure.current.animate([
+          { opacity: 0, filter: 'brightness(1.5)' },
+          { opacity: 1, filter: 'brightness(1)' },
+        ], { duration: 540, fill: 'backwards', easing: 'ease-out' });
+        animations.push(reveal);
+        fade.cancel();
+      } else {
+        setLoaded(expression);
+        setMissing(false);
+      }
+    };
     next.onerror = () => { if (!cancelled && expression === 'neutral') setMissing(true); };
     next.src = `ayana-asset://${expression}/`;
-    return () => { cancelled = true; };
+    return () => { cancelled = true; animations.forEach(animation => animation.cancel()); };
   }, [expression]);
   useEffect(() => {
     // Only dip when the visible face actually changes, not on every sentence.
     const changed = previous.current !== null && previous.current !== loaded;
     previous.current = loaded;
-    if (!changed || !motion || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (!changed || changingCostume.current || !motion || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const animation = frame.current?.animate([{ transform: 'translateY(0)' }, { transform: 'translateY(12px)', offset: .35 }, { transform: 'translateY(0)' }], { duration: 300, easing: 'ease-out' });
     return () => animation?.cancel();
   }, [loaded, motion]);
-  return <div ref={frame} className={cn('character-frame', className)}>{missing ? <span className="asset-missing">立绘加载中，请在设置中检查素材</span> : <img className="character" src={`ayana-asset://${loaded}/`} alt="Ayana 半身立绘" draggable={false} />}</div>;
+  return <div ref={frame} className={cn('character-frame', className)}>
+    <div ref={figure} className="character-figure">{missing ? <span className="asset-missing">立绘加载中，请在设置中检查素材</span> : <img className="character" src={`ayana-asset://${loaded}/`} alt="Ayana 半身立绘" draggable={false} />}</div>
+    <div ref={shimmer} className="costume-shimmer" aria-hidden="true"><i/><i/><i/><i/><i/></div>
+  </div>;
 }

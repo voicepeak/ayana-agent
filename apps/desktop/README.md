@@ -15,6 +15,13 @@ the backend resolves only catalog IDs under the user-selected outfit. A 300ms,
 12px dip runs only when the visible expression actually changes; the portrait
 holds its current face while the next sentence is generated. Idle and speech never float.
 
+Saving a different outfit immediately creates a short Japanese acknowledgment with
+Chinese subtitles through the existing TTS/player pipeline, and shows the companion
+without starting another conversation turn. At playback (or text-only presentation),
+the new portrait is preloaded, the old one fades into a warm gold shimmer, and the
+new outfit appears. Reduced motion switches directly. Saving the same outfit or
+other preferences does not trigger a wardrobe reply; startup restores the saved outfit.
+
 The chat renderer hosts the **only** AudioWorklet player. Its bounded queue accepts
 mono float32 little-endian PCM, performs linear resampling to the device sample
 rate and returns source sample counts plus playback time. Avatar expressions and

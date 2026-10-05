@@ -255,6 +255,10 @@ function receive(event: Event) {
     updateShortcuts(settings);
   }
   if (event.type === 'conversation.changed') highlight?.hide();
+  if (event.type === 'utterance.ready' && event.presentation === 'costume-change') {
+    // Show the saved outfit's acknowledgment without summoning/cancelling its generation.
+    chat?.showInactive();
+  }
   // The backend captures the foreground identity before chat takes focus.
   // Later screenshots and playback must not restart the summon effect.
   if (event.type === 'session.started' && focusAfterCapture) {

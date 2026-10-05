@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useRef } from 'react';
 import { AudioPlayer } from './audio';
 import type { AyanaBridge, RuntimeEvent } from './types';
+import avatarCatalog from '../../../characters/ayana/avatar-map.json';
 
 export interface Speech {
   id: string; ja: string; zh: string; intent: string; generation: number;
@@ -23,6 +24,7 @@ export interface ModelState {
   expressionAt: number; inputState: string;
   settingsLoaded: boolean;
   presented?: string; sentenceVersion: number;
+  pendingCostume?: { assetId: string; generation: number };
   summonVersion: number; workspaceHintAt: number; targetCue?: RuntimeEvent;
   progress: number; repository?: Repository; settings: Record<string, unknown>;
   history: Record<string, unknown>[]; windows: Target[]; evidence: Evidence[];
@@ -62,6 +64,8 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
     return {
       ...state, generation: Math.max(state.generation, generation),
       cancelledGeneration: Math.max(state.cancelledGeneration, cancelled),
+      // Cancelling the acknowledgment does not undo a successfully saved outfit.
+      expression: state.pendingCostume?.assetId || state.expression, pendingCostume: undefined,
       current: undefined, presented: undefined, inputState: 'idle', progress: 0, task: 'idle', actions: [], approvals: [],
       computerProgress: [], computerResult: undefined,
       speeches: state.speeches.map(s => s.generation <= cancelled && s.state !== 'played'
@@ -162,7 +166,16 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
       if (evidence.path) next.evidence = [...state.evidence.filter(e => e.path !== evidence.path), evidence];
       break;
     }
-    case 'settings.ready': next.settings = (event.settings ?? {}) as Record<string, unknown>; next.settingsLoaded = true; break;
+    case 'settings.ready': {
+      next.settings = (event.settings ?? {}) as Record<string, unknown>;
+      if (!state.settingsLoaded) {
+        const costume = String(next.settings.avatar_costume || '校服');
+        next.expression = Object.entries(avatarCatalog.assets).find(([, item]) =>
+          item.costume === costume && item.source_expression === '休闲' && item.pose === 'crossed')?.[0] || state.expression;
+      }
+      next.settingsLoaded = true;
+      break;
+    }
     case 'model.usage': next.modelUsage = event; break;
     case 'history.ready': {
       const cid = String(event.history_conversation_id || '');
@@ -181,6 +194,9 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
       next.questions = [...state.questions, { text: String(event.text), generation, id: String(event.id) }];
       next.error = undefined; next.task = 'thinking'; break;
     case 'utterance.ready':
+      if (event.presentation === 'costume-change' && event.asset_id) {
+        next.pendingCostume = { assetId: String(event.asset_id), generation };
+      }
       if (!state.speeches.some(s => s.id === event.utterance_id)) {
         next.speeches = [...state.speeches, { id: String(event.utterance_id), ja: String(event.speech_ja), zh: '', intent: String(event.intent || 'explain'), assetId: String(event.asset_id || ''), generation, intensity: Number(event.intensity || 0), affect: String(event.affect || 'neutral'), state: 'generated' as const, played: 0, total: 0 }].slice(-80);
       }
@@ -198,6 +214,7 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
       if (speech.assetId || speech.intensity >= .35) {
         next.expression = speech.assetId || expression;
         next.expressionAt = Date.now();
+        if (state.pendingCostume?.assetId === speech.assetId) next.pendingCostume = undefined;
       }
       if (event.type === 'playback.started') next.speeches = state.speeches.map(s => s.id === id ? { ...s, state: 'playing', total: Number(event.total_samples) } : s);
       break;

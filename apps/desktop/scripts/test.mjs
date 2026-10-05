@@ -100,6 +100,30 @@ routed = reduceEvent(routed, event('desktop.present', { utterance_id: 'catalog-t
 assert.equal(routed.presented, undefined);
 console.log('PASS: full catalog IDs, per-sentence presentation tracking, persistent subtitles, and text-only presentation.');
 
+const catalog = JSON.parse(await readFile(new URL('../../../characters/ayana/avatar-map.json', import.meta.url), 'utf8'));
+const schoolAsset = Object.entries(catalog.assets).find(([, item]) => item.costume === '校服' && item.source_expression === '休闲' && item.pose === 'crossed')[0];
+const [outfitAsset, outfit] = Object.entries(catalog.assets).find(([, item]) => item.costume !== '校服' && item.source_expression === '休闲' && item.pose === 'crossed');
+let wardrobe = reduceEvent(initialState, event('settings.ready', { settings: { avatar_costume: '校服' } }));
+assert.equal(wardrobe.expression, schoolAsset);
+wardrobe = reduceEvent(wardrobe, event('settings.ready', { settings: { avatar_costume: outfit.costume } }));
+assert.equal(wardrobe.expression, schoolAsset); // hold the old outfit until the acknowledgment starts
+wardrobe = reduceEvent(wardrobe, event('utterance.ready', { utterance_id: 'wardrobe', speech_ja: '着替えるね。', asset_id: outfitAsset, presentation: 'costume-change' }));
+assert.equal(wardrobe.pendingCostume.assetId, outfitAsset);
+wardrobe = reduceEvent(wardrobe, event('playback.started', { utterance_id: 'wardrobe', total_samples: 100 }));
+assert.equal(wardrobe.expression, outfitAsset);
+assert.equal(wardrobe.pendingCostume, undefined);
+wardrobe = reduceEvent(wardrobe, event('utterance.ready', { utterance_id: 'wardrobe-back', speech_ja: '着替えるね。', asset_id: schoolAsset, presentation: 'costume-change' }));
+wardrobe = reduceEvent(wardrobe, event('generation.cancelled', { cancelled_generation_id: 7, generation_id: 8 }));
+assert.equal(wardrobe.expression, schoolAsset); // cancelling voice keeps the saved outfit
+assert.equal(wardrobe.pendingCostume, undefined);
+wardrobe = reduceEvent(wardrobe, event('utterance.ready', { utterance_id: 'stale-outfit', asset_id: outfitAsset, presentation: 'costume-change' }));
+assert.equal(wardrobe.pendingCostume, undefined);
+const silentOutfit = reduceEvent(reduceEvent(initialState, event('utterance.ready', { utterance_id: 'silent-outfit', speech_ja: '着替えるね。', asset_id: outfitAsset, presentation: 'costume-change' })), event('desktop.present', { utterance_id: 'silent-outfit' }));
+assert.equal(silentOutfit.expression, outfitAsset);
+assert.equal(silentOutfit.pendingCostume, undefined);
+assert.equal(reduceEvent(initialState, event('settings.ready', { settings: { avatar_costume: outfit.costume } })).expression, outfitAsset);
+console.log('PASS: wardrobe acknowledgment presents saved outfit on playback/text, restores on startup, and rejects cancelled replies.');
+
 let taskState = reduceEvent(initialState, event('task.updated', { task: { task_id: 'task-a', state: 'waiting_approval', goal: 'Edit' } }));
 taskState = reduceEvent(taskState, event('approval.required', { approval: { approval_id: 'approve-a', task_id: 'task-a', diff: '-old\n+new' } }));
 taskState = reduceEvent(taskState, event('approval.required', { approval: { approval_id: 'approve-a', task_id: 'task-a', diff: '-old\n+new' } }));

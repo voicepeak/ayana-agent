@@ -210,6 +210,15 @@ select { width: 100%; outline: none; border: 1px solid var(--color-default-200);
 .portrait-stage { flex: 1; min-height: 0; position: relative; overflow: hidden; margin: 0 34px -68px; pointer-events: none; container-type: size; }
 .portrait-reveal { position: absolute; inset: 0; opacity: 1; transform-origin: center bottom; }
 .portrait-stage .character-frame { position: absolute; width: 440px; max-width: 100%; height: 100%; right: 0; top: 10px; }
+.character-figure { position: absolute; inset: 0; }
+.costume-shimmer { position: absolute; inset: 0; opacity: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 45%, rgb(255 244 209 / .88), rgb(240 212 160 / .3) 34%, transparent 66%); }
+.costume-shimmer::before { content: ''; position: absolute; left: 12%; right: 12%; top: 44%; height: 2px; background: linear-gradient(90deg, transparent, #fff8df, transparent); box-shadow: 0 0 20px 6px rgb(255 229 172 / .5); transform: rotate(-18deg); }
+.costume-shimmer i { position: absolute; width: 12px; height: 12px; background: #fff5d7; clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); }
+.costume-shimmer i:nth-child(1) { left: 23%; top: 24%; }
+.costume-shimmer i:nth-child(2) { right: 20%; top: 39%; width: 20px; height: 20px; }
+.costume-shimmer i:nth-child(3) { left: 18%; top: 61%; width: 18px; height: 18px; }
+.costume-shimmer i:nth-child(4) { right: 29%; top: 16%; width: 8px; height: 8px; }
+.costume-shimmer i:nth-child(5) { right: 15%; top: 72%; width: 10px; height: 10px; }
 /* Keep the upper half visible above the dialogue, including its 68px overlap
    and the frame's 10px top inset. Content growth must not crop down to the face. */
 .portrait-stage .character { position: absolute; left: 50%; transform: translateX(-50%); height: min(1193px, calc(200cqh - 156px)); width: auto; max-width: none; object-fit: unset; filter: none; }
