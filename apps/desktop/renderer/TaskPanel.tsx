@@ -80,10 +80,10 @@ export function TaskPanel({ state, send }: { state: ModelState; send: (command: 
       {state.mode !== 'execute' && <p>请在执行模式下开始修改任务。切换模式会取消当前预览。</p>}
       <div className="agent-buttons"><Button color="primary" disabled={state.mode !== 'execute' && item.action_kind !== 'highlight'} onClick={() => void send({ type: 'approval.resolve', approval_id: item.approval_id, accept: true })}>确认这一步</Button><Button variant="light" onClick={() => void send({ type: 'approval.resolve', approval_id: item.approval_id, accept: false })}>拒绝</Button></div>
     </article>)}
-    {!!shellResults.length && <section className="agent-shell-results" aria-label="命令结果"><h3>命令结果</h3>{shellResults.map(event => {
+    {!!shellResults.length && <details className="agent-shell-results"><summary>命令执行记录</summary>{shellResults.map(event => {
       const result = event.result as Record<string, unknown> | undefined;
       return <article key={String(event.call_id)}><strong>{event.type === 'tool.failed' ? '执行失败' : result?.timed_out ? '命令已超时停止' : `退出码 ${String(result?.exit_code)}`}</strong>{Boolean(result?.cwd) && <small>{String(result?.cwd)}</small>}<pre>{String(event.message || [result?.stdout, result?.stderr].filter(Boolean).join('\n') || '命令未输出文本。')}</pre>{Boolean(result?.truncated) && <small>输出过长，已截断显示。</small>}</article>;
-    })}</section>}
+    })}</details>}
     <div className="agent-results-grid">
       <section><h3><Icon name="file" size={16}/> 保存的文件 <small>{latestFiles.length}</small></h3>
         {!state.artifacts.length && <p className="agent-empty">生成的笔记与修改结果会出现在这里。</p>}

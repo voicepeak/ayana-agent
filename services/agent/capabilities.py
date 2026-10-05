@@ -14,6 +14,7 @@ from pathlib import Path
 from .tasks import TaskRunner
 from .work import remember_result
 from .tools.registry import ToolRegistry, ToolError, arguments, string
+from .tools.receipts import receipt
 from packages.protocol import validate_tool_request
 
 
@@ -461,18 +462,20 @@ class CapabilityRuntime:
             task.next_call()
         metadata = {"call_id": call_id, "task_id": task.task_id if task else None}
         await self.emit("tool.started", tool=name, arguments={k: v for k, v in args.items() if k != "content"} if isinstance(args, dict) else {}, **metadata)
+        tool = self.registry.tools.get(name)
         try:
             result = await self.registry.execute(name, args)
-            value = {"name": name, "call_id": call_id, "result": result}
-            await self.emit("tool.completed", tool=name, result=result, **metadata)
-        except (ToolError, ValueError, OSError, TimeoutError, __import__("httpx").HTTPError) as error:
+            evidence = receipt(name, result, tool.effect if tool else "read")
+            value = {"name": name, "call_id": call_id, "result": result, "receipt": evidence}
+            await self.emit("tool.completed", tool=name, result=result, receipt=evidence, audience="assistant", **metadata)
+        except Exception as error:
             code = getattr(error, "code", "tool_failed")
             message = str(error)[:300] if isinstance(error, (ToolError, ValueError)) else "工具读取或执行失败，请检查目标与网络"
-            value = {"name": name, "call_id": call_id, "error": message, "code": code}
-            await self.emit("tool.failed", tool=name, message=message, code=code, **metadata)
+            evidence = receipt(name, code=code, message=message)
+            value = {"name": name, "call_id": call_id, "error": message, "code": code, "receipt": evidence}
+            await self.emit("tool.failed", tool=name, message=message, code=code, receipt=evidence, audience="assistant", **metadata)
         if task:
             task.results[call_id] = {"signature": signature, "value": value}
-            tool = self.registry.tools.get(name)
             if tool and tool.effect != "read" and "error" not in value:
                 task.effects.append(call_id)
         remember_result(self._work_context(), name, args, value)
