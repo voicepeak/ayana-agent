@@ -4,6 +4,8 @@ Windows 个性化 Agent：快捷键呼出时只显示透明半身立绘、对话
 
 ## 在本机运行
 
+最新整合版为 `apps/desktop/release/Ayana-0.3.3-win-x64.exe`（2026-10-06）：包含任务连续性、基于真实工具结果的完成核验、指定应用打开文档，以及保存服装后的自动语音回应和闪光换装。个人配置和话题继续使用 `%APPDATA%/Ayana`；详细机制见 [任务连续性与完成核验](docs/TASK_CONTINUITY.md)。
+
 本机交付版可直接双击 `apps/desktop/release/Ayana-0.3.2-win-x64.exe`。它包含独立 Python、桌面程序、立绘与本地识别模型；个人模型配置保存在 `%APPDATA%/Ayana/config/local.json`。首次解包和加载音色需要等待；此前版本首次语音冷启动实测约 43 秒，期间文字输入与界面保持可用。启动新版前请退出旧版。
 
 开发目录也可双击 `启动 Ayana.cmd`，后续修改仍按下面的流程构建。
