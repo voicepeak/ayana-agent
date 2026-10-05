@@ -5,6 +5,7 @@ import { bridge, type ModelState } from './state';
 export const taskLabels: Record<string, string> = {
   running: '正在处理', waiting_approval: '等待你确认', paused: '已暂停', succeeded: '已完成',
   failed: '未完成', cancelled: '已取消', interrupted: '已中断', needs_verification: '结果仍待核实',
+  replied: '已回复', blocked: '暂时无法继续', needs_input: '需要补充信息',
 };
 
 export function TaskPanel({ state, send }: { state: ModelState; send: (command: { type: string; [key: string]: unknown }) => Promise<boolean> }) {
@@ -60,6 +61,11 @@ export function TaskPanel({ state, send }: { state: ModelState; send: (command: 
     {active && <article className="agent-task" aria-live="polite">
       <span className={`agent-state state-${status}`}>{taskLabels[status] || status}</span>
       <h3>{String(active.goal || '')}</h3>
+      {Boolean(active.reason) && <p>{String(active.reason)}</p>}
+      {Array.isArray(active.checks) && active.checks.length > 0 && <ul>{active.checks.map((check, index) => {
+        const item = check as Record<string, unknown>;
+        return <li key={index}>{item.verified ? '已核实' : '待核实'} · {String(item.description)}</li>;
+      })}</ul>}
       <small>已使用 {String(active.calls || 0)} 次工具 · {String(active.rounds || 0)} 轮处理</small>
       <div className="agent-buttons">
         {status === 'running' && <Button onClick={() => void send({ type: 'task.pause' })}>暂停</Button>}
