@@ -26,6 +26,7 @@ from .capabilities import CapabilityRuntime
 from .computer_use import ComputerUse
 from .conversations import Conversations
 from .conversation_runtime import ConversationRuntime
+from .work import local_clock
 
 
 def identifier(prefix):
@@ -528,6 +529,9 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 # Keep one copy of repository evidence ahead of dialogue history.
                 evidence_prefix = repository_message(self.repository)
                 context = {"mode": "execute" if self._execution_enabled() else "teach", "full_access": self.full_access, "target": self.target,
+                           "local_clock": local_clock(), "work_context": self._work_context(),
+                           "speech_budget": {"normal": self.settings.values["max_utterances"],
+                                             "detailed": max(self.settings.values["max_utterances"], self.settings.values.get("detailed_max_utterances", 32))},
                            "directories": self.policy.public(include_repository=True),
                            "avatar_context": self._avatar_context(),
                            "snapshot_id": self.snapshot.get("snapshot_id") if self.snapshot else None,
@@ -557,7 +561,10 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                         return
                     kind = event.get("type")
                     if kind == "speech":
-                        if count >= self.settings.values["max_utterances"]:
+                        speech_limit = self.settings.values["max_utterances"]
+                        if self.active_task and self.active_task.detail == "detailed":
+                            speech_limit = max(speech_limit, self.settings.values.get("detailed_max_utterances", 32))
+                        if count >= speech_limit:
                             raise ValueError("Model exceeded the utterance budget")
                         speech = validate_speech(event)
                         speech.update(self.avatars.resolve(speech, self.settings.values.get("avatar_costume", "校服")))
@@ -606,6 +613,15 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                             await self.emit("evidence.ready", evidence=evidence, **evidence)
                     elif kind == "tool":
                         requests.append(event)
+                    elif kind == "task":
+                        if self.active_task:
+                            if "continues_task_id" in event:
+                                context = self._work_context()
+                                known = [*context.get("pending_tasks", []), context.get("last_task", {})]
+                                if not any(item.get("task_id") == event["continues_task_id"] for item in known):
+                                    raise ValueError("接续任务 ID 不属于当前话题的已知任务")
+                            self.active_task.report(event)
+                            await self._task_event()
                     elif kind == "action":
                         await self._checkpoint()
                         if self.full_access:
@@ -624,6 +640,24 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                     # Preserve original content, event keys and JSON formatting.
                     # Playback receipts are sent only with the next user message.
                     messages = [*provider.request_messages, provider.assistant_message()]
+                if not requests and messages is not None and self.active_task:
+                    task = self.active_task
+                    if (task.kind == "action" and task.outcome() == "needs_verification"
+                            and not task.repair_requested and not self.approvals
+                            and tool_round + 1 < self.settings.values.get("task_limits", {}).get("rounds", 12)):
+                        task.repair_requested = True
+                        messages.append({"role": "system", "content": (
+                            "The current action goal has not been verified. Continue from actual existing tool results; "
+                            "do not repeat successful writes, launches or submissions. Complete the missing outcomes "
+                            "or verify the requested target with read/observation tools, then emit a task report with "
+                            "real result evidence. If you cannot proceed, report blocked or needs_input with a precise reason. "
+                            "Already spoken sentences do not prove completion. Check exact fields and escaped newlines. "
+                            "Compare the actual values against the user's request; fix unmet outcomes rather than weakening "
+                            "the planned conditions. Unverified conditions: " + json.dumps(task.completion_feedback(), ensure_ascii=False)
+                            + ". Remaining speech sentences: " + str(max(0, self.settings.values["max_utterances"] - count)))})
+                        tool_schemas, tool_names = self._model_tools(messages)
+                        streams.append(provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names))
+                        continue
                 if not requests or messages is None:
                     break
                 results = []
@@ -669,11 +703,8 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             if self.active_task:
                 if waiting:
                     self.active_task.transition("waiting_approval")
-                elif getattr(self.active_task, "verification_pending", False):
-                    self.active_task.transition("needs_verification")
                 else:
-                    failed = any("error" in r["value"] for r in self.active_task.results.values())
-                    self.active_task.transition("failed" if failed else "succeeded")
+                    self.active_task.transition(self.active_task.outcome())
                 await self._task_event()
             await self.emit("task.state", state="waiting_approval" if waiting else "idle", generated_utterances=count)
         except asyncio.CancelledError:
@@ -687,6 +718,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 self.actions.clear()
                 self.continuation = None
                 if self.active_task:
+                    self.active_task.reason = str(e)[:500]
                     self.active_task.transition("failed")
                     await self._task_event()
                 await self.emit("error", source="turn", message=str(e)[:500])

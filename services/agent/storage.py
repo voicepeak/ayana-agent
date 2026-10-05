@@ -77,6 +77,15 @@ class ConversationStore:
         return [dict(r) for r in reversed(rows)]
 
     @locked
+    def recent_work_results(self, conversation_id, limit=40):
+        rows = self.db.execute("""
+            SELECT payload FROM events
+            WHERE type IN ('tool.completed','tool.failed') AND json_extract(payload,'$.conversation_id')=?
+            ORDER BY id DESC LIMIT ?
+        """, (conversation_id, limit)).fetchall()
+        return [json.loads(row[0]) for row in reversed(rows)]
+
+    @locked
     def context(self, exclude_turn=None):
         known = {r["utterance_id"]: r for r in self.history(60)}
         events = self.db.execute("SELECT payload FROM events WHERE type IN ('user.message','utterance.ready') ORDER BY id DESC LIMIT 60").fetchall()

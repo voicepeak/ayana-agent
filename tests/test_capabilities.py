@@ -281,7 +281,7 @@ async def test_create_and_reviewed_edit_continue_with_real_results(tmp_path, his
         await agent.task
         assert (tmp_path / 'artifacts/note.md').read_text() == 'after'
         assert 'files.apply_edit' in json.dumps(calls[-1][-1])
-        assert agent.active_task.state == 'succeeded'
+        assert agent.active_task.state == 'needs_verification'
         assert agent.active_task.rounds == 4
         assert bool(agent.store.records('task')) is history
         if not history:
@@ -305,7 +305,7 @@ async def test_native_tool_call_runs_and_replays_tool_round(tmp_path):
         await agent.handle({"type": "turn.start", "text": "把这句自然语言的结果保存成文件", "mode": "execute"})
         await agent.task
         assert (tmp_path / "artifacts/native.md").read_text() == "native content"
-        assert agent.active_task.state == "succeeded"
+        assert agent.active_task.state == "needs_verification"
         roles = [message.get("role") for message in calls[1]]
         assert "tool" in roles
         tool_message = next(message for message in calls[1] if message.get("role") == "tool")
@@ -342,7 +342,7 @@ async def test_native_edit_approval_continues_after_user_confirm(tmp_path):
         await agent.handle({"type": "approval.resolve", "approval_id": item, "accept": True})
         await agent.task
         assert (tmp_path / "artifacts/edit.md").read_text() == "after"
-        assert agent.active_task.state == "succeeded"
+        assert agent.active_task.state == "needs_verification"
         assert [message.get("role") for message in calls[-2]][-1] == "tool"
     finally:
         await agent.close()
@@ -383,7 +383,7 @@ async def test_capture_tool_returns_new_image_to_model(tmp_path):
         await agent.handle({'type': 'turn.start', 'text': 'look again'})
         await agent.task
         assert calls[1][-1]['content'][1]['image_url']['url'].endswith('new-image')
-        assert agent.active_task.state == 'succeeded'
+        assert agent.active_task.state == 'replied'
     finally:
         await agent.close()
 

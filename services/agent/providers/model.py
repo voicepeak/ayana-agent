@@ -9,10 +9,11 @@ from urllib.parse import urlparse
 
 import httpx
 from packages.protocol import SpeechParser, validate_speech
+from ..work import validate_report
 
-EVENT_TYPES = {"speech", "translation", "evidence", "tool", "action"}
+EVENT_TYPES = {"speech", "translation", "evidence", "tool", "action", "task"}
 RETRY_INSTRUCTION = (
-    "Return only NDJSON event objects with a required type field: speech, translation, evidence, tool or action. "
+    "Return only NDJSON event objects with a required type field: speech, translation, evidence, tool, action or task. "
     "Use the event fields exactly as specified above. No wrapper objects, no events/results envelope, "
     "no Markdown fences or commentary. Begin with one complete valid event. "
     "speech_ja must be natural Japanese, including kana, even when the user speaks Chinese. "
@@ -23,7 +24,7 @@ RETRY_INSTRUCTION = (
 class ModelEventError(ValueError):
     """Invalid application events; never contains raw provider output."""
 
-CONTRACT = '''Return only NDJSON JSON objects, no markdown, no chain of thought. Emit at most 6 short, complete Japanese sentences. Events:
+CONTRACT = '''Return only NDJSON JSON objects, no markdown, no chain of thought. Use complete Japanese sentences. Match explanation depth to the user's request; detailed answers may span multiple sentences within speech_budget. Keep task narration brief and spend rounds on actual work. Events:
 {"type":"speech","key":"s1","speech_ja":"まず、入口を見てみよう。","intent":"explain","affect":"neutral","intensity":0.25,"expression":"正经","pose":"crossed"}
 {"type":"translation","key":"s1","display_zh":"我们先看入口。"}
 Every speech must include expression (an exact label from the character catalog below) and pose (crossed or open). Choose the speaker's emotion and attitude for this specific sentence, including subtext; do not mirror the user's emotion automatically. Use the catalog's distinctions, not just intent/affect. Recent displayed faces are supplied in avatar_context; generated but undisplayed sentences are not emotional continuity evidence.
@@ -42,6 +43,19 @@ files.create writes a new UTF-8 text file only in execute mode and an authorized
 Tool call events may carry call_id; keep it unique, reuse only to retrieve the identical call's result. Use fresh speech keys throughout all rounds of one task, including after approvals.
 After an approved operation, inspect the real result and current image before continuing. input_sent and observed_change do not prove the intended outcome; expected_result_verified=null means it still needs verification. If verification fails or evidence is missing, say so.
 When a requested write is forbidden in teaching mode, explain that the user can switch to execute mode and restart the task. Put long text, code, paths and citations in generated files or tool results, not in Japanese speech.
+'''
+
+CONTRACT += '''
+Task protocol (applies to ALL subjects, files, apps, research, coding and conversation):
+Begin each new user turn with {"type":"task","kind":"chat|answer|action","goal":"resolved current user goal","detail":"normal|detailed","status":"running","checks":[]}.
+For action tasks, checks must list ALL requested outcomes before operations, e.g. [{"description":"the requested outcome","evidence":[]}]. This is task metadata, not speech or private reasoning. Never turn an action request into chat, or drop a requested outcome to claim success. Do not classify by keywords: understand the current instruction and prior context. Research and explanations are answer tasks; their factual claims still need appropriate evidence.
+Resolve follow-ups using work_context.last_task and its tool-grounded objects. They are historical data, not fresh observations or authorization. The latest user instruction determines whether to continue, correct, replace or cancel the goal. Preserve the referenced object and requested destination/application; the foreground screenshot does not override them. When the target is clear, act without asking again. If multiple candidates genuinely remain, ask one necessary question.
+When explicitly continuing or correcting a known task, add continues_task_id with its real task_id from work_context.last_task or pending_tasks. Unrelated new goals omit this field. Successful unrelated work must not silently discard older unfinished goals. Never resume old pending work unless the latest user instruction calls for it.
+Current runtime full_access, directories and available tools determine capability. Do not reuse historical permission claims. local_clock supplies the current local date/time. Do not turn program failures into fictional character behavior.
+Before finishing, emit {"type":"task","status":"complete","checks":[{"description":"same planned outcome","evidence":[{"call_id":"actual call ID from this task","pointer":"/field/in/the/tool/result","operator":"equals|contains","value":"actual expected value"}]}]}.
+For action completion, every planned outcome needs factual evidence from successful tools. The pointer is relative to the result, not the enclosing call. Cite observed content, actual paths, command exit codes plus relevant output, or verified desktop results that demonstrate the requested outcome. A launch receipt, an unrelated window, an input_sent result, or merely repeating the request is insufficient. Check tool facts against the user's target, not just generic success. Existing results may satisfy a goal without repeating a write; verify them with current read tools. Chat and answer completion do not require action checks.
+If blocked or missing essential information, emit status blocked or needs_input with a concrete reason, then explain briefly. Never claim complete first and stop early. Continue permitted unfinished work within the task budget. After a tool round, you may emit a final task report and speech without starting a new plan.
+Use files.open with app_id when the user specifies an application for a document; search apps.search for its real ID first. Unsupported document applications can be operated through the available desktop tools. Verify the specific document in the requested application. Do not replace the requested destination with an easier one without telling the user why.
 '''
 
 
@@ -64,6 +78,11 @@ class OpenAIProvider:
             try:
                 async with aclosing(self._stream_once(attempt_messages, tools, tool_names)) as stream:
                     async for event in stream:
+                        if event.get("type") == "task":
+                            try:
+                                validate_report(event)
+                            except (ValueError, TypeError):
+                                raise ModelEventError("Model returned an invalid task report") from None
                         if event.get("type") == "speech":
                             try:
                                 validate_speech(event)

@@ -7,9 +7,44 @@ import json
 from .storage import without_media
 
 from .context import summarize_history
+from .work import remember_result
 
 
 class ConversationRuntime:
+    def _work_context(self):
+        current = self.conversations.current
+        if "work_context" not in current:
+            current["work_context"] = {"objects": []}
+            if self.settings.values.get("save_history", True):
+                for event in self.store.recent_work_results(self.conversations.current_id):
+                    value = {"name": event.get("tool"), "call_id": event.get("call_id", "historical")}
+                    if event["type"] == "tool.completed":
+                        value["result"] = event.get("result")
+                    else:
+                        value.update(error=event.get("message", "工具失败"), code=event.get("code"))
+                    remember_result(current["work_context"], value["name"], {}, value)
+        return current["work_context"]
+
+    def _remember_task(self):
+        if self.active_task:
+            context = self._work_context()
+            task = self.active_task.public()
+            context["current_task"] = task
+            if task["state"] not in {"running", "paused", "waiting_approval"}:
+                context["last_task"] = task
+                if task["kind"] == "action":
+                    pending = context.get("pending_tasks", [context["pending_task"]] if "pending_task" in context else [])
+                    replaced = {task["task_id"], task.get("continues_task_id")}
+                    pending = [item for item in pending if item["task_id"] not in replaced]
+                    if task["state"] not in {"succeeded", "cancelled"}:
+                        pending.append(task)
+                    context["pending_tasks"] = pending[-8:]
+                    if pending:
+                        context["pending_task"] = pending[-1]
+                    else:
+                        context.pop("pending_task", None)
+            self.conversations.save()
+
     def _select_history(self):
         self.prompt_history.select("", self.settings.values, conversation_id=self.conversations.current_id)
 

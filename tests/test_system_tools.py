@@ -178,7 +178,7 @@ async def test_native_model_search_open_select_receives_real_tool_result_and_new
     try:
         await agent.handle({'type': 'turn.start', 'text': '打开示例应用并观察', 'mode': 'execute'})
         await agent.task
-        assert agent.active_task.state == 'succeeded'
+        assert agent.active_task.state == 'needs_verification'
         assert len(requests) == 1 and desktop.binds == [123]
         assert agent.target['target_id'] == 'bound-window'
     finally:

@@ -31,7 +31,7 @@ class Settings:
         return clean(self.values)
 
     def update(self, patch: dict):
-        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "avatar_costume", "sentence_motion", "volume", "task_limits", "model_max_tokens", "native_tools", "full_access", "search_proxy", "search_provider"}
+        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "detailed_max_utterances", "avatar_costume", "sentence_motion", "volume", "task_limits", "model_max_tokens", "native_tools", "full_access", "search_proxy", "search_provider"}
         if not isinstance(patch, dict) or set(patch) - allowed:
             raise ValueError("Unsupported settings field")
         if "native_tools" in patch and type(patch["native_tools"]) is not bool:
@@ -71,7 +71,7 @@ class Settings:
         for key in ("hotkey", "cancel_hotkey", "model", "base_url"):
             if key in patch and (not isinstance(patch[key], str) or len(patch[key]) > 500):
                 raise ValueError(f"Invalid {key}")
-        for key, low, high in (("max_utterances", 1, 12), ("max_audio_ahead_ms", 2000, 15000)):
+        for key, low, high in (("max_utterances", 1, 12), ("detailed_max_utterances", 12, 64), ("max_audio_ahead_ms", 2000, 15000)):
             if key in patch and (type(patch[key]) is not int or not low <= patch[key] <= high):
                 raise ValueError(f"{key} out of range")
         if "model_max_tokens" in patch and (type(patch["model_max_tokens"]) is not int or not 1000 <= patch["model_max_tokens"] <= 12000):

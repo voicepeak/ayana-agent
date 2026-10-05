@@ -241,7 +241,7 @@ async def test_model_dispatches_real_shell_and_receives_receipt(tmp_path, native
     runtime.model_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
     await runtime.handle({'type': 'turn.start', 'text': 'create a file'})
     await runtime.task
-    assert runtime.active_task.state == 'succeeded'
+    assert runtime.active_task.state == 'needs_verification'
     assert (tmp_path / 'model-created.txt').read_text() == 'done'
     assert len(calls) == 2 and not runtime.approvals
     assert 'Full access' in calls[0]['messages'][0]['content']

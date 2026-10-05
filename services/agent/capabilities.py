@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 
 from .tasks import TaskRunner
+from .work import remember_result
 from .tools.registry import ToolRegistry, ToolError, arguments, string
 from packages.protocol import validate_tool_request
 
@@ -370,6 +371,7 @@ class CapabilityRuntime:
 
     async def _task_event(self):
         if self.active_task:
+            self._remember_task()
             value = self.active_task.public()
             if self.settings.values.get("save_history", True):
                 await asyncio.to_thread(self.store.put_record, "task", value["task_id"], value)
@@ -464,6 +466,11 @@ class CapabilityRuntime:
             await self.emit("tool.failed", tool=name, message=message, code=code, **metadata)
         if task:
             task.results[call_id] = {"signature": signature, "value": value}
+            tool = self.registry.tools.get(name)
+            if tool and tool.effect != "read" and "error" not in value:
+                task.effects.append(call_id)
+        remember_result(self._work_context(), name, args, value)
+        self.conversations.save()
         return value
 
     async def _capability_command(self, cmd):
@@ -608,7 +615,12 @@ class CapabilityRuntime:
             await self.emit("tool.failed", tool=result["name"], message=result["error"])
         if gen != self.generation:
             return
-        self.active_task.results["approval-" + item["approval_id"]] = {"signature": "user-approved operation", "value": result}
+        result["call_id"] = "approval-" + item["approval_id"]
+        self.active_task.results[result["call_id"]] = {"signature": "user-approved operation", "value": result}
+        if accept and "error" not in result:
+            self.active_task.effects.append(result["call_id"])
+        remember_result(self._work_context(), result["name"], item, result)
+        self.conversations.save()
         continuation = self.continuation
         self.continuation = None
         if continuation:
