@@ -19,6 +19,7 @@ from .tools.registry import ToolRegistry, ToolError, arguments, string
 from .tools.policy import DirectoryPolicy
 from .tools.files import FileTools
 from .tools.web import WebTools
+from .tools.system import SystemTools
 from .tasks import TaskRunner
 from .capabilities import CapabilityRuntime
 from .computer_use import ComputerUse
@@ -77,6 +78,8 @@ class AgentRuntime(CapabilityRuntime):
                 self.policy.grant(grant["root_id"], grant["path"], grant["write"])
         self.files = FileTools(self.policy, settings.data_root, self.store)
         self.web = WebTools(settings.search_key)
+        self.system = SystemTools(self.policy)
+        self.window_choices = {}
         self.computer = ComputerUse(settings)
         if settings.values.get("save_history", True):
             self.web.sources.update({s["source_id"]: s for s in self.store.records("source")})
@@ -562,7 +565,7 @@ class AgentRuntime(CapabilityRuntime):
                 results = []
                 for request in requests:
                     results.append(await self._read_tool(request))
-                include_image = any(r.get("name") == "capture_target" and "error" not in r for r in results)
+                include_image = any(r.get("name") in {"capture_target", "windows.select"} and "error" not in r for r in results)
                 if provider.used_native_tools:
                     native_ids = {call["call_id"] for call in provider.tool_calls}
                     unhandled = []

@@ -141,7 +141,7 @@ def stage(args):
         if path.name in forbidden or path.name.endswith(".local.json") or path.suffix in {".ckpt", ".pth"}:
             raise ValueError(f"Personal state or external weights in packaged backend: {path}")
     imports = ["fastapi", "uvicorn", "httpx", "PIL", "websockets", "comtypes", "services.agent.server", "native.windows.desktop",
-               "services.agent.capabilities", "services.agent.tools.files", "services.agent.tools.web", "services.agent.tasks"]
+               "services.agent.capabilities", "services.agent.tools.files", "services.agent.tools.web", "services.agent.tools.system", "native.windows.shell", "services.agent.tasks"]
     if (python_root / "Lib/site-packages/faster_whisper").is_dir():
         imports.extend(["faster_whisper", "ctranslate2", "av", "services.agent.providers.stt"])
     code = "import importlib,json,sys; modules=" + repr(imports) + "; [importlib.import_module(name) for name in modules]; print(json.dumps({'version':sys.version,'executable':sys.executable,'modules':modules,'paths':sys.path}))"

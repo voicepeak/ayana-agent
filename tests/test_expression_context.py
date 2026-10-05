@@ -76,6 +76,7 @@ def test_shown_expression_survives_restart_and_legacy_history(tmp_path):
 def test_runtime_continuity_works_with_history_disabled(tmp_path):
     cfg = Settings(ROOT, data_root=tmp_path)
     cfg.values["save_history"] = False
+    cfg.values["avatar_costume"] = "校服"  # Match resolve()'s fixture costume, independent of personal settings.
     runtime = AgentRuntime(cfg, desktop=object(), tts=object())
     runtime.utterances["shown"] = {"displayed": True, **runtime.avatars.resolve({"expression": "担忧", "intent": "caution"})}
     runtime.utterances["queued"] = runtime.avatars.resolve({"expression": "哭", "intent": "caution"})
@@ -87,6 +88,7 @@ def test_runtime_continuity_works_with_history_disabled(tmp_path):
 async def test_audio_receipts_control_continuity_when_history_disabled(tmp_path):
     cfg = Settings(ROOT, data_root=tmp_path)
     cfg.values["save_history"] = False
+    cfg.values["avatar_costume"] = "校服"
     runtime = AgentRuntime(cfg, desktop=object(), tts=object())
     runtime.utterances["audio"] = {"generation_id": 0, "total_samples": 1000,
                                    **runtime.avatars.resolve({"expression": "卖萌", "intent": "encourage"})}

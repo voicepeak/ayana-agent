@@ -249,7 +249,7 @@ export default function App() {
       <div className="sidebar-bottom">
         <div className="shortcut-note"><Icon name="keyboard" size={17}/><div><span>随时呼出</span><kbd>Ctrl + Alt + A</kbd></div></div>
         <button className="nav-item" onClick={() => void bridge.summon()}><Icon name="message"/>呼出 Ayana</button>
-        <div className="build-label">AYANA DESKTOP <span>v0.3.1</span></div>
+        <div className="build-label">AYANA DESKTOP <span>v0.3.2</span></div>
       </div>
     </aside>
 

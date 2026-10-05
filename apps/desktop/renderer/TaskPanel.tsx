@@ -27,6 +27,7 @@ export function TaskPanel({ state, send }: { state: ModelState; send: (command: 
   };
   return <section className="agent-workspace" aria-label="任务与结果">
     <div className="agent-section-heading"><span className="eyebrow">AYANA WORKSPACE</span><h2>把事情，一步步做好。</h2><p>资料的出处、保存的文件，还有需要你决定的下一步。</p></div>
+    <section className="agent-access"><h3>打开应用与文件</h3><p>启用执行模式后，可以直接在对话框说“打开记事本”“打开计算器”或“打开这个网址”。查找和打开本地文档时，先在下方添加文件所在的目录。</p><p className="agent-empty">打开应用后，Ayana 可以查找它的窗口并继续观察。文件是否支持读取内容，和是否能用默认应用打开，是两种能力。</p></section>
     <section className="agent-computer" aria-label="桌面任务">
       <h3><Icon name="monitor" size={16}/> 桌面任务</h3>
       <p>目标窗口：<strong>{state.target?.title || '请先在右侧选择窗口'}</strong></p>

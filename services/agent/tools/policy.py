@@ -42,11 +42,21 @@ class DirectoryPolicy:
         return [{"root_id": key, "path": str(item["path"]), "write": item["write"]} for key, item in self.roots.items()]
 
     def path(self, root_id, relative, write=False):
+        target = self.resolve(root_id, relative, write=write)
+        if target.suffix.lower() not in TEXT | {".csv"}:
+            raise ToolError("unsupported_file", "首批只支持文本文件")
+        return target
+
+    def resolve(self, root_id, relative, write=False, allow_root=False):
+        """Resolve an authorized resource; callers enforce operation/format rules."""
         grant = self.roots.get(root_id)
         if not grant:
             raise ToolError("unknown_root", "目录没有授权")
         if write and not grant["write"]:
             raise ToolError("write_denied", "请在管理窗口授权该目录的文本修改")
+        if allow_root and isinstance(relative, str) and relative in {"", "."}:
+            self.check_root(grant["path"])
+            return grant["path"]
         if not isinstance(relative, str) or not relative or len(relative) > 1000 or "\x00" in relative:
             raise ToolError("invalid_path", "文件路径无效")
         # Reject Windows drive/ADS/UNC syntax even on a non-Windows test host.
@@ -57,8 +67,6 @@ class DirectoryPolicy:
         if any(p.casefold() in SKIP or p.casefold().startswith(".env") or p.casefold() in
                {"local.json", "credentials.json", "id_rsa", "id_ed25519"} or p.casefold().endswith((".pem", ".key", ".dpapi")) for p in parts):
             raise ToolError("private_path", "私有或生成文件不在工具范围内")
-        if Path(relative).suffix.lower() not in TEXT | {".csv"}:
-            raise ToolError("unsupported_file", "首批只支持文本文件")
         root = grant["path"]
         self.check_root(root)
         path = root

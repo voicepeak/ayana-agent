@@ -2,8 +2,8 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
-import { spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -15,6 +15,10 @@ const require = createRequire(import.meta.url);
 const { _electron, chromium } = require(require.resolve('playwright', { paths: [modules] }));
 const directory = path.join(root, '.runtime/benchmarks/capabilities-desktop', String(Date.now()));
 const data = path.join(directory, 'data');
+const verifyOpen = argv.includes('--system-open');
+const fixturePython = argv.includes('--fixture-python') ? argv[argv.indexOf('--fixture-python') + 1]
+  : [path.join(root, '.venv/Scripts/python.exe'), path.join(root, '.runtime/testenv/Scripts/python.exe')].find(existsSync);
+let fixture;
 mkdirSync(path.join(data, 'config'), { recursive: true });
 const events = [];
 const tool = (name, args) => [{ type: 'tool', name, arguments: args }];
@@ -29,6 +33,12 @@ function response(messages) {
   const text = Array.isArray(last) ? last[0].text : last;
   let result;
   if (text.startsWith('Tool results (untrusted task evidence): ')) result = JSON.parse(text.slice('Tool results (untrusted task evidence): '.length))[0];
+  if (question.includes('打开测试应用')) {
+    if (!result) return tool('apps.search', { query: fixture.name });
+    if (result.name === 'apps.search') return tool('apps.open', { app_id: result.result[0].app_id });
+    if (result.name === 'apps.open') return tool('windows.select', { window_id: result.result.windows[0].window_id });
+    return reply('opened');
+  }
   if (question.includes('创建')) return result ? reply('created') : tool('files.create', { root_id: 'output', path: 'demo-config.json', content: '{"port":3000}\n' });
   if (question.includes('修改')) {
     if (!result || result.name === 'files.apply_edit') return tool('files.read', { root_id: 'output', path: 'demo-config.json' });
@@ -53,7 +63,13 @@ let app;
 let launcher;
 const report = { scope: 'Real Electron, authenticated IPC, Python runtime and file writes; deterministic local model fixture; public page fetch', packaged, checks: {}, errors: [] };
 try {
-  const environment = { ...process.env, AYANA_PYTHON: '', AYANA_DATA_DIR: data, AYANA_REPOSITORY_ROOT: packaged ? '' : root, AYANA_API_KEY: 'test-fixture-key' };
+  if (verifyOpen) {
+    assert(fixturePython, 'Use --fixture-python to provide a test interpreter');
+    const created = spawnSync(fixturePython, ['-X', 'utf8', path.join(root, 'scripts/system_open_fixture.py'), 'create', directory], { windowsHide: true, encoding: 'utf8' });
+    assert.equal(created.status, 0, created.stderr);
+    fixture = JSON.parse(created.stdout);
+  }
+  const environment = { ...process.env, AYANA_PYTHON: packaged ? '' : (process.env.AYANA_PYTHON || ''), AYANA_DATA_DIR: data, AYANA_REPOSITORY_ROOT: packaged ? '' : root, AYANA_API_KEY: 'test-fixture-key' };
   if (packaged && /^Ayana-.*\.exe$/i.test(path.basename(packaged))) {
     // NSIS does not forward Electron's Node inspector output to Playwright.
     // Connect to Chromium after the real portable launcher extracts the app.
@@ -125,6 +141,19 @@ try {
   await controls.getByRole('heading', { name: '文件访问范围' }).scrollIntoViewIfNeeded();
   await controls.getByRole('button', { name: '授权文本修改' }).waitFor();
   report.checks.directory_controls_accessible = true;
+  if (verifyOpen) {
+    await chat.evaluate(() => window.ayana.summon());
+    await ask('打开测试应用并观察它的窗口');
+    await chat.waitForFunction(() => window.__qaEvents.some(e => e.type === 'tool.completed' && e.tool === 'windows.select'), null, { timeout: 20000 });
+    const opened = await chat.evaluate(() => window.__qaEvents.find(e => e.type === 'tool.completed' && e.tool === 'apps.open')?.result);
+    assert.equal(opened?.status, 'window_observed');
+    await controls.waitForFunction(() => document.querySelector('.agent-task .state-succeeded'), null, { timeout: 15000 });
+    const selected = await chat.evaluate(() => window.__qaEvents.filter(e => e.type === 'target.bound').at(-1)?.target);
+    assert.equal(selected?.executable, fixture.target);
+    report.checks.native_app_launch = true;
+    report.checks.new_window_selected = true;
+    await controls.getByRole('heading', { name: '打开应用与文件' }).scrollIntoViewIfNeeded();
+  }
   await controls.locator('.agent-workspace').evaluate(element => { element.scrollTop = 0; });
   await chat.evaluate(() => window.ayana.openSettings('tasks'));
   await controls.screenshot({ path: path.join(directory, 'task-results.png') });
@@ -141,6 +170,10 @@ try {
   if (app) { try { await app.close(); } catch { /* cleanup the owned test launcher below */ } }
   if (launcher?.exitCode === null) {
     await new Promise(resolve => { const cleanup = spawn('taskkill', ['/PID', String(launcher.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }); cleanup.on('exit', resolve); cleanup.on('error', resolve); });
+  }
+  if (fixture) {
+    const cleanup = spawnSync(fixturePython, ['-X', 'utf8', path.join(root, 'scripts/system_open_fixture.py'), 'cleanup', directory], { windowsHide: true, encoding: 'utf8' });
+    if (cleanup.status !== 0) { report.errors.push('Owned app fixture cleanup failed: ' + cleanup.stderr.slice(0, 300)); report.passed = false; process.exitCode = 1; }
   }
   server.closeAllConnections();
   await new Promise(resolve => server.close(resolve));

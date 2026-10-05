@@ -5,6 +5,10 @@ import asyncio
 import contextlib
 import json
 import threading
+import time
+import hashlib
+import os
+from pathlib import Path
 
 from .tasks import TaskRunner
 from .tools.registry import ToolRegistry, ToolError, arguments, string
@@ -42,7 +46,107 @@ class CapabilityRuntime:
         registry.add("files.create", "执行模式：在授权目录创建新文本文件，绝不覆盖", arguments({**path_args, "content": string(40000)}, [*path_args, "content"]), self._file_create, "write")
         registry.add("files.propose_edit", "读取后，用 base_sha256 和完整新内容提出差异，等待用户确认", arguments({**path_args, "base_sha256": string(64), "content": {"type": "string", "maxLength": 40000}}, [*path_args, "base_sha256", "content"]), self._file_propose, "preview")
         registry.add("files.propose_restore", "为 artifact_id 的备份生成恢复差异，等待确认", arguments({"artifact_id": string(100)}, ["artifact_id"]), self._file_restore, "preview")
+        registry.add("apps.search", "按名称查找本机安装应用，返回可供 apps.open 使用的真实 app_id；支持中文名及常见 Windows 应用英文别名", arguments({"query": string(200), "limit": integer(1, 20)}, ["query"]), self._apps_search)
+        registry.add("apps.open", "执行模式：打开 apps.search 返回的应用 ID。不能传命令或启动参数。返回 Windows 请求回执及能观察到的窗口", arguments({"app_id": string(100)}, ["app_id"]), self._apps_open, "write")
+        registry.add("files.list", "列举授权目录中的文件和子目录；path 为空时列举目录根。包括 PDF/Office/图片名称，不读取内容", arguments({"root_id": string(100), "path": {"type": "string", "maxLength": 1000}, "limit": integer(1, 100)}, ["root_id"]), self._files_list)
+        registry.add("files.find", "在授权目录内按名称片段查找文件或目录；遍历有上限，返回真实相对路径", arguments({"root_id": string(100), "query": string(200), "path": {"type": "string", "maxLength": 1000}, "limit": integer(1, 100)}, ["root_id", "query"]), self._files_find)
+        registry.add("files.open", "执行模式：打开授权目录内真实存在的文件或目录，path 为空打开目录根。文本/源码用记事本，PDF/Office/影音用默认应用。不能执行脚本或安装程序", arguments({"root_id": string(100), "path": {"type": "string", "maxLength": 1000}}, ["root_id", "path"]), self._files_open, "write")
+        registry.add("web.open", "执行模式：用默认浏览器打开用户要求的 HTTP/HTTPS 网址，包括用户提供的本地开发网址。这不会读取页面，也不会提交表单", arguments({"url": string(3000)}, ["url"]), self._web_open, "write")
+        registry.add("windows.list", "列出本机可见应用窗口，返回可信 window_id。打开应用后使用它查找窗口，不要猜测 ID", arguments(), self._windows_list)
+        registry.add("windows.select", "执行模式：选定 windows.list 返回的窗口作为观察/桌面任务目标，同时返回新截图。不能用旧窗口 ID 操作已关闭或被替换的窗口", arguments({"window_id": string(100)}, ["window_id"]), self._windows_select, "write")
+        for name in ("apps.search", "apps.open", "files.open", "web.open", "windows.list", "windows.select"):
+            registry.set_availability(name, lambda: os.name == "nt")
         return registry
+
+    async def _apps_search(self, **args):
+        return await asyncio.to_thread(self.system.apps.search, **args)
+
+    async def _files_list(self, **args):
+        return await asyncio.to_thread(self.system.list_files, **args)
+
+    async def _files_find(self, **args):
+        return await asyncio.to_thread(self.system.find_files, **args)
+
+    async def _system_open(self, method, **args):
+        self._write_allowed()
+        token = self.write_cancel
+        worker = asyncio.create_task(asyncio.to_thread(method, **args, cancelled=token))
+        try:
+            result = await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            token.set()
+            with contextlib.suppress(Exception):
+                await worker
+            raise
+        if result.get("kind") == "application":
+            # Existence of a matching window is evidence for opening, not for its contents.
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                try:
+                    windows = await self._windows_list()
+                    matches = [w for w in windows if
+                               (result.get("process_id") and w["process_id"] == result["process_id"])
+                               or (result.get("executable_name") and w["executable_name"].casefold() == result["executable_name"].casefold())]
+                    if matches:
+                        result.update(status="window_observed", windows=matches, detail="已观察到对应应用窗口；需要继续操作时先 windows.select。")
+                        break
+                except (ValueError, OSError):
+                    break
+                await asyncio.sleep(.2)
+        if result.get("status") == "open_requested":
+            self.active_task.verification_pending = True
+        await self.emit("system.opened", result=result, task_id=self.active_task.task_id)
+        return result
+
+    async def _apps_open(self, **args):
+        return await self._system_open(self.system.open_app, **args)
+
+    async def _files_open(self, **args):
+        return await self._system_open(self.system.open_file, **args)
+
+    async def _web_open(self, **args):
+        return await self._system_open(self.system.open_url, **args)
+
+    async def _windows_list(self):
+        from native.windows.desktop import DesktopError
+        result = []
+        choices = {}
+        try:
+            windows = await asyncio.to_thread(self.desktop.list_windows)
+        except DesktopError as error:
+            raise ToolError(error.code, str(error)) from None
+        for window in windows[:100]:
+            identity = [window[key] for key in ("hwnd", "process_id", "process_created", "class_name")]
+            window_id = "window-" + hashlib.sha256(json.dumps(identity).encode()).hexdigest()[:16]
+            choices[window_id] = {"window": dict(window), "expires": time.monotonic() + 30}
+            result.append({"window_id": window_id, "title": window["title"], "process_id": window["process_id"],
+                           "executable_name": Path(window["executable"]).name,
+                           "window_state": window["window_state"], "elevated": window["elevated"]})
+        self.window_choices = choices
+        return result
+
+    async def _windows_select(self, window_id):
+        from native.windows.desktop import DesktopError
+        self._write_allowed()
+        choice = self.window_choices.get(window_id)
+        if not choice or choice["expires"] < time.monotonic():
+            raise ToolError("unknown_window", "窗口记录已失效，请重新列举窗口")
+        original = choice["window"]
+        current = next((w for w in await asyncio.to_thread(self.desktop.list_windows) if w["hwnd"] == original["hwnd"]), None)
+        if not current or any(current[key] != original[key] for key in ("process_id", "process_created", "class_name")):
+            raise ToolError("window_changed", "窗口已关闭或身份改变，请重新观察")
+        try:
+            self.target = await asyncio.to_thread(self.desktop.bind, current["hwnd"])
+        except DesktopError as error:
+            raise ToolError(error.code, str(error)) from None
+        self.snapshot = None
+        self.actions.clear()
+        await self.emit("target.bound", target=self.target)
+        try:
+            snap = await self.capture()
+        except DesktopError as error:
+            raise ToolError(error.code, str(error)) from None
+        return {key: value for key, value in snap.items() if key != "png_base64"}
 
     async def _capture_tool(self):
         snap = await self.capture()
@@ -229,7 +333,7 @@ class CapabilityRuntime:
         """A fresh screenshot as a standalone user turn, for native tool calls."""
         if not (self.snapshot and self.settings.values.get("send_screenshot") and self.snapshot.get("png_base64")):
             return None
-        return {"role": "user", "content": [{"type": "text", "text": "capture_target returned a new screenshot."},
+        return {"role": "user", "content": [{"type": "text", "text": "The last tool returned a new screenshot of the selected target."},
                 {"type": "image_url", "image_url": {"url": "data:image/png;base64," + self.snapshot["png_base64"]}}]}
 
     async def _dispatch_tool(self, request):
