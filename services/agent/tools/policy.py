@@ -19,25 +19,32 @@ def check_plain(path):
 
 
 class DirectoryPolicy:
-    def __init__(self, output=None, repository=None):
+    def __init__(self, output=None, repository=None, full_access=None):
         self.roots = {}
         self.repository = repository
+        self._full_access = full_access or (lambda: False)
         if output is not None:
             output = Path(output).absolute()
             output.mkdir(parents=True, exist_ok=True)
             self.roots["output"] = {"path": output, "write": True}
             self.check_root(output)
 
+    @property
+    def full_access(self):
+        return self._full_access() is True
+
     def root(self, root_id):
+        if root_id == "filesystem" and self.full_access:
+            return {"path": Path(Path.cwd().anchor), "write": True}
         if root_id == "repository" and self.repository is not None:
             path = self.repository()
             if path:
-                return {"path": Path(path).absolute(), "write": False}
+                return {"path": Path(path).absolute(), "write": self.full_access}
             raise ToolError("unknown_root", "请先选择仓库")
         grant = self.roots.get(root_id)
         if not grant:
             raise ToolError("unknown_root", "目录没有授权")
-        return grant
+        return {**grant, "write": True} if self.full_access else grant
 
     @staticmethod
     def check_root(root):
@@ -53,7 +60,9 @@ class DirectoryPolicy:
         return self.public()
 
     def public(self, include_repository=False):
-        roots = dict(self.roots)
+        roots = {key: self.root(key) for key in self.roots}
+        if self.full_access:
+            roots["filesystem"] = self.root("filesystem")
         if include_repository and self.repository is not None:
             try:
                 roots["repository"] = self.root("repository")
@@ -63,13 +72,22 @@ class DirectoryPolicy:
 
     def path(self, root_id, relative, write=False):
         target = self.resolve(root_id, relative, write=write)
-        if not is_text(target):
+        if not self.full_access and not is_text(target):
             raise ToolError("unsupported_file", "只支持文本文件")
         return target
 
     def resolve(self, root_id, relative, write=False, allow_root=False):
         """Resolve an authorized resource; callers enforce operation/format rules."""
         grant = self.root(root_id)
+        if self.full_access:
+            if not isinstance(relative, str) or len(relative) > 1000 or "\x00" in relative:
+                raise ToolError("invalid_path", "文件路径无效")
+            if not relative and not allow_root:
+                raise ToolError("invalid_path", "文件路径无效")
+            target = Path(relative)
+            if root_id == "filesystem" and relative not in {"", "."} and not target.is_absolute():
+                raise ToolError("invalid_path", "filesystem 需要完整绝对路径")
+            return (target if target.is_absolute() else grant["path"] / target).resolve()
         if write and not grant["write"]:
             raise ToolError("write_denied", "请在管理窗口授权该目录的文本修改")
         if allow_root and isinstance(relative, str) and relative in {"", "."}:

@@ -12,6 +12,10 @@ export interface Speech {
 export interface Evidence { path: string; content: string; start_line?: number; line?: number; }
 export interface Target { hwnd?: number; target_id?: string; title?: string; process_id?: number; bounds?: Record<string, number>; }
 export interface Repository { root: string; name: string; files: string[]; evidence: Evidence[]; }
+export interface Conversation {
+  conversation_id: string; title: string; preview: string; created: number; updated: number;
+  repository_root?: string;
+}
 export interface ModelState {
   connected: boolean; service: string; generation: number; cancelledGeneration: number;
   task: string; voice: string; mode: 'teach' | 'execute'; target?: Target;
@@ -29,6 +33,9 @@ export interface ModelState {
   approvals: Record<string, unknown>[]; artifacts: Record<string, unknown>[];
   sources: Record<string, unknown>[]; directories: Record<string, unknown>[]; searchConfigured: boolean;
   computerUse?: Record<string, unknown>; computerProgress: RuntimeEvent[]; computerResult?: Record<string, unknown>;
+  conversation?: Conversation; conversations: Conversation[]; persistentHistory: boolean;
+  contextSummary: string; contextState: string; retainedTurns: number;
+  historyConversationId?: string; historyHasMore: boolean; historyBefore?: number;
 }
 export const initialState: ModelState = {
   connected: false, service: 'starting', generation: 0, cancelledGeneration: -1,
@@ -36,11 +43,16 @@ export const initialState: ModelState = {
   progress: 0, sentenceVersion: 0, summonVersion: 0, workspaceHintAt: 0, settingsLoaded: false, settings: {}, history: [], windows: [], evidence: [], actions: [], tools: [], questions: [],
   approvals: [], artifacts: [], sources: [], directories: [], taskHistory: [], searchConfigured: false,
   computerProgress: [],
+  conversations: [], persistentHistory: true, contextSummary: '', contextState: 'ready', retainedTurns: 0, historyHasMore: false,
 };
 
 export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState {
   const generation = Number(event.generation_id ?? state.generation);
   if (event.protocol_version !== 1) return state;
+  // Late receipts belong to the original topic. They may update its stored record,
+  // but must never replace the active topic's visible reply or task.
+  if (event.conversation_id && state.conversation && event.conversation_id !== state.conversation.conversation_id
+      && !['conversation.changed', 'conversations.ready', 'history.ready'].includes(event.type)) return state;
   // Runtime acknowledgments are persistence confirmations. They can arrive after
   // the next segment starts, so only immediate player receipts drive presentation.
   if (event.type.startsWith('playback.') && typeof event.seq === 'number') return state;
@@ -60,6 +72,28 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
   if (output.includes(event.type) && generation <= state.cancelledGeneration) return state;
   let next = { ...state, generation: Math.max(state.generation, generation) };
   switch (event.type) {
+    case 'conversation.changed':
+    case 'conversations.ready': {
+      const current = event.current as Conversation;
+      if (event.type === 'conversation.changed' || state.conversation?.conversation_id !== current.conversation_id) {
+        next = { ...next, speeches: [], questions: [], current: undefined, presented: undefined, task: 'idle',
+          activeTask: undefined, tools: [], actions: [], approvals: [], sources: [], history: [],
+          historyConversationId: undefined, historyHasMore: false, historyBefore: undefined,
+          computerProgress: [], computerResult: undefined, error: undefined, contextState: 'ready' };
+        next.repository = event.repository ? event.repository as unknown as Repository : undefined;
+        next.evidence = next.repository?.evidence || [];
+        next.target = event.target ? event.target as Target : undefined;
+        next.snapshot = undefined;
+      }
+      next.conversation = current;
+      next.conversations = event.conversations as Conversation[];
+      next.persistentHistory = Boolean(event.persistent);
+      next.contextSummary = String(event.summary || '');
+      next.retainedTurns = Number(event.retained_turns || 0);
+      break;
+    }
+    case 'context.state': next.contextState = String(event.state); break;
+    case 'repository.cleared': next.repository = undefined; next.evidence = []; break;
     case 'capabilities.ready':
       next.directories = (event.directories ?? []) as Record<string, unknown>[];
       next.artifacts = (event.artifacts ?? []) as Record<string, unknown>[];
@@ -130,7 +164,18 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
     }
     case 'settings.ready': next.settings = (event.settings ?? {}) as Record<string, unknown>; next.settingsLoaded = true; break;
     case 'model.usage': next.modelUsage = event; break;
-    case 'history.ready': next.history = (event.history ?? event.utterances ?? []) as Record<string, unknown>[]; break;
+    case 'history.ready': {
+      const cid = String(event.history_conversation_id || '');
+      if (state.conversation && cid !== state.conversation.conversation_id) break;
+      const items = (event.history ?? []) as Record<string, unknown>[];
+      next.history = event.prepend && state.historyConversationId === cid
+        ? [...items, ...state.history.filter(old => !items.some(item => item.id === old.id))]
+        : items;
+      next.historyConversationId = cid;
+      next.historyHasMore = Boolean(event.has_more);
+      next.historyBefore = event.before == null ? undefined : Number(event.before);
+      break;
+    }
     case 'user.message':
     case 'desktop.question':
       next.questions = [...state.questions, { text: String(event.text), generation, id: String(event.id) }];

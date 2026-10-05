@@ -17,6 +17,13 @@ from packages.protocol import validate_tool_request
 
 
 class CapabilityRuntime:
+    @property
+    def full_access(self):
+        return self.settings.values.get("full_access", False) is True
+
+    def _execution_enabled(self):
+        return self.full_access or self.mode == "execute"
+
     def _make_tools(self):
         registry = ToolRegistry()
         integer = lambda low, high: {"type": "integer", "minimum": low, "maximum": high}
@@ -30,10 +37,10 @@ class CapabilityRuntime:
         registry.add("web.fetch", "读取公网网页或 source_id 的正文", arguments({"url": string(3000)}, ["url"]), self._web_fetch)
         registry.set_availability("web.search", lambda: bool(self.settings.search_key()))
         path_args = {"root_id": string(100), "path": string()}
-        registry.add("files.read", "读取授权范围内文本；可按 start_line/max_lines 分段。root_id 可为 repository（当前只读仓库）或授权目录 ID；省略时优先仓库，否则 output。完整 UTF-8 文件返回 sha256；修改前必须完整读取", arguments({**path_args, "start_line": integer(1, 1000000), "max_lines": integer(1, 200)}, ["path"]), self._file_read)
+        registry.add("files.read", "读取文本；可按 start_line/max_lines 分段。普通模式 root_id 为 repository 或授权目录 ID；Full access 可用 root_id=filesystem 加任意绝对路径。省略 root_id 时优先仓库，否则 output。完整 UTF-8 文件返回 sha256；修改前必须完整读取", arguments({**path_args, "start_line": integer(1, 1000000), "max_lines": integer(1, 200)}, ["path"]), self._file_read)
         registry.add("files.create", "执行模式：在授权目录创建新文本文件，绝不覆盖", arguments({**path_args, "content": string(40000)}, [*path_args, "content"]), self._file_create, "write")
-        registry.add("files.propose_edit", "读取后，用 base_sha256 和完整新内容提出差异，等待用户确认", arguments({**path_args, "base_sha256": string(64), "content": {"type": "string", "maxLength": 40000}}, [*path_args, "base_sha256", "content"]), self._file_propose, "preview")
-        registry.add("files.propose_restore", "为 artifact_id 的备份生成恢复差异，等待确认", arguments({"artifact_id": string(100)}, ["artifact_id"]), self._file_restore, "preview")
+        registry.add("files.propose_edit", "读取后，用 base_sha256 和完整新内容修改文件。Full access 直接应用并保存备份；普通模式提出差异等待用户确认", arguments({**path_args, "base_sha256": string(64), "content": {"type": "string", "maxLength": 40000}}, [*path_args, "base_sha256", "content"]), self._file_propose, "preview")
+        registry.add("files.propose_restore", "恢复 artifact_id 的备份。Full access 直接恢复；普通模式生成差异等待确认", arguments({"artifact_id": string(100)}, ["artifact_id"]), self._file_restore, "preview")
         registry.add("apps.search", "按名称查找本机安装应用，返回可供 apps.open 使用的真实 app_id；支持中文名及常见 Windows 应用英文别名", arguments({"query": string(200), "limit": integer(1, 20)}, ["query"]), self._apps_search)
         registry.add("apps.open", "执行模式：打开 apps.search 返回的应用 ID。不能传命令或启动参数。返回 Windows 请求回执及能观察到的窗口", arguments({"app_id": string(100)}, ["app_id"]), self._apps_open, "write")
         registry.add("files.list", "列举授权范围的文件和目录。root_id 省略时优先当前只读仓库 repository，否则 output；path 为空列举根。recursive 递归列举，text_only 仅列文本，遍历有上限", arguments({"root_id": string(100), "path": {"type": "string", "maxLength": 1000}, "limit": integer(1, 400), "recursive": {"type": "boolean"}, "text_only": {"type": "boolean"}}), self._files_list)
@@ -44,17 +51,25 @@ class CapabilityRuntime:
         registry.add("web.open", "执行模式：用默认浏览器打开用户要求的 HTTP/HTTPS 网址，包括用户提供的本地开发网址。这不会读取页面，也不会提交表单", arguments({"url": string(3000)}, ["url"]), self._web_open, "write")
         registry.add("windows.list", "列出本机可见应用窗口，返回可信 window_id。打开应用后使用它查找窗口，不要猜测 ID", arguments(), self._windows_list)
         registry.add("windows.select", "执行模式：选定 windows.list 返回的窗口作为观察/桌面任务目标，同时返回新截图。不能用旧窗口 ID 操作已关闭或被替换的窗口", arguments({"window_id": string(100)}, ["window_id"]), self._windows_select, "write")
+        registry.add("shell.run", "Full access：执行 PowerShell 命令（非 Windows 为 sh），可访问任意本机路径、操作文件、运行脚本和程序、读取本地服务。cwd 为现有绝对路径，省略时使用当前仓库或数据目录。返回真实退出码和输出；失败不代表成功。命令超时/取消会停止整棵进程树，不能用于启动持久后台服务", arguments({"command": string(16000), "cwd": string(1000), "timeout_seconds": integer(1, 300)}, ["command"]), self._shell_run, "write")
+        registry.set_availability("shell.run", lambda: self.full_access)
+        registry.add("desktop.step", "Full access：根据当前截图直接执行一个桌面动作并返回观察结果；snapshot_id 必须与最新截图一致。click/scroll 需要截图坐标 point；type 使用 text；key 使用 key；不得猜测坐标", arguments({
+            "snapshot_id": string(100), "kind": {"type": "string", "enum": ["click", "type", "scroll", "highlight", "key"]},
+            "point": arguments({"x": integer(0, 20000), "y": integer(0, 20000)}, ["x", "y"]),
+            "text": string(4000), "key": string(100), "delta": integer(-100, 100),
+            "expected_result": string(1000), "expected_text": string(1000)}, ["snapshot_id", "kind"]), self._desktop_step, "write")
+        registry.set_availability("desktop.step", lambda: self.full_access and bool(self.target and self.snapshot))
         for name in ("apps.search", "apps.open", "files.open", "web.open", "windows.list", "windows.select"):
             registry.set_availability(name, lambda: os.name == "nt")
         for tool in registry.tools.values():
             if tool.effect == "write":
-                registry.set_visibility(tool.name, lambda: self.mode == "execute")
+                registry.set_visibility(tool.name, self._execution_enabled)
         registry.set_visibility("files.propose_restore", self._has_restorable_artifact)
         return registry
 
     def _has_restorable_artifact(self):
         return any(record.get("backup") and (self.files.versions / record["backup"]).is_file()
-                   and self.policy.roots.get(record["root_id"], {}).get("write")
+                   and (self.full_access or self.policy.roots.get(record["root_id"], {}).get("write"))
                    for record in self.store.records("artifact"))
 
     def _tool_prompt(self):
@@ -62,7 +77,11 @@ class CapabilityRuntime:
                 "Keep speech and translation as NDJSON events. "
                 "Only currently supplied tools are available; their set may change after a tool result."
                 if self.settings.values.get("native_tools", True) else self.registry.prompt())
-        return "<ayana_tools>\n" + text + "\n</ayana_tools>"
+        access = ("Full access is ON. All local paths and shell.run are authorized. Writes and desktop actions execute without per-step approval. "
+                  "Use root_id=filesystem and absolute paths for filesystem tools. Tool schemas retain general-mode descriptions: Full access overrides grant/execute-mode/approval requirements. "
+                  "Stay within the user's task, check actual results, and stop on cancellation."
+                  if self.full_access else "Full access is OFF. Directory grants, execution mode and user approval rules apply. shell.run is unavailable.")
+        return "<ayana_tools>\n" + text + "\n" + access + "\n</ayana_tools>"
 
     def _model_tools(self, messages=None):
         if messages and messages[0].get("role") == "system":
@@ -73,6 +92,26 @@ class CapabilityRuntime:
 
     async def _apps_search(self, **args):
         return await asyncio.to_thread(self.system.apps.search, **args)
+
+    async def _shell_run(self, command, cwd=None, timeout_seconds=60):
+        self._write_allowed()
+        if not self.full_access:
+            raise ToolError("full_access_required", "请先开启 Full access")
+        directory = cwd or (self.repository or {}).get("root") or str(self.settings.data_root)
+        return await self.shell.run(command, directory, timeout_seconds)
+
+    async def _desktop_step(self, snapshot_id, **action):
+        self._write_allowed()
+        if not self.full_access:
+            raise ToolError("full_access_required", "请先开启 Full access")
+        if not self.snapshot or snapshot_id != self.snapshot["snapshot_id"]:
+            raise ToolError("stale_snapshot", "请重新观察最新截图")
+        result = await self._execute({"snapshot_id": snapshot_id, "action": action}, self.generation)
+        if result is None:
+            raise ToolError("desktop_incomplete", "桌面操作未完成，请重新观察")
+        if action["kind"] != "highlight":
+            self.active_task.verification_pending = result.get("expected_result_verified") is not True
+        return result
 
     def _file_root(self, root_id=None):
         return root_id or ("repository" if self.repository else "output")
@@ -181,6 +220,11 @@ class CapabilityRuntime:
         if not task:
             return
         if event["type"] == "confirmation":
+            if self.full_access:
+                await self.computer.control("confirm", approval_id=event["approval_id"], accept=True)
+                await self.emit("computer.progress", task_id=task.task_id,
+                                progress={"type": "auto_approved", "message": event["message"]})
+                return
             approval = {"approval_id": event["approval_id"], "kind": "computer", "action_kind": "desktop",
                         "task_id": task.task_id, "generation_id": self.generation,
                         "expected_result": event["message"]}
@@ -253,7 +297,7 @@ class CapabilityRuntime:
         return result
 
     def _write_allowed(self):
-        if self.mode != "execute":
+        if not self._execution_enabled():
             raise ToolError("execution_mode_required", "请先在管理窗口切换到执行模式")
         if not self.active_task or self.active_task.state != "running":
             raise ToolError("inactive_task", "当前没有可执行的任务")
@@ -274,20 +318,42 @@ class CapabilityRuntime:
         return result
 
     async def _file_propose(self, **args):
+        if self.full_access:
+            self._write_allowed()
         if self.approvals:
             raise ToolError("approval_pending", "请先处理当前修改或动作")
         if not self.active_task:
             raise ToolError("inactive_task", "没有当前任务")
         result = await asyncio.to_thread(self.files.propose, **args, task_id=self.active_task.task_id, generation=self.generation)
+        if self.full_access:
+            return await self._apply_file_now(result)
         await self._register_approval(result, "file")
         return {"status": "waiting_approval", **result}
 
     async def _file_restore(self, **args):
+        if self.full_access:
+            self._write_allowed()
         if self.approvals or not self.active_task:
             raise ToolError("approval_pending", "请先处理当前任务或确认项")
         result = await asyncio.to_thread(self.files.restore, **args, task_id=self.active_task.task_id, generation=self.generation)
+        if self.full_access:
+            return await self._apply_file_now(result)
         await self._register_approval(result, "file")
         return {"status": "waiting_approval", **result}
+
+    async def _apply_file_now(self, proposal):
+        token = self.write_cancel
+        worker = asyncio.create_task(asyncio.to_thread(self.files.apply, proposal["proposal_id"],
+                                    self.active_task.task_id, self.generation, token))
+        try:
+            artifact = await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            token.set()
+            with contextlib.suppress(Exception):
+                await worker
+            raise
+        await self.emit("artifact.ready", artifact=artifact)
+        return {"status": "applied", **artifact}
 
     async def _register_approval(self, value, kind):
         approval_id = value.get("proposal_id") or value["action_id"]
@@ -305,6 +371,7 @@ class CapabilityRuntime:
 
     async def _capabilities_snapshot(self):
         await self.emit("capabilities.ready", directories=self.policy.public(),
+                        full_access=self.full_access,
                         computer_use=self.computer.status,
                         search_configured=bool(self.settings.search_key()),
                         artifacts=await asyncio.to_thread(self.files.inventory),
@@ -332,6 +399,7 @@ class CapabilityRuntime:
                     task.transition("failed")
                     self.write_cancel.set()
                     self.desktop.cancel()
+                    await self.shell.stop()
                     if self.task and not self.task.done():
                         self.task.cancel()
                     for approval_id in tuple(self.approvals):
@@ -399,7 +467,7 @@ class CapabilityRuntime:
             goal = cmd.get("goal")
             if not isinstance(goal, str) or not 1 <= len(goal.strip()) <= 4000:
                 raise ValueError("请输入 1–4000 字的桌面任务")
-            if self.mode != "execute":
+            if not self._execution_enabled():
                 raise ValueError("请先切换到执行模式")
             if not self.target:
                 raise ValueError("请先选择目标窗口")
@@ -438,6 +506,7 @@ class CapabilityRuntime:
                 self.task_gate.clear()
                 self.active_task.transition("paused")
                 self.desktop.cancel()
+                await self.shell.stop()
                 await self.computer.control("pause")
                 await self._task_event()
         elif kind == "task.resume":
@@ -480,7 +549,7 @@ class CapabilityRuntime:
                 self.active_task = TaskRunner("恢复文件版本", self.settings.values.get("task_limits", {}))
                 self.continuation = None
                 await self._file_restore(artifact_id=cmd["artifact_id"])
-                self.active_task.transition("waiting_approval")
+                self.active_task.transition("succeeded" if self.full_access else "waiting_approval")
                 await self._task_event()
             else:
                 await self.emit(kind, artifact=result)

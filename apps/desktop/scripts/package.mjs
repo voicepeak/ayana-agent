@@ -12,6 +12,9 @@ await verifyPortableIsolation();
 // avoids downloading the same compiler again on restricted/offline networks.
 // On a fresh machine electron-builder uses its normal checksum-verified download.
 const environment = { ...process.env };
+// 7-Zip 24 can select ARM64 filters that the bundled NSIS extractor cannot read.
+// Keep the Windows x64 portable archive on the supported BCJ filter.
+environment.ELECTRON_BUILDER_7Z_FILTER ||= 'BCJ';
 const cache = process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'electron-builder', 'Cache');
 if (cache) {
   const compiler = path.join(cache, 'nsis', 'nsis-3.0.4.1-nsis-3.0.4.1');

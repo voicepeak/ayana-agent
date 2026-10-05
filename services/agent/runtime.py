@@ -20,16 +20,19 @@ from .tools.policy import DirectoryPolicy
 from .tools.files import FileTools
 from .tools.web import WebTools
 from .tools.system import SystemTools
+from .tools.shell import ShellTools
 from .tasks import TaskRunner
 from .capabilities import CapabilityRuntime
 from .computer_use import ComputerUse
+from .conversations import Conversations
+from .conversation_runtime import ConversationRuntime
 
 
 def identifier(prefix):
     return f"{prefix}-{uuid.uuid4().hex[:12]}"
 
 
-class AgentRuntime(CapabilityRuntime):
+class AgentRuntime(CapabilityRuntime, ConversationRuntime):
     def __init__(self, settings, desktop=None, tts=None, store=None):
         self.settings = settings
         from .avatars import AvatarCatalog
@@ -43,6 +46,7 @@ class AgentRuntime(CapabilityRuntime):
         self.desktop, self.tts = desktop, tts
         self.store = store or ConversationStore(settings.data_root / ".runtime/history.sqlite3")
         self.prompt_history = PromptHistory(self.store)
+        self.conversations = Conversations(self.store, settings.values.get("save_history", True))
         self.model_client = None
         self.session_id = identifier("session")
         self.turn_id = ""
@@ -72,7 +76,9 @@ class AgentRuntime(CapabilityRuntime):
         self.task_gate.set()
         self.continuation = None
         self.write_cancel = threading.Event()
-        self.policy = DirectoryPolicy(settings.data_root / "artifacts", repository=lambda: (self.repository or {}).get("root"))
+        self.policy = DirectoryPolicy(settings.data_root / "artifacts", repository=lambda: (self.repository or {}).get("root"),
+                                      full_access=lambda: self.full_access)
+        self.shell = ShellTools(lambda: self.full_access)
         for grant in self.store.records("directory"):
             with contextlib.suppress(ValueError, OSError):
                 self.policy.grant(grant["root_id"], grant["path"], grant["write"])
@@ -96,11 +102,18 @@ class AgentRuntime(CapabilityRuntime):
     async def emit(self, event_type, **payload):
         self.seq += 1
         event = {"protocol_version": PROTOCOL_VERSION, "type": event_type, "session_id": self.session_id,
+                 "conversation_id": self.conversations.current_id,
                  "turn_id": self.turn_id, "generation_id": self.generation, "seq": self.seq,
                  "runtime_monotonic_ms": round(time.monotonic() * 1000), **payload}
+        self.conversations.observe(event)
         if self.settings.values.get("save_history", True):
             async with self.persistence_lock:
                 await asyncio.to_thread(self.store.commit, event)
+                if event_type == "user.message":
+                    await asyncio.to_thread(self.conversations.save)
+        if event_type == "repository.inspected":
+            self.conversations.current["repository_root"] = (self.repository or {}).get("root")
+            await asyncio.to_thread(self.conversations.save)
         for ws in tuple(self.clients):
             if ws not in self.client_queues:
                 queue = asyncio.Queue(maxsize=128)
@@ -134,12 +147,21 @@ class AgentRuntime(CapabilityRuntime):
                         await ws.close(code=1013)
 
     def _avatar_context(self):
-        saved = self.store.recent_avatar_speeches() if self.settings.values.get("save_history", True) else []
-        live = [{"utterance_id": uid, **speech} for uid, speech in self.utterances.items()]
+        saved = self.store.recent_avatar_speeches(self.conversations.current_id) if self.settings.values.get("save_history", True) else []
+        live = [{"utterance_id": uid, **speech} for uid, speech in self.utterances.items()
+                if speech.get("conversation_id", self.conversations.current_id) == self.conversations.current_id]
         return self.avatars.recent_context([*saved, *live], self.settings.values.get("avatar_costume", "校服"))
 
     async def start(self):
         self.start_task = asyncio.create_task(self._prepare_voice())
+        root = self.conversations.current.get("repository_root")
+        if root:
+            try:
+                self.repository = await asyncio.to_thread(RepositoryReader(root).inspect)
+                await self.emit("repository.inspected", repository=self.repository, **self.repository)
+            except (OSError, ValueError):
+                self.conversations.current["repository_root"] = None
+                await asyncio.to_thread(self.conversations.save)
 
     async def _prepare_voice(self):
         await self.emit("service.state", service="tts", state="loading")
@@ -158,6 +180,7 @@ class AgentRuntime(CapabilityRuntime):
         if self.snapshot:
             await self.emit("snapshot.ready", **self.snapshot)
         await self._capabilities_snapshot()
+        await self._conversation_snapshot()
 
     async def cancel(self, reason="user"):
         self.write_cancel.set()
@@ -176,6 +199,7 @@ class AgentRuntime(CapabilityRuntime):
         if action_task:
             action_task.cancel()
         await self.computer.stop()
+        await self.shell.stop()
         self.actions.clear()
         for utterance in self.utterances.values():
             if utterance["generation_id"] == old and utterance.get("status", "generated") in {"generated", "playing"}:
@@ -226,6 +250,8 @@ class AgentRuntime(CapabilityRuntime):
         if not isinstance(cmd, dict) or not isinstance(cmd.get("type"), str):
             raise ValueError("Command requires a type")
         kind = cmd["type"]
+        if await self._conversation_command(cmd):
+            return
         if await self._capability_command(cmd):
             return
         if kind == "assistant.register":
@@ -294,6 +320,7 @@ class AgentRuntime(CapabilityRuntime):
             if self.mode not in {"teach", "execute"}:
                 raise ValueError("Invalid task mode")
             await self.emit("user.message", text=text)
+            await self._conversation_snapshot()
             self.write_cancel = threading.Event()
             self.task_gate.set()
             self.active_task = TaskRunner(text, self.settings.values.get("task_limits", {}))
@@ -309,7 +336,7 @@ class AgentRuntime(CapabilityRuntime):
             action = self.actions.get(cmd.get("action_id")) if cmd.get("action_id") else cmd.get("action", {})
             if not isinstance(action, dict):
                 raise ValueError("Proposed action is cancelled or already used")
-            if self.mode != "execute" and action.get("kind") != "highlight":
+            if not self._execution_enabled() and action.get("kind") != "highlight":
                 raise ValueError("先选择单步执行模式，再确认具体步骤")
             if self.action_task and not self.action_task.done():
                 raise ValueError("另一个单步操作尚未结束")
@@ -322,7 +349,18 @@ class AgentRuntime(CapabilityRuntime):
             patch = cmd.get("settings", {})
             await self.cancel("settings_changed")
             previous_voice = self.settings.values.get("voice", {})
+            previous_history = self.settings.values.get("save_history", True)
             self.settings.update(patch)
+            if self.settings.values.get("save_history", True) != previous_history:
+                self.conversations = Conversations(self.store, self.settings.values.get("save_history", True))
+                self.prompt_history = PromptHistory(self.store)
+                self.repository = self.target = self.snapshot = None
+                self.active_task = self.last_reply_turn = None
+                self.last_reply_keys = {}
+                await self.emit("repository.cleared")
+                await self.emit("session.started", target=None, provider=self.settings.values["provider"])
+                await self._conversation_snapshot(changed=True)
+                await self._history_snapshot()
             if "stt" in patch and self.stt:
                 await self.stt.close()
                 self.stt = None
@@ -336,8 +374,10 @@ class AgentRuntime(CapabilityRuntime):
                 self.tts = TtsService(self.settings.values["voice"])
                 self.start_task = asyncio.create_task(self._prepare_voice())
             await self.emit("settings.ready", settings=self.settings.public(), api_key_configured=bool(self.settings.key()))
+            if "full_access" in patch:
+                await self._capabilities_snapshot()
         elif kind == "history.get":
-            await self.emit("history.ready", history=self.store.history())
+            await self._history_snapshot(cmd.get("conversation_id"), cmd.get("before"))
         else:
             raise ValueError(f"Unknown command: {kind}")
 
@@ -366,7 +406,8 @@ class AgentRuntime(CapabilityRuntime):
             utterance["displayed"] = True
         await self.emit(cmd["type"], utterance_id=uid, played_samples=played, total_samples=total,
                         sample_rate=utterance.get("sample_rate", 0), played_audio_ms=round(played * 1000 / max(1, utterance.get("sample_rate", 1))),
-                        generation_id=utterance["generation_id"])
+                        generation_id=utterance["generation_id"],
+                        conversation_id=utterance.get("conversation_id", self.conversations.current_id))
         if cmd["type"] in {"playback.ended", "playback.cancelled"}:
             async with self.pending_condition:
                 self.pending.pop(uid, None)
@@ -467,12 +508,13 @@ class AgentRuntime(CapabilityRuntime):
                 persona = (self.settings.root / "characters/ayana/persona.md").read_text(encoding="utf-8")
                 if self.snapshot and self.target and time.monotonic() * 1000 - self.snapshot.get("captured_at_monotonic_ms", time.monotonic() * 1000) > 30000:
                     await self.capture()
-                policy = (self.settings.root / "characters/ayana/agent-policy.md").read_text(encoding="utf-8")
+                policy_file = "full-access-policy.md" if self.full_access else "agent-policy.md"
+                policy = (self.settings.root / "characters/ayana" / policy_file).read_text(encoding="utf-8")
                 system = persona + "\n" + policy + "\n" + CONTRACT + "\n" + self._tool_prompt() + "\n" + self.avatars.prompt(self.settings.values.get("avatar_costume", "校服"))
-                self.prompt_history.select(system, self.settings.values, (self.repository or {}).get("root"), exclude_turn=self.turn_id)
+                self.prompt_history.select(system, self.settings.values, conversation_id=self.conversations.current_id)
                 # Keep one copy of repository evidence ahead of dialogue history.
                 evidence_prefix = repository_message(self.repository)
-                context = {"mode": self.mode, "target": self.target,
+                context = {"mode": "execute" if self._execution_enabled() else "teach", "full_access": self.full_access, "target": self.target,
                            "directories": self.policy.public(include_repository=True),
                            "avatar_context": self._avatar_context(),
                            "snapshot_id": self.snapshot.get("snapshot_id") if self.snapshot else None,
@@ -481,7 +523,9 @@ class AgentRuntime(CapabilityRuntime):
                 content = [{"type": "text", "text": json.dumps(context, ensure_ascii=False)}]
                 if self.snapshot and self.settings.values.get("send_screenshot"):
                     content.append({"type": "image_url", "image_url": {"url": "data:image/png;base64," + self.snapshot["png_base64"]}})
-                previous = self.prompt_history.messages(reserve_chars=len(system) + len(json.dumps(evidence_prefix, ensure_ascii=False)) + len(content[0]["text"]) + 8800)
+                reserve = len(system) + len(json.dumps(evidence_prefix, ensure_ascii=False)) + len(content[0]["text"]) + 8800
+                await self._compact_history(reserve, gen)
+                previous = self.prompt_history.messages(reserve_chars=reserve)
                 messages = [{"role": "system", "content": system}, *evidence_prefix, *previous, {"role": "user", "content": content}]
                 prefix_length = 1 + len(evidence_prefix) + len(previous)
                 if self.model_client is None:
@@ -521,7 +565,7 @@ class AgentRuntime(CapabilityRuntime):
                         keys[stored] = uid
                         self.last_reply_keys = keys
                         self.last_reply_turn = self.turn_id
-                        self.utterances[uid] = {"generation_id": gen, **speech}
+                        self.utterances[uid] = {"generation_id": gen, "conversation_id": self.conversations.current_id, **speech}
                         await self.emit("utterance.ready", utterance_id=uid, **speech)
                         if event.get("display_zh"):
                             await self.emit("subtitle.ready", utterance_id=uid, display_zh=str(event["display_zh"])[:1200])
@@ -551,7 +595,14 @@ class AgentRuntime(CapabilityRuntime):
                         requests.append(event)
                     elif kind == "action":
                         await self._checkpoint()
-                        await self._propose_action(event)
+                        if self.full_access:
+                            # Route legacy NDJSON actions through the same tool-result loop.
+                            if not self.snapshot:
+                                raise ToolError("no_snapshot", "请先观察目标窗口")
+                            requests.append({"type": "tool", "name": "desktop.step", "arguments": {
+                                **event.get("action", {}), "snapshot_id": self.snapshot["snapshot_id"]}})
+                        else:
+                            await self._propose_action(event)
                     else:
                         raise ValueError(f"Unknown model event: {kind}")
                 if messages is not None:
@@ -565,7 +616,7 @@ class AgentRuntime(CapabilityRuntime):
                 results = []
                 for request in requests:
                     results.append(await self._read_tool(request))
-                include_image = any(r.get("name") in {"capture_target", "windows.select"} and "error" not in r for r in results)
+                include_image = any(r.get("name") in {"capture_target", "windows.select", "desktop.step"} and "error" not in r for r in results)
                 if provider.used_native_tools:
                     native_ids = {call["call_id"] for call in provider.tool_calls}
                     unhandled = []
@@ -599,6 +650,8 @@ class AgentRuntime(CapabilityRuntime):
             elif messages is not None:
                 self.prompt_history.append(self.turn_id, messages[prefix_length:], keys,
                                            persist=self.settings.values.get("save_history", True))
+            await self._conversation_snapshot()
+            await self._history_snapshot()
             if not speaker.done():
                 await queue.put(None)
             await speaker
@@ -656,6 +709,15 @@ class AgentRuntime(CapabilityRuntime):
         action = {**action, "action_id": aid, "target_id": self.target["target_id"], "snapshot_id": self.snapshot["snapshot_id"], "generation_id": self.generation,
                   "coordinate_space": "snapshot_image_px"}
         self.actions[aid] = action
+        if self.full_access:
+            self._write_allowed()
+            self.active_task.next_call()
+            result = await self._execute({"action_id": aid, "snapshot_id": action["snapshot_id"]}, self.generation)
+            if result is None:
+                raise ToolError("desktop_incomplete", "桌面操作未完成，请重新观察")
+            if action["kind"] != "highlight":
+                self.active_task.verification_pending = result.get("expected_result_verified") is not True
+            return result
         await self.emit("action.proposed", action=action, label=str(event.get("label", action.get("expected_result", "执行单步操作")))[:500])
         if self.active_task and self.active_task.state == "running":
             if self.approvals:
@@ -681,7 +743,7 @@ class AgentRuntime(CapabilityRuntime):
             raise ValueError("动作没有绑定当前快照，请重新观察")
         if action.get("generation_id", self.generation) != self.generation:
             raise ValueError("Cancelled action generation")
-        if self.mode != "execute" and action.get("kind") != "highlight":
+        if not self._execution_enabled() and action.get("kind") != "highlight":
             raise ValueError("先选择单步执行模式，再确认具体步骤")
         target_id, snapshot_id = self.target["target_id"], self.snapshot["snapshot_id"]
         mode = self.mode

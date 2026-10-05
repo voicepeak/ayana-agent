@@ -32,17 +32,24 @@ class ConversationStore:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript("""
           CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, created REAL, session_id TEXT, generation_id INTEGER, type TEXT, payload TEXT);
+          CREATE INDEX IF NOT EXISTS events_conversation_history
+            ON events(json_extract(payload,'$.conversation_id'),id)
+            WHERE type IN ('user.message','utterance.ready');
           CREATE TABLE IF NOT EXISTS utterances(utterance_id TEXT PRIMARY KEY, session_id TEXT, turn_id TEXT, generation_id INTEGER, speech_ja TEXT, display_zh TEXT DEFAULT '', status TEXT DEFAULT 'generated', played_samples INTEGER DEFAULT 0, total_samples INTEGER DEFAULT 0, sample_rate INTEGER DEFAULT 0, displayed INTEGER DEFAULT 0);
           CREATE TABLE IF NOT EXISTS preferences(key TEXT PRIMARY KEY, value TEXT);
           CREATE TABLE IF NOT EXISTS model_turns(id INTEGER PRIMARY KEY, scope TEXT, payload TEXT);
           CREATE INDEX IF NOT EXISTS model_turns_scope ON model_turns(scope, id);
+          CREATE TABLE IF NOT EXISTS context_summaries(scope TEXT PRIMARY KEY, summary TEXT);
           CREATE TABLE IF NOT EXISTS capability_records(kind TEXT, key TEXT, payload TEXT, updated REAL, PRIMARY KEY(kind,key));
         """)
 
     @locked
     def commit(self, event: dict):
         kind = event["type"]
-        if kind not in {"audio.ready", "snapshot.ready", "playback.progress"}:
+        # Derived UI snapshots contain copies of historical data. Persist their
+        # source records, not another full transcript on every refresh.
+        if kind not in {"audio.ready", "snapshot.ready", "playback.progress", "history.ready",
+                        "conversations.ready", "conversation.changed", "context.state"}:
             payload = without_media(event)
             self.db.execute("INSERT INTO events(created,session_id,generation_id,type,payload) VALUES(?,?,?,?,?)",
                             (time.time(), event.get("session_id"), event.get("generation_id", 0), kind, json.dumps(payload, ensure_ascii=False)))
@@ -97,14 +104,15 @@ class ConversationStore:
         return result[-16:]
 
     @locked
-    def recent_avatar_speeches(self):
+    def recent_avatar_speeches(self, conversation_id=None):
         rows = self.db.execute("""
             SELECT e.payload,u.status,u.played_samples FROM events e
             JOIN utterances u ON u.utterance_id=json_extract(e.payload,'$.utterance_id')
             WHERE e.type='utterance.ready' AND u.displayed=1
               AND (u.status!='partial' OR u.played_samples>0)
+              AND (? IS NULL OR json_extract(e.payload,'$.conversation_id')=?)
             ORDER BY e.id DESC LIMIT 12
-        """).fetchall()
+        """, (conversation_id, conversation_id)).fetchall()
         return [{**json.loads(row[0]), "displayed": True, "status": row[1], "played_samples": row[2]}
                 for row in reversed(rows)]
 
@@ -123,6 +131,61 @@ class ConversationStore:
             self.db.execute("DELETE FROM model_turns WHERE scope=?", (scope,))
             self.db.executemany("INSERT INTO model_turns(scope,payload) VALUES(?,?)",
                                 [(scope, json.dumps(turn, ensure_ascii=False)) for turn in turns])
+
+    @locked
+    def context_summary(self, scope):
+        row = self.db.execute("SELECT summary FROM context_summaries WHERE scope=?", (scope,)).fetchone()
+        return row[0] if row else ""
+
+    @locked
+    def compact_context(self, scope, turns, summary):
+        # The summary and the remaining whole turns must survive restart together.
+        with self.db:
+            self.db.execute("DELETE FROM model_turns WHERE scope=?", (scope,))
+            self.db.executemany("INSERT INTO model_turns(scope,payload) VALUES(?,?)",
+                                [(scope, json.dumps(turn, ensure_ascii=False)) for turn in turns])
+            self.db.execute("INSERT OR REPLACE INTO context_summaries VALUES(?,?)", (scope, summary))
+
+    @locked
+    def migrate_conversation(self, conversation_id):
+        """Adopt old records once, keeping the latest model partition intact."""
+        with self.db:
+            self.db.execute("UPDATE events SET payload=json_set(payload,'$.conversation_id',?) "
+                            "WHERE json_extract(payload,'$.conversation_id') IS NULL", (conversation_id,))
+            row = self.db.execute("SELECT scope FROM model_turns ORDER BY id DESC LIMIT 1").fetchone()
+            turns = self.model_turns(row[0]) if row else []
+            if not turns:
+                messages = self.context()
+                if messages:
+                    turns = [{"turn_id": "legacy-import", "messages": messages, "keys": {}}]
+            self.replace_model_turns("conversation:" + conversation_id, turns)
+        return bool(turns)
+
+    @locked
+    def conversation_history(self, conversation_id, before=None, limit=100):
+        rows = self.db.execute("""
+            SELECT e.id,e.created,e.type,e.payload,u.speech_ja,u.display_zh,u.status,
+                   u.displayed,u.played_samples,u.total_samples,u.sample_rate
+            FROM events e LEFT JOIN utterances u ON e.type='utterance.ready'
+              AND u.utterance_id=json_extract(e.payload,'$.utterance_id')
+            WHERE e.type IN ('user.message','utterance.ready')
+              AND json_extract(e.payload,'$.conversation_id')=? AND (? IS NULL OR e.id<?)
+            ORDER BY e.id DESC LIMIT ?
+        """, (conversation_id, before, before, limit + 1)).fetchall()
+        items = []
+        for row in reversed(rows[:limit]):
+            event = json.loads(row[3])
+            item = {"id": row[0], "created": row[1], "turn_id": event.get("turn_id"),
+                    "role": "user" if row[2] == "user.message" else "assistant"}
+            if item["role"] == "user":
+                item["text"] = event["text"]
+            else:
+                item.update(utterance_id=event["utterance_id"], speech_ja=row[4], display_zh=row[5],
+                            status=row[6], displayed=bool(row[7]), played_samples=row[8],
+                            total_samples=row[9], sample_rate=row[10])
+            items.append(item)
+        return {"items": items, "has_more": len(rows) > limit,
+                "before": items[0]["id"] if items else None}
 
     @locked
     def reception(self, turn_id, keys):

@@ -31,11 +31,13 @@ class Settings:
         return clean(self.values)
 
     def update(self, patch: dict):
-        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "avatar_costume", "sentence_motion", "volume", "task_limits", "model_max_tokens", "native_tools"}
+        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "avatar_costume", "sentence_motion", "volume", "task_limits", "model_max_tokens", "native_tools", "full_access"}
         if not isinstance(patch, dict) or set(patch) - allowed:
             raise ValueError("Unsupported settings field")
         if "native_tools" in patch and type(patch["native_tools"]) is not bool:
             raise ValueError("native_tools must be boolean")
+        if "full_access" in patch and type(patch["full_access"]) is not bool:
+            raise ValueError("full_access must be boolean")
         if "provider" in patch and patch["provider"] not in {"local", "openai"}:
             raise ValueError("Provider must be local or openai")
         if "avatar_costume" in patch:

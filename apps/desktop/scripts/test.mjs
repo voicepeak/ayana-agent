@@ -119,3 +119,22 @@ taskState = reduceEvent(taskState, event('artifact.ready', { generation_id: 8, a
 assert.equal(taskState.artifacts.length, 1);
 assert.equal(taskState.artifacts[0].sha256, 'verified');
 console.log('PASS: approval deduplication, cancellation and stale task rejection; reconnect restores files, grants and search state.');
+
+let topics = reduceEvent(initialState, event('conversation.changed', { generation_id: 10, current: { conversation_id: 'a', title: '甲' }, conversations: [], persistent: true }));
+topics = reduceEvent(topics, event('utterance.ready', { generation_id: 11, conversation_id: 'a', utterance_id: 'old-topic', speech_ja: '覚えているよ。' }));
+topics = reduceEvent(topics, event('conversation.changed', { generation_id: 12, current: { conversation_id: 'b', title: '乙' }, conversations: [], persistent: false, summary: '' }));
+assert.equal(topics.speeches.length, 0);
+assert.equal(topics.activeTask, undefined);
+assert.equal(topics.persistentHistory, false);
+topics = reduceEvent(topics, event('subtitle.ready', { generation_id: 13, conversation_id: 'a', utterance_id: 'old-topic', display_zh: '旧话题' }));
+topics = reduceEvent(topics, event('task.updated', { generation_id: 13, conversation_id: 'a', task: { state: 'succeeded' } }));
+assert.equal(topics.speeches.length, 0);
+assert.equal(topics.activeTask, undefined);
+topics = reduceEvent(topics, event('history.ready', { history_conversation_id: 'b', history: [{ id: 3, role: 'user', text: '最新' }], has_more: true, before: 3 }));
+topics = reduceEvent(topics, event('history.ready', { history_conversation_id: 'a', history: [{ id: 9, role: 'user', text: '错误话题' }] }));
+assert.equal(topics.history[0].text, '最新');
+topics = reduceEvent(topics, event('history.ready', { history_conversation_id: 'b', prepend: true, history: [{ id: 1, text: '更早' }, { id: 3, text: '最新' }], has_more: false, before: 1 }));
+assert.equal(topics.history.length, 2);
+assert.equal(topics.history[0].text, '更早');
+assert.equal(topics.historyHasMore, false);
+console.log('PASS: topic switching clears old output and tasks; late events and history cannot cross topics; transcript pagination deduplicates.');

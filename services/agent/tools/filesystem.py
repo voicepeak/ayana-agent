@@ -72,7 +72,8 @@ class FileBrowser:
                         if visited > 5000 or time.monotonic() > deadline:
                             state["truncated"] = True
                             return
-                        relative = Path(entry.path).relative_to(base).as_posix()
+                        relative = (Path(entry.path).as_posix() if self.policy.full_access
+                                    else Path(entry.path).relative_to(base).as_posix())
                         try:
                             target = self.policy.resolve(root_id, relative)
                             is_directory = target.is_dir()

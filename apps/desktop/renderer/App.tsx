@@ -3,6 +3,7 @@ import { Button, Character, Icon, Input } from './components';
 import { bridge, useRuntime, type ModelState, type Speech } from './state';
 import avatarCatalog from '../../../characters/ayana/avatar-map.json';
 import { TaskPanel, taskLabels as agentTaskLabels } from './TaskPanel';
+import { ConversationControls, ConversationHistory } from './Conversations';
 
 const taskLabels: Record<string, string> = { idle: '可以开始啦', observing: '正在观察目标', thinking: '正在整理思路', acting: '正在执行这一步', failed: '需要留意', speaking: 'Ayana 正在说话' };
 const reception: Record<string, string> = { generated: '文字已生成', playing: '正在播放', played: '已播放', partial: '已打断', cancelled: '未播放' };
@@ -66,13 +67,15 @@ export default function App() {
     document.body.classList.toggle('overlay-body', kind !== 'settings');
     void bridge.getState().then(s => setRoot(s.repositoryRoot));
   }, [kind]);
-  useEffect(() => { if (state.repository?.root) setRoot(state.repository.root); }, [state.repository?.root]);
+  useEffect(() => { setRoot(state.repository?.root || ''); }, [state.repository?.root, state.conversation?.conversation_id]);
+  useEffect(() => { setText(''); setSpeechReview(false); setSearchResults([]); setWorkspaceHint(''); }, [state.conversation?.conversation_id]);
   useEffect(() => { player.current?.setVolume(Number(state.settings.volume ?? 1)); }, [state.settings.volume, player]);
   useEffect(() => { setMode(state.mode); }, [state.mode]);
   useEffect(() => { if (targetOpen) targetDialog.current?.showModal(); else targetDialog.current?.close(); }, [targetOpen]);
   useEffect(() => { setSelectedPoint(undefined); }, [state.snapshot?.snapshot_id]);
   useEffect(() => bridge.onEvent(event => {
     if (event.type === 'desktop.navigate' && event.tab === 'tasks') { setTab('tasks'); void send({ type: 'capabilities.get' }); }
+    if (event.type === 'desktop.navigate' && event.tab === 'history') { setTab('history'); void send({ type: 'history.get' }); void send({ type: 'conversations.get' }); }
     if (event.type === 'repository.searched') setSearchResults((event.results ?? []) as Record<string, unknown>[]);
     if (event.type === 'settings.ready') setSettingsSaved(false);
     if (event.type === 'input.transcribed') {
@@ -213,13 +216,15 @@ export default function App() {
         <button aria-label="打开设置" title="设置与管理" onClick={() => void bridge.openSettings()}><Icon name="settings" size={16}/></button>
         <button aria-label="收起 Ayana" title="收起" onClick={() => void bridge.hide()}><Icon name="close" size={16}/></button>
       </div></header>
+      <ConversationControls state={state} send={send} disabled={recording || state.inputState === 'transcribing'} onHistory={() => void bridge.openSettings('history')}>
       <div className="gal-lines" aria-live="polite">
         <p lang="ja">{presented?.ja || (busy ? '…' : 'ここにいるよ。')}</p>
         {state.settings.subtitles !== false && <p className="gal-translation">{presented ? presented.zh || '翻译正在补齐…' : recording ? '正在聆听，松开后识别。' : state.inputState === 'transcribing' ? '正在识别语音…' : busy ? '让我想一想…' : '我在这里。想聊什么？'}</p>}
       </div>
+      </ConversationControls>
       {(localError || state.error) && <div className="gal-error" role="alert">{localError || state.error}<button aria-label="关闭错误提示" onClick={() => { setLocalError(''); dispatch({ protocol_version: 1, type: 'desktop.dismiss-error' }); }}>×</button></div>}
       {(state.activeTask || state.artifacts.length > 0) && <button className="action-notice" onClick={() => void bridge.openSettings('tasks')}>{state.approvals.length ? '有待确认的步骤' : agentTaskLabels[String(state.activeTask?.state)] || '查看保存的文件'} · 打开任务与结果</button>}
-      <label className="agent-mode"><input type="checkbox" checked={mode === 'execute'} onChange={event => void setTaskMode(event.target.checked ? 'execute' : 'teach')}/>允许本次任务生成文件与提出操作</label>
+      {state.settings.full_access === true ? <button className="action-notice" onClick={() => void bridge.openSettings('tasks')}>Full access 已开启 · 管理访问权限</button> : <label className="agent-mode"><input type="checkbox" checked={mode === 'execute'} onChange={event => void setTaskMode(event.target.checked ? 'execute' : 'teach')}/>允许本次任务生成文件与提出操作</label>}
       {mode === 'execute' && state.computerUse && !state.computerUse.available && <p className="computer-not-ready" role="status">桌面执行未就绪：{String(state.computerUse.detail || '需要安装或配置桌面执行组件。')}</p>}
           <form className="composer" onSubmit={event => { event.preventDefault(); void ask(); }}>
             <textarea ref={textarea} value={text} maxLength={4000} rows={2} onChange={event => setText(event.target.value)} placeholder="想说什么，都可以…" aria-label="输入问题" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void ask(); } }}/>
@@ -239,7 +244,7 @@ export default function App() {
       <div className="brand"><div className="brand-mark"><Icon name="sparkles" size={25}/></div><div><strong>Ayana</strong><span>你的桌面同伴</span></div></div>
       <div className={`connection ${state.connected ? 'online' : ''}`}><i/>{state.connected ? '本地服务已连接' : state.service === 'preview' ? '桌面界面预览' : '本地服务启动中'}</div>
       <nav aria-label="主导航">
-        {([['chat', 'settings', '对话设置'], ['tasks', 'file', '任务与结果'], ['files', 'folder', '仓库文件'], ['history', 'history', '对话历史']] as const).map(([id, icon, label]) => <button key={id} className={`nav-item ${tab === id ? 'active' : ''}`} onClick={() => { setTab(id); if (id === 'history') void send({ type: 'history.get' }); if (id === 'tasks') void send({ type: 'capabilities.get' }); }}><Icon name={icon}/>{label}{id === 'files' && state.repository && <small>{state.repository.files.length}</small>}</button>)}
+        {([['chat', 'settings', '对话设置'], ['tasks', 'file', '任务与结果'], ['files', 'folder', '仓库文件'], ['history', 'history', '话题与记录']] as const).map(([id, icon, label]) => <button key={id} className={`nav-item ${tab === id ? 'active' : ''}`} onClick={() => { setTab(id); if (id === 'history') { void send({ type: 'history.get' }); void send({ type: 'conversations.get' }); } if (id === 'tasks') void send({ type: 'capabilities.get' }); }}><Icon name={icon}/>{label}{id === 'files' && state.repository && <small>{state.repository.files.length}</small>}</button>)}
       </nav>
       <div className="workspace-label">可选的仓库上下文</div>
       <button className="repository-card" onClick={selectRepository}><span className="folder-tile"><Icon name="folder" size={21}/></span><strong>{state.repository?.name || '选择一个仓库'}</strong><small>{state.repository ? '已读取真实文件证据' : '需要读代码时再选择'}</small><Icon name="arrow" size={16}/></button>
@@ -261,7 +266,7 @@ export default function App() {
         <p className="preferences-intro">日常呼出只显示立绘与对话。这里管理声音、显示习惯，以及可选的工具上下文。</p>
         <SettingsForm key={JSON.stringify(state.settings)} state={state} onSave={async settings => { const success = await send({ type: 'settings.update', settings }); setSettingsSaved(success); }} />
         <div className="settings-bottom"><span>{settingsSaved ? '设置已提交。' : '设置保存在本机。'}</span><Button onClick={() => void bridge.restart()}><Icon name="refresh" size={15}/>重启服务</Button></div>
-        <div className="mode-strip"><div className="segmented"><button className={mode === 'teach' ? 'selected' : ''} onClick={() => void setTaskMode('teach')}>对话与观察</button><button className={mode === 'execute' ? 'selected' : ''} onClick={() => void setTaskMode('execute')}>执行任务</button></div></div>
+        <div className="mode-strip">{state.settings.full_access === true ? <button className="action-notice" onClick={() => { setTab('tasks'); void send({ type: 'capabilities.get' }); }}>Full access 已开启 · 任务可直接执行</button> : <div className="segmented"><button className={mode === 'teach' ? 'selected' : ''} onClick={() => void setTaskMode('teach')}>对话与观察</button><button className={mode === 'execute' ? 'selected' : ''} onClick={() => void setTaskMode('execute')}>执行任务</button></div>}</div>
         {state.actions.map(event => { const action = event.action as Record<string, unknown>; return <div className="proposed-action" key={String(action.action_id)}><p>{String(event.label || action.expected_result)}</p><Button color="primary" disabled={mode !== 'execute' && action.kind !== 'highlight'} onClick={() => void send({ type: 'tool.execute', action_id: action.action_id, snapshot_id: action.snapshot_id })}>确认并执行一步</Button></div>; })}
       </section>}
       {tab === 'files' && <section className="files-view">
@@ -272,7 +277,7 @@ export default function App() {
         <div className="file-list">{files.map(file => <button key={file} onClick={() => void send({ type: 'repository.read', root, path: file })}><Icon name="file" size={16}/><span>{file}</span><Icon name="arrow" size={13}/></button>)}</div>
         <EvidenceCards state={state}/>
       </section>}
-      {tab === 'history' && <section className="history-view"><div className="section-intro"><Icon name="history" size={23}/><div><h2>真实的播放记录</h2><p>保留完整播放、中途打断和仅显示文字的区别。</p></div></div>{!state.history.length && <p className="empty-note">开始一次对话，Ayana 会把我们的进度记在这里。</p>}{state.history.map((item, index) => <article className="history-item" key={String(item.utterance_id || index)}><span className="history-state">{reception[String(item.status)] || String(item.status)}</span><p>{String(item.display_zh || item.speech_ja || '')}</p><small lang="ja">{String(item.speech_ja || '')}</small>{Number(item.played_samples) > 0 && <small>实际播放 {(Number(item.played_samples) / Math.max(1, Number(item.sample_rate))).toFixed(1)} 秒</small>}</article>)}</section>}
+      {tab === 'history' && <ConversationHistory state={state} send={send}/>}
       <footer className="main-status"><span><i className={current ? 'pulsing' : ''}/>{statusText}</span><span>{state.target ? '目标窗口已绑定' : '等待选择目标窗口'}</span></footer>
     </main>
 

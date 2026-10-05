@@ -81,7 +81,8 @@ async def test_selected_repository_is_live_readonly_scope_and_default_can_be_ove
         await runtime.registry.execute("files.read", {"root_id": "repository", "path": "a.py"})
     assert (await runtime.registry.execute("files.list", {}))["root_id"] == "output"
     assert "read_file" not in runtime.registry.tools and "list_files" not in runtime.registry.tools
-    assert len(runtime.registry.tools) == 18
+    assert len(runtime.registry.tools) == 20
+    assert {'shell.run', 'desktop.step'}.isdisjoint(tool.name for tool in runtime.registry.active_tools())
     runtime.store.close()
 
 
@@ -112,5 +113,6 @@ async def test_search_works_in_selected_repository_and_explicit_readonly_grant(t
     grant_result = await runtime.registry.execute("files.search", {"root_id": "docs", "query": "fact"})
     assert repository_result["matches"] == grant_result["matches"] == [{"path": "a.md", "line": 1, "text": "confirmed fact"}]
     assert "search_text" not in runtime.registry.tools
-    assert len(runtime.registry.tools) == 18
+    assert len(runtime.registry.tools) == 20
+    assert {'shell.run', 'desktop.step'}.isdisjoint(tool.name for tool in runtime.registry.active_tools())
     runtime.store.close()

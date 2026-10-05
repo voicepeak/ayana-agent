@@ -115,7 +115,7 @@ class FileTools:
     def inventory(self):
         result = []
         for record in self.store.records("artifact"):
-            if record["root_id"] not in self.policy.roots:
+            if record["root_id"] not in self.policy.roots and not self.policy.full_access:
                 continue
             try:
                 result.append(self.get(record["artifact_id"]))

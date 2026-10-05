@@ -19,6 +19,7 @@ const commands = new Set([
   'capabilities.get', 'directory.grant', 'directory.revoke', 'task.pause', 'task.resume', 'task.cancel',
   'approval.resolve', 'artifact.get', 'artifact.open', 'artifact.restore', 'source.open',
   'computer.start',
+  'conversations.get', 'conversation.create', 'conversation.select', 'conversation.rename', 'conversation.materials.clear',
 ]);
 app.setName('Ayana');
 const playbackTypes = new Set(['playback.started', 'playback.progress', 'playback.ended', 'playback.cancelled', 'playback.error']);
@@ -66,14 +67,25 @@ function diagnostic(value: string) {
 
 function broadcast(event: Event, remember = true) {
   if (remember && !event.type.startsWith('audio.') && !event.type.startsWith('playback.')) {
+    if (event.type === 'conversation.changed') {
+      const retained = new Set(['settings.ready', 'service.state', 'desktop.service', 'desktop.shortcuts', 'capabilities.ready']);
+      recentEvents = recentEvents.filter(previous => retained.has(previous.type));
+      repositoryRoot = String((event.materials as Record<string, unknown>)?.repository_root || '');
+    }
+    if (event.type === 'repository.cleared') {
+      recentEvents = recentEvents.filter(previous => !['repository.inspected', 'evidence.ready', 'repository.file'].includes(previous.type));
+      repositoryRoot = '';
+    }
+    if (event.type === 'repository.inspected') repositoryRoot = String(event.root || (event.repository as Record<string, unknown>)?.root || '');
     if (event.type === 'snapshot.invalidated') {
       recentEvents = recentEvents.filter(previous => previous.type !== 'snapshot.ready');
     }
-    if (['snapshot.ready', 'repository.inspected', 'settings.ready', 'history.ready'].includes(event.type)) {
+    if (['snapshot.ready', 'repository.inspected', 'settings.ready', 'history.ready', 'conversations.ready', 'context.state'].includes(event.type)) {
       recentEvents = recentEvents.filter(previous => previous.type !== event.type);
     }
     recentEvents.push(event);
-    recentEvents = recentEvents.slice(-160);
+    const snapshots = new Set(['snapshot.ready', 'repository.inspected', 'settings.ready', 'history.ready', 'conversations.ready', 'conversation.changed', 'context.state']);
+    recentEvents = recentEvents.filter((previous, index) => snapshots.has(previous.type) || index >= recentEvents.length - 160);
   }
   for (const window of [chat, settingsWindow, highlight]) {
     if (window !== chat && event.type.startsWith('audio.')) continue;
@@ -239,6 +251,7 @@ function receive(event: Event) {
     const settings = (event.settings ?? {}) as Record<string, unknown>;
     updateShortcuts(settings);
   }
+  if (event.type === 'conversation.changed') highlight?.hide();
   // The backend captures the foreground identity before chat takes focus.
   // Later screenshots and playback must not restart the summon effect.
   if (event.type === 'session.started' && focusAfterCapture) {
@@ -385,7 +398,7 @@ function registerIpc() {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return { ok: false, error: '命令格式无效。' };
     const command = value as Record<string, unknown>;
     if (!commands.has(String(command.type)) || JSON.stringify(command).length > 2_000_000) return { ok: false, error: '命令不在允许范围内。' };
-    if (command.type === 'turn.start' || command.type === 'generation.cancel' || command.type === 'session.close') {
+    if (['turn.start', 'generation.cancel', 'session.close', 'conversation.create', 'conversation.select', 'conversation.materials.clear'].includes(String(command.type))) {
       desktopEvent('desktop.cancelled', { cancelled_generation_id: currentGeneration });
     }
     if (command.type === 'repository.inspect' && typeof command.root === 'string') repositoryRoot = command.root;
@@ -404,7 +417,7 @@ function registerIpc() {
   ipcMain.handle('ayana:settings', (event, tab?: unknown) => {
     if (!trustedSender(event.sender.id)) return;
     settingsWindow?.show(); settingsWindow?.focus();
-    if (tab === 'tasks') desktopEvent('desktop.navigate', { tab: 'tasks' });
+    if (tab === 'tasks' || tab === 'history') desktopEvent('desktop.navigate', { tab });
   });
   ipcMain.handle('ayana:hide-settings', event => {
     if (event.sender.id === settingsWindow?.webContents.id) settingsWindow?.hide();

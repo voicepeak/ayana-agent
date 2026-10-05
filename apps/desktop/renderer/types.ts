@@ -3,6 +3,7 @@ export interface RuntimeEvent {
   type: string;
   session_id?: string;
   turn_id?: string;
+  conversation_id?: string;
   generation_id?: number;
   seq?: number;
   [key: string]: unknown;
@@ -27,7 +28,7 @@ export interface AyanaBridge {
   playback(receipt: RuntimeEvent): void;
   summon(): Promise<void>;
   hide(): Promise<void>;
-  openSettings(tab?: 'tasks'): Promise<void>;
+  openSettings(tab?: 'tasks' | 'history'): Promise<void>;
   hideSettings(): Promise<void>;
   chooseRepository(): Promise<string | null>;
   chooseDirectory(): Promise<string | null>;

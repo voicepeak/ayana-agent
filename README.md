@@ -8,6 +8,10 @@ Windows 个性化 Agent：快捷键呼出时只显示透明半身立绘、对话
 
 开发目录也可双击 `启动 Ayana.cmd`，后续修改仍按下面的流程构建。
 
+话题管理版为 `apps/desktop/release/Ayana-0.3.2-context-win-x64.exe`：点击小窗口的「正在聊」切换话题，点「＋」开始新话题；管理窗口的「话题与记录」可以改名、查完整记录和解除材料绑定。长对话自动整理摘要，重启恢复当前话题。具体逻辑与验证见 [话题与上下文管理](docs/CONVERSATION_MANAGEMENT.md)。
+
+Full access 版为 `apps/desktop/release/Ayana-0.3.2-full-access-win-x64.exe`，包含话题管理和访问权限开关。退出旧版后启动，在「任务与结果」开启 Full access 即可。
+
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e '.[test,stt]'
@@ -25,6 +29,8 @@ npm --prefix apps/desktop start
 联网模型设置 `provider=openai`、`base_url=https://api.deepseek.com`、`model=deepseek-flash`。密钥通过 `AYANA_API_KEY` 或 `DEEPSEEK_API_KEY` 环境变量提供；本机已有密钥使用当前 Windows 用户的 DPAPI 加密保存，界面和日志不接收密钥。
 
 在线模型默认使用原生 function calling（配置项 `native_tools`，默认 `true`）：请求携带注册工具的 `tools` schema，流式解析 `delta.tool_calls`，并以 `role:"tool"` 回传真实结果。因此在对话框里直接描述需求，模型会自行选择工具（读取网页、写入授权文件等），无需在提示里点名工具。若目标端点不支持 `tools`，可将 `native_tools` 设为 `false` 退回既有 NDJSON 工具事件协议。
+
+「设置与管理 → 任务与结果」提供 **Full access** 开关（`full_access`，默认关闭，选择保存在本机）。开启后在对话中直接使用任意本机路径，读写仓库、操作应用、运行 PowerShell 命令；文件修改与恢复会直接应用并保留备份，桌面步骤无需逐次确认。`shell.run` 返回真实退出码与有上限的输出，命令超时、取消、切换开关或关闭助手会停止其进程树；用于持久启动桌面应用请用应用打开工具。关闭开关会停止当前任务并恢复原有目录授权、执行模式与确认规则。Full access 使用当前 Windows 用户权限；在线模型、搜索凭证和 UFO 桌面组件仍需按对应功能配置。
 
 ## 体验流程
 
