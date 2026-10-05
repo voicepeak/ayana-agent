@@ -41,6 +41,24 @@ export default function App() {
   const busy = state.task === 'thinking' || state.task === 'observing' || state.inputState === 'transcribing' || Boolean(current);
 
   useEffect(() => {
+    if (kind !== 'chat') return;
+    let pendingFocus = false;
+    const focusInput = () => {
+      textarea.current?.focus({ preventScroll: true });
+      pendingFocus = !document.hasFocus();
+    };
+    const onWindowFocus = () => { if (pendingFocus) focusInput(); };
+    const off = bridge.onEvent(event => {
+      if (event.type === 'desktop.focus-input') focusInput();
+      if (event.type === 'desktop.hidden') pendingFocus = false;
+    });
+    window.addEventListener('focus', onWindowFocus);
+    // A startup summon can finish before this renderer subscribes to events.
+    if (document.hasFocus()) focusInput();
+    return () => { off(); window.removeEventListener('focus', onWindowFocus); };
+  }, [kind]);
+
+  useEffect(() => {
     if (kind !== 'chat' || !state.summonVersion || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     // Separate from Character's sentence dip, so the two transforms never fight.
     const portrait = portraitReveal.current?.animate([

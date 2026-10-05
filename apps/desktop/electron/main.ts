@@ -161,6 +161,9 @@ function focusChat() {
   if (refresh) setTimeout(() => desktopEvent('desktop.workspace-hint'), 0);
   else desktopEvent('desktop.summoned');
   chat?.focus();
+  // Request composer focus on every summon, including an already-focused chat.
+  // This is transient UI intent and must not be replayed with runtime history.
+  broadcast({ protocol_version: 1, type: 'desktop.focus-input', generation_id: currentGeneration }, false);
 }
 
 function windowHandle(window: BrowserWindow): number {

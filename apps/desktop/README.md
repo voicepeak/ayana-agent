@@ -42,6 +42,8 @@ repository `.venv/Scripts/python.exe`. `AYANA_REPOSITORY_ROOT` overrides the
 backend root. The main process captures the original foreground target before
 focusing the assistant when summoned with **Ctrl+Alt+A**. **Ctrl+Alt+Space** stops
 the current generation. Both shortcuts can be configured in Preferences.
+Every summon automatically focuses the question input, including repeated summons,
+so typing can begin without clicking the composer.
 
 Hold the microphone button to record up to 15 seconds; release to transcribe.
 Recording cancels existing speech and uses half duplex. The microphone permission
