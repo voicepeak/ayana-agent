@@ -79,8 +79,8 @@ class FileTools:
             check_plain(old)
             old.unlink(missing_ok=True)
 
-    def read(self, root_id, path, start_line=None, max_lines=None):
-        return read_text(self.policy, root_id, path, start_line, max_lines)
+    def read(self, root_id, path, start_line=None, max_lines=None, cursor=None):
+        return read_text(self.policy, root_id, path, start_line, max_lines, cursor)
 
     @staticmethod
     def content_bytes(content):

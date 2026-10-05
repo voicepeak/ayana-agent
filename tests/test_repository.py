@@ -55,7 +55,7 @@ def test_search_retains_byte_and_result_budgets(tmp_path):
     (tmp_path / "large.py").write_bytes(b"x" * 65535 + b"\nbeyond_budget_needle")
     (tmp_path / "matches.py").write_text("\n".join(["match_needle"] * 100), encoding="utf-8")
     reader = RepositoryReader(str(tmp_path))
-    assert reader.search_text("beyond_budget_needle") == []
+    assert reader.search_text("beyond_budget_needle") == [{"path": "large.py", "line": 2, "text": "beyond_budget_needle"}]
     assert len(reader.search_text("match_needle")) == 40
 
 

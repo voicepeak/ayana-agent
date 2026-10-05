@@ -31,9 +31,10 @@ def test_large_or_replacement_decoded_excerpt_cannot_supply_edit_hash(tmp_path):
     (tmp_path / "large.txt").write_bytes(b"line\n" * 20000)
     (tmp_path / "legacy.txt").write_bytes(b"\xffold encoding")
     policy = DirectoryPolicy(tmp_path)
+    with pytest.raises(ToolError):
+        read_text(policy, "output", "legacy.txt")
+    assert read_text(policy, "output", "large.txt")["next_cursor"]
     for name in ("large.txt", "legacy.txt"):
-        with pytest.raises(ToolError):
-            read_text(policy, "output", name)
         result = read_text(policy, "output", name, 1, 3)
         assert result["sha256"] is None and not result["complete"]
     assert not read_text(policy, "output", "large.txt", 1, 3)["line_count_is_complete"]
@@ -94,8 +95,9 @@ def test_name_search_and_content_search_have_distinct_results_and_shared_budgets
     browser = FileBrowser(DirectoryPolicy(tmp_path))
     assert [item["path"] for item in browser.find("output", "needle")["matches"]] == ["needle.txt"]
     result = browser.search("output", "needle")
-    assert result["matches"] == [{"path": "other.txt", "line": 221, "text": "NEEDLE in content"}]
-    assert result["truncated"]  # Large files are bounded excerpts, not exhaustive searches.
+    assert result["matches"] == [{"path": "large.py", "line": 2, "text": "needle beyond budget"},
+                                 {"path": "other.txt", "line": 221, "text": "NEEDLE in content"}]
+    assert result["scan_complete"]
     (tmp_path / "many.txt").write_text("needle\n" * 15)
     limited = browser.search("output", "needle", limit=3)
     assert len(limited["matches"]) == 3 and limited["truncated"]
