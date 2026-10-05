@@ -26,6 +26,19 @@ class CapabilityRuntime:
     def _execution_enabled(self):
         return self.full_access or self.mode == "execute"
 
+    @property
+    def processes(self):
+        if not hasattr(self, "_process_manager"):
+            from .tools.processes import ProcessTools
+            self._process_manager = ProcessTools(lambda: self.full_access)
+        return self._process_manager
+
+    async def _stop_background(self, reason):
+        await asyncio.to_thread(self.files.browser.close)
+        if reason not in {"new_turn", "microphone_input", "target_changed", "summon", "new_computer_task"}:
+            if hasattr(self, "_process_manager"):
+                await self.processes.close()
+
     def _make_tools(self):
         registry = ToolRegistry(lambda: self.full_access)
         integer = lambda low, high: {"type": "integer", "minimum": low, "maximum": high}
@@ -55,6 +68,11 @@ class CapabilityRuntime:
         registry.add("windows.select", "执行模式：选定 windows.list 返回的窗口作为观察/桌面任务目标，同时返回新截图。不能用旧窗口 ID 操作已关闭或被替换的窗口", arguments({"window_id": string(100)}, ["window_id"]), self._windows_select, "write")
         registry.add("shell.run", "Full access：执行 PowerShell 命令（非 Windows 为 sh），可访问任意本机路径、操作文件、运行脚本和程序、读取本地服务。cwd 为现有绝对路径，省略时使用当前仓库或数据目录。返回真实退出码和输出；失败不代表成功。命令超时/取消会停止整棵进程树，不能用于启动持久后台服务", arguments({"command": string(16000), "cwd": string(1000), "timeout_seconds": integer(1, 300)}, ["command"]), self._shell_run, "write")
         registry.set_availability("shell.run", lambda: self.full_access, "命令执行需要开启 Full access")
+        registry.add("process.start", "Full access：启动受管理的后台命令，返回真实 process_id；用于开发服务等长任务。相同命令和 cwd 已运行时复用。运行不证明服务就绪，继续检查服务与日志", arguments({"command": string(16000), "cwd": string(1000)}, ["command"]), self._process_start, "write")
+        registry.add("process.status", "Full access：省略 process_id 列出受管理进程；指定 ID 返回状态和增量日志。log_cursor 使用上次 next_log_cursor；has_more_logs 为真时继续读取。不能把 running 当成服务就绪", arguments({"process_id": string(100), "log_cursor": integer(0, 1000000000)}), self._process_status)
+        registry.add("process.stop", "Full access：停止真实 process_id 对应的后台命令及其子进程，返回最终状态。只能操作本运行时管理的进程", arguments({"process_id": string(100)}, ["process_id"]), self._process_stop, "write")
+        for name in ("process.start", "process.status", "process.stop"):
+            registry.set_availability(name, lambda: self.full_access, "后台进程管理需要开启 Full access")
         registry.add("desktop.step", "Full access：根据当前截图直接执行一个桌面动作并返回观察结果；snapshot_id 必须与最新截图一致。click/scroll 需要截图坐标 point；type 使用 text；key 使用 key；不得猜测坐标", arguments({
             "snapshot_id": string(100), "kind": {"type": "string", "enum": ["click", "type", "scroll", "highlight", "key"]},
             "point": arguments({"x": integer(0, 20000), "y": integer(0, 20000)}, ["x", "y"]),
@@ -76,20 +94,8 @@ class CapabilityRuntime:
                    for record in self.store.records("artifact"))
 
     def _tool_prompt(self):
-        text = ("Prefer native function calls using the supplied function schemas. "
-                "Keep speech and translation as NDJSON events. "
-                "Only currently supplied tools are available; their set may change after a tool result."
-                if self.settings.values.get("native_tools", True) else self.registry.prompt())
-        access = ("Full access is ON. All local paths and shell.run are authorized. Writes and desktop actions execute without per-step approval. "
-                  "Use root_id=filesystem and absolute paths for filesystem tools. "
-                  "Stay within the user's task, check actual results, and stop on cancellation."
-                  if self.full_access else "Full access is OFF. Directory grants, execution mode and user approval rules apply. shell.run is unavailable.")
-        guidance = ("Use dedicated file/app/web tools for their operations. Use computer.run for a whole bound-window task, "
-                    "desktop.step for an observed single action or recovery; do not repeatedly switch executors. "
-                    "Tool failures are evidence for you: explain what happened in ordinary language, and either recover, "
-                    "ask for the missing information, or report blocked. Never present raw error codes as instructions to the user. "
-                    "Unavailable capabilities (not callable): " + json.dumps({item["name"]: item["reason"] for item in self.registry.catalog() if not item["available"]}, ensure_ascii=False))
-        return "<ayana_tools>\n" + text + "\n" + access + "\n" + guidance + "\n</ayana_tools>"
+        from .prompts import tool_prompt
+        return tool_prompt(self.registry, native_tools=self.settings.values.get("native_tools", True), full_access=self.full_access)
 
     def _model_tools(self, messages=None):
         if messages and messages[0].get("role") == "system":
@@ -107,6 +113,18 @@ class CapabilityRuntime:
             raise ToolError("full_access_required", "请先开启 Full access")
         directory = cwd or (self.repository or {}).get("root") or str(self.settings.data_root)
         return await self.shell.run(command, directory, timeout_seconds)
+
+    async def _process_start(self, command, cwd=None):
+        self._write_allowed()
+        directory = cwd or (self.repository["root"] if self.repository else str(self.settings.data_root))
+        return await self.processes.start(command, directory)
+
+    async def _process_status(self, **args):
+        return self.processes.status(**args)
+
+    async def _process_stop(self, process_id):
+        self._write_allowed()
+        return await self.processes.stop(process_id)
 
     async def _desktop_step(self, snapshot_id, **action):
         self._write_allowed()
@@ -416,6 +434,7 @@ class CapabilityRuntime:
                     self.write_cancel.set()
                     self.desktop.cancel()
                     await self.shell.stop()
+                    await self._stop_background("task_timeout")
                     if self.task and not self.task.done():
                         self.task.cancel()
                     for approval_id in tuple(self.approvals):

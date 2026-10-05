@@ -202,6 +202,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             action_task.cancel()
         await self.computer.stop()
         await self.shell.stop()
+        await self._stop_background(reason)
         self.actions.clear()
         for utterance in self.utterances.values():
             if utterance["generation_id"] == old and utterance.get("status", "generated") in {"generated", "playing"}:

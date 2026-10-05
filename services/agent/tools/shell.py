@@ -20,7 +20,8 @@ class ShellTools:
         self.process = None
         self.job = None
 
-    async def run(self, command, cwd, timeout_seconds=60):
+    async def launch(self, command, cwd):
+        """Start an owned command; callers own readers and its lifetime."""
         if not self.full_access():
             raise ToolError("full_access_required", "请先开启 Full access")
         if self.process:
@@ -40,12 +41,11 @@ class ShellTools:
         else:
             argv = ["/bin/sh", "-c", command]
             options = {"start_new_session": True}
-        started = time.monotonic()
-        readers = []
         try:
             self.process = await asyncio.create_subprocess_exec(
                 *argv, cwd=str(directory), stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, **options)
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}, **options)
             if os.name == "nt":
                 from ..computer_use import WindowsJob
                 self.job = WindowsJob(self.process.pid)
@@ -53,6 +53,15 @@ class ShellTools:
                 self.process.stdin.write(base64.b64encode(command.encode("utf-8")) + b"\n")
                 await self.process.stdin.drain()
             self.process.stdin.close()
+        except BaseException:
+            await self.stop()
+            raise
+
+    async def run(self, command, cwd, timeout_seconds=60):
+        started = time.monotonic()
+        readers = []
+        try:
+            await self.launch(command, cwd)
             async def capture(stream):
                 data, truncated = bytearray(), False
                 while chunk := await stream.read(8192):
@@ -71,7 +80,7 @@ class ShellTools:
             stdout, stderr = await asyncio.gather(*readers)
             return {"exit_code": self._exit_code, "stdout": stdout[0], "stderr": stderr[0],
                     "truncated": stdout[1] or stderr[1], "timed_out": timed_out,
-                    "cwd": str(directory), "duration_ms": round((time.monotonic() - started) * 1000)}
+                    "cwd": str(Path(cwd)), "duration_ms": round((time.monotonic() - started) * 1000)}
         finally:
             await self.stop()
             for reader in readers:
