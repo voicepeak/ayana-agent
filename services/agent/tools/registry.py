@@ -106,17 +106,7 @@ class ToolRegistry:
             return False
 
     def active_tools(self):
-        result = []
-        for tool in self.tools.values():
-            if not self.available(tool):
-                continue
-            try:
-                if tool.name in self.visibility and not self.visibility[tool.name]():
-                    continue
-            except Exception:
-                continue
-            result.append(tool)
-        return result
+        return [tool for tool in self.tools.values() if self.state(tool)["available"]]
 
     async def execute(self, name, args):
         tool = self.tools.get(name)

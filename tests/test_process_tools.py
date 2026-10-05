@@ -104,3 +104,25 @@ async def test_immediate_stop_and_unknown_id_never_target_external_processes(tmp
             await manager.stop("1234")
     finally:
         await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_busy_shell_request_does_not_cancel_command_already_running(tmp_path):
+    from services.agent.tools.shell import ShellTools
+    shell = ShellTools(lambda: True)
+    wait = "Start-Sleep -Milliseconds 600; Write-Output 'first finished'" if os.name == 'nt' else "sleep .6; echo 'first finished'"
+    first = asyncio.create_task(shell.run(wait, str(tmp_path)))
+    try:
+        for _ in range(100):
+            if shell.process:
+                break
+            await asyncio.sleep(.01)
+        with pytest.raises(ToolError, match='另一个命令'):
+            await shell.run('echo second', str(tmp_path))
+        result = await first
+        assert result['exit_code'] == 0 and 'first finished' in result['stdout']
+        assert not shell.busy
+    finally:
+        await shell.stop()
+        if not first.done():
+            first.cancel()

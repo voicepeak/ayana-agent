@@ -26,8 +26,34 @@ class BrowserTools:
     @property
     def status(self):
         installed = importlib.util.find_spec("playwright") is not None
-        return {"available": installed, "running": self.context is not None,
-                "detail": "可使用受管理浏览器" if installed else "当前环境缺少浏览器交互组件"}
+        engine = self._channel()
+        if engine is None and installed:
+            location = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+            if location == "0":
+                spec = importlib.util.find_spec("playwright")
+                cache = Path(next(iter(spec.submodule_search_locations))) / "driver/package/.local-browsers"
+            else:
+                cache = Path(location) if location else Path(os.environ.get("LOCALAPPDATA", str(Path.home() / ".cache"))) / "ms-playwright"
+                if os.name != "nt" and not location:
+                    cache = Path.home() / ("Library/Caches/ms-playwright" if __import__('sys').platform == 'darwin' else ".cache/ms-playwright")
+            patterns = ("chromium*/chrome-win*/chrome.exe", "chromium*/chrome-linux*/chrome", "chromium*/chrome-mac*/Chromium.app/Contents/MacOS/Chromium")
+            if any(next(cache.glob(pattern), None) for pattern in patterns):
+                engine = "chromium"
+        return {"available": installed and engine is not None, "installed": installed, "engine": engine,
+                "running": self.context is not None,
+                "detail": "可使用受管理浏览器" if installed and engine else "当前环境缺少浏览器交互组件" if not installed else "需要安装 Edge、Chrome 或受管理 Chromium"}
+
+    def _channel(self):
+        if self.channel:
+            return self.channel
+        if os.name != "nt":
+            return None
+        roots = [Path(os.environ.get("ProgramFiles(x86)", "C:/Program Files (x86)")),
+                 Path(os.environ.get("ProgramFiles", "C:/Program Files")), Path(os.environ.get("LOCALAPPDATA", "C:/missing"))]
+        for name, relative in (("msedge", "Microsoft/Edge/Application/msedge.exe"), ("chrome", "Google/Chrome/Application/chrome.exe")):
+            if any((root / relative).is_file() for root in roots):
+                return name
+        return None
 
     def _access(self):
         if not self.full_access():
@@ -41,11 +67,7 @@ class BrowserTools:
             raise ToolError("browser_dependency", self.status["detail"])
         from playwright.async_api import async_playwright
         self.driver = await async_playwright().start()
-        channel = self.channel
-        if channel is None and os.name == "nt":
-            candidates = [("msedge", Path(os.environ.get("ProgramFiles(x86)", "C:/Program Files (x86)")) / "Microsoft/Edge/Application/msedge.exe"),
-                          ("chrome", Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Google/Chrome/Application/chrome.exe")]
-            channel = next((name for name, file in candidates if file.is_file()), None)
+        channel = self._channel()
         self.profile.mkdir(parents=True, exist_ok=True)
         try:
             self.context = await self.driver.chromium.launch_persistent_context(
@@ -191,13 +213,28 @@ class BrowserTools:
             except Exception:
                 raise ToolError("browser_navigation", "页面未能正常打开，请检查网址、网络或服务是否已启动") from None
 
-    async def observe(self, page_id=None, frame_id=None, text_offset=0, max_chars=12000, element_offset=0):
+    async def observe(self, page_id=None, frame_id=None, text_offset=0, max_chars=12000, element_offset=0, wait_for_text=None):
         self._access()
         if any(type(value) is not int or value < 0 for value in (text_offset, element_offset)) or type(max_chars) is not int or not 1 <= max_chars <= 20000:
             raise ToolError("invalid_arguments", "页面读取位置无效，每次最多读取 20000 字符")
         async with self.lock:
             try:
-                return await self._observe(page_id, frame_id, text_offset, max_chars, element_offset)
+                matched = None
+                if wait_for_text is not None:
+                    if not isinstance(wait_for_text, str) or not 1 <= len(wait_for_text) <= 1000:
+                        raise ToolError("invalid_arguments", "等待文字需要 1–1000 个字符")
+                    page_id, page = self._pick(page_id)
+                    frame_id, frame = self._frame(page, frame_id)
+                    target = frame.get_by_text(wait_for_text, exact=False).first
+                    try:
+                        await target.wait_for(state="visible", timeout=5000)
+                        matched = (await target.inner_text())[:2000]
+                    except Exception:
+                        raise ToolError("browser_condition_pending", "页面尚未出现预期文字，请根据实际状态继续核实") from None
+                observation = await self._observe(page_id, frame_id, text_offset, max_chars, element_offset)
+                if matched is not None:
+                    observation["matched_text"] = matched
+                return observation
             except (ToolError, asyncio.CancelledError):
                 raise
             except Exception:
@@ -233,6 +270,8 @@ class BrowserTools:
                 raw, temporary, current = await self._capture(snapshot["frame"], snapshot["options"])
                 await self._dispose(temporary)
                 if current != snapshot["fingerprint"] or not await element.evaluate("element => element.isConnected"):
+                    self.snapshots.pop(page_id, None)
+                    await self._dispose(snapshot["handles"].values())
                     raise ToolError("stale_snapshot", "页面或目标元素已改变，请先重新观察")
                 if not await element.is_visible() or not await element.is_enabled():
                     raise ToolError("element_unavailable", "目标元素当前不可操作，请重新观察页面")

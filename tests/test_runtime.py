@@ -428,5 +428,9 @@ async def test_speech_drain_does_not_hang_when_worker_exits_with_full_queue(tmp_
 @pytest.mark.asyncio
 async def test_unavailable_tool_execution_is_rejected(tmp_path):
     runtime = AgentRuntime(settings(tmp_path), desktop=Desktop(), tts=Tts())
-    with pytest.raises(ToolError, match="不可用"):
-        await runtime.registry.execute("computer.run", {"goal": "打开设置"})
+    try:
+        with pytest.raises(ToolError) as failure:
+            await runtime.registry.execute("computer.run", {"goal": "打开设置"})
+        assert failure.value.code == "tool_unavailable"
+    finally:
+        await runtime.close()

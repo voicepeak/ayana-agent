@@ -140,8 +140,14 @@ def stage(args):
     for path in backend_root.rglob("*"):
         if path.name in forbidden or path.name.endswith(".local.json") or path.suffix in {".ckpt", ".pth"}:
             raise ValueError(f"Personal state or external weights in packaged backend: {path}")
-    imports = ["fastapi", "uvicorn", "httpx", "PIL", "websockets", "comtypes", "services.agent.server", "native.windows.desktop",
+    imports = ["fastapi", "uvicorn", "httpx", "PIL", "websockets", "comtypes", "pypdf", "services.agent.server", "native.windows.desktop",
                "services.agent.capabilities", "services.agent.tools.files", "services.agent.tools.web", "services.agent.tools.system", "native.windows.shell", "services.agent.tasks"]
+    imports.extend(["services.agent.tools.documents", "services.agent.tools.document_worker", "services.agent.tools.processes", "services.agent.tools.browser"])
+    browser_staged = (python_root / "Lib/site-packages/playwright").is_dir()
+    if browser_staged:
+        imports.append("playwright.async_api")
+        if not (python_root / "Lib/site-packages/playwright/driver/node.exe").is_file():
+            raise FileNotFoundError("Playwright's browser driver was not included; reinstall .[browser] before packaging")
     if (python_root / "Lib/site-packages/faster_whisper").is_dir():
         imports.extend(["faster_whisper", "ctranslate2", "av", "services.agent.providers.stt"])
     code = "import importlib,json,sys; modules=" + repr(imports) + "; [importlib.import_module(name) for name in modules]; print(json.dumps({'version':sys.version,'executable':sys.executable,'modules':modules,'paths':sys.path}))"
@@ -150,6 +156,7 @@ def stage(args):
     result = {"python_url": PYTHON_URL, "python_archive_md5": checksum,
               "python": str(python_root), "backend": str(backend_root),
               "stt_model_included": stt_staged, "verification": json.loads(verification),
+              "browser_component_included": browser_staged,
               "backend_bytes": sum(p.stat().st_size for p in backend_root.rglob("*") if p.is_file()),
               "python_bytes": sum(p.stat().st_size for p in python_root.rglob("*") if p.is_file())}
     (runtime / "package-backend-report.json").write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")

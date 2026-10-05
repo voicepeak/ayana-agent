@@ -113,8 +113,8 @@ class ProcessTools:
         item = self.entries.get(process_id)
         if not item:
             raise ToolError("unknown_process", "进程记录不存在或已被清理")
+        item["stopped"] = True
         if item["owner"].process:
-            item["stopped"] = True
             await item["owner"].stop()
         await item["done"]
         return self.status(process_id)

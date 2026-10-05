@@ -22,7 +22,7 @@ try {
     }
     & $environmentPython -c 'import sys,struct; assert sys.version_info[:2] == (3,11), "Use a Python 3.11 environment"; assert struct.calcsize("P") == 8, "Use 64-bit Python"'
     if ($LASTEXITCODE -ne 0) { throw 'Ayana requires a 64-bit Python 3.11 environment for this Windows build' }
-    $extras = if ($WithStt) { '.[test,stt]' } else { '.[test]' }
+    $extras = if ($WithStt) { '.[test,stt,browser]' } else { '.[test,browser]' }
     & $environmentPython -m pip install -e $extras
     if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed' }
     & $environmentPython scripts/package_backend.py --nltk-only

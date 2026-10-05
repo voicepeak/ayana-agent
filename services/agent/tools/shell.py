@@ -19,6 +19,7 @@ class ShellTools:
         self.full_access = full_access
         self.process = None
         self.job = None
+        self.busy = False
 
     async def launch(self, command, cwd):
         """Start an owned command; callers own readers and its lifetime."""
@@ -58,6 +59,9 @@ class ShellTools:
             raise
 
     async def run(self, command, cwd, timeout_seconds=60):
+        if self.busy or self.process:
+            raise ToolError("shell_busy", "另一个命令尚未结束")
+        self.busy = True
         started = time.monotonic()
         readers = []
         try:
@@ -88,6 +92,7 @@ class ShellTools:
                     reader.cancel()
             if readers:
                 await asyncio.gather(*readers, return_exceptions=True)
+            self.busy = False
 
     async def stop(self):
         process = self.process

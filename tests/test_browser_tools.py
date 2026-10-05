@@ -2,6 +2,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
 import threading
+import json
 import pytest
 from services.agent.tools.browser import BrowserTools
 from services.agent.tools.registry import ToolError
@@ -18,7 +19,7 @@ def website():
             if self.path == "/frame":
                 html = '<label>框架输入<input id="framed"></label>'
             elif self.path == "/many":
-                html = '<p>' + '正文内容' * 10000 + '</p>' + ''.join(f'<button>按钮{i}</button>' for i in range(100))
+                html = '<p>' + '正文😀内容' * 10000 + '</p>' + ''.join(f'<button>按钮{i}</button>' for i in range(100))
             else:
                 html = '''<!doctype html><html><title>Ayana form</title><body>
                 <label>用户名<input id="name"></label><label>密码<input type="password" value="private-test-value"></label>
@@ -70,6 +71,9 @@ async def test_text_and_element_pagination_reaches_late_page_content(tmp_path, w
         page = await browser.open(website + '/many')
         assert page["next_text_offset"] and page["next_element_offset"] == 80
         later = await browser.observe(page["page_id"], text_offset=page["next_text_offset"], element_offset=80)
+        _, actual_page = browser._pick(page['page_id'])
+        whole = await actual_page.locator('body').inner_text()
+        assert page['text'] + later['text'] == whole[:len(page['text']) + len(later['text'])]
         assert any(item["name"] == "按钮99" for item in later["elements"])
         assert later["next_element_offset"] is None
     finally:
@@ -158,5 +162,52 @@ async def test_uncertain_action_consumes_snapshot_and_requires_observation(tmp_p
         monkeypatch.setattr(browser, '_observe', original)
         observed = await browser.observe(page['page_id'])
         assert next(item for item in observed['elements'] if item['name'] == '用户名')['value'] == 'already sent'
+    finally:
+        await browser.close()
+
+
+@pytest.mark.asyncio
+async def test_native_model_loop_refreshes_browser_tools_and_proves_form_result(tmp_path, website):
+    from tests.test_conversations import make_runtime, ask
+    from tests.test_model import native_tool_sse, sse_response
+    calls = []
+    def respond(request):
+        payload = json.loads(request.content)
+        calls.append(payload)
+        visible = {item['function']['name'] for item in payload['tools']}
+        if len(calls) == 1:
+            assert 'browser__open' in visible and 'browser__act' not in visible
+            return native_tool_sse('open_page', 'browser__open', json.dumps({'url': website}))
+        result = json.loads(next(message['content'] for message in reversed(payload['messages']) if message['role'] == 'tool'))
+        assert 'browser__act' in visible
+        if len(calls) == 2:
+            page = result['result']
+            return native_tool_sse('fill_name', 'browser__act', json.dumps({'page_id': page['page_id'], 'snapshot_id': page['snapshot_id'], 'kind': 'fill', 'element_id': element(page, '用户名'), 'text': '集成测试'}))
+        if len(calls) == 3:
+            page = result['result']['observation']
+            return native_tool_sse('save_form', 'browser__act', json.dumps({'page_id': page['page_id'], 'snapshot_id': page['snapshot_id'], 'kind': 'click', 'element_id': element(page, '保存')}))
+        assert '已保存：集成测试' in result['result']['observation']['text']
+        return sse_response([{'type': 'speech', 'key': 's1', 'speech_ja': '保存できたよ。', 'display_zh': '已填写并确认保存成功。'},
+                             {'type': 'task', 'kind': 'action', 'status': 'complete', 'checks': [{'description': '填写集成测试并保存', 'evidence': [{'call_id': 'save_form', 'pointer': '/observation/text', 'operator': 'contains', 'value': '已保存：集成测试'}]}]}])
+    runtime = make_runtime(tmp_path / 'data', respond)
+    runtime.settings.values['full_access'] = True
+    runtime._browser_manager = managed(tmp_path)
+    try:
+        await ask(runtime, '打开测试页面，把用户名填为集成测试并保存，核对结果')
+        assert len(calls) == 4 and runtime.active_task.state == 'succeeded'
+        assert not any(event['type'] == 'error' for event in next(iter(runtime.clients)).events)
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_delayed_page_condition_waits_for_real_text(tmp_path, website):
+    browser = managed(tmp_path)
+    try:
+        snapshot = await browser.open(website)
+        _, page = browser._pick(snapshot['page_id'])
+        await page.evaluate("setTimeout(() => document.querySelector('#result').textContent='异步保存完成', 250)")
+        observed = await browser.observe(snapshot['page_id'], wait_for_text='异步保存完成')
+        assert observed['matched_text'] == '异步保存完成' and '异步保存完成' in observed['text']
     finally:
         await browser.close()

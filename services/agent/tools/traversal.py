@@ -116,8 +116,9 @@ class FileBrowser:
                 state["iterator"] = self._units(operation, root_id, path, query, recursive, text_only, state)
             try:
                 self._check_versions(state)
+                deadline = time.monotonic() + SCAN_SECONDS
                 results, work, exhausted = [], 0, False
-                while work < SCAN_LIMIT and time.monotonic() < now + SCAN_SECONDS:
+                while work < SCAN_LIMIT and time.monotonic() < deadline:
                     try:
                         unit = state["pending"].pop() if state["pending"] else next(state["iterator"])
                     except StopIteration:

@@ -1,6 +1,6 @@
 """Execution evidence describes its scope, never declares the user's goal done."""
 RETRYABLE = {"file_conflict", "scope_changed", "stale_cursor", "unknown_window", "window_changed",
-             "shell_busy", "process_busy", "tool_timeout", "network_error", "stale_snapshot"}
+             "shell_busy", "process_busy", "tool_timeout", "network_error", "stale_snapshot", "browser_condition_pending"}
 
 
 def receipt(name, result=None, effect="read", code=None, message=None):
