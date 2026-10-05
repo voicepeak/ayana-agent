@@ -90,3 +90,73 @@ async def test_browser_rejects_non_web_urls_and_revoked_access(tmp_path, website
             await browser.observe(page["page_id"])
     finally:
         await browser.close()
+
+
+def element(observation, name):
+    return next(item['element_id'] for item in observation['elements'] if item['name'] == name)
+
+
+@pytest.mark.asyncio
+async def test_real_form_fill_check_select_and_submit_with_fresh_evidence(tmp_path, website):
+    browser = managed(tmp_path)
+    try:
+        page = await browser.open(website)
+        value = await browser.act(page['page_id'], page['snapshot_id'], 'fill', element(page, '用户名'), text='Ayana中文')
+        current = value['observation']
+        assert next(item for item in current['elements'] if item['name'] == '用户名')['value'] == 'Ayana中文'
+        with pytest.raises(ToolError, match='快照已失效'):
+            await browser.act(page['page_id'], page['snapshot_id'], 'click', element(page, '保存'))
+        value = await browser.act(current['page_id'], current['snapshot_id'], 'check', element(current, '同意'), checked=True)
+        current = value['observation']
+        assert next(item for item in current['elements'] if item['name'] == '同意')['checked']
+        select_id = next(item['element_id'] for item in current['elements'] if item['tag'] == 'select')
+        value = await browser.act(current['page_id'], current['snapshot_id'], 'select', select_id, text='two')
+        current = value['observation']
+        assert next(item for item in current['elements'] if item['tag'] == 'select')['value'] == 'two'
+        submitted = await browser.act(current['page_id'], current['snapshot_id'], 'click', element(current, '保存'))
+        assert '已保存：Ayana中文' in submitted['observation']['text']
+        assert submitted['verification'] == 'observation_only'
+        current = submitted['observation']
+        closed = await browser.act(current['page_id'], current['snapshot_id'], 'close')
+        assert closed['expected_result_verified']
+    finally:
+        await browser.close()
+
+
+@pytest.mark.asyncio
+async def test_detached_identical_element_and_changed_dom_are_rejected(tmp_path, website):
+    browser = managed(tmp_path)
+    try:
+        snapshot = await browser.open(website)
+        _, page = browser._pick(snapshot['page_id'])
+        await page.evaluate("document.querySelector('#save').replaceWith(document.querySelector('#save').cloneNode(true))")
+        with pytest.raises(ToolError, match='已改变'):
+            await browser.act(snapshot['page_id'], snapshot['snapshot_id'], 'click', element(snapshot, '保存'))
+        snapshot = await browser.observe(snapshot['page_id'])
+        await page.evaluate("document.querySelector('#result').textContent='页面改变'")
+        with pytest.raises(ToolError, match='已改变'):
+            await browser.act(snapshot['page_id'], snapshot['snapshot_id'], 'click', element(snapshot, '保存'))
+        assert await page.locator('#result').inner_text() == '页面改变'
+    finally:
+        await browser.close()
+
+
+@pytest.mark.asyncio
+async def test_uncertain_action_consumes_snapshot_and_requires_observation(tmp_path, website, monkeypatch):
+    browser = managed(tmp_path)
+    try:
+        page = await browser.open(website)
+        original = browser._observe
+        async def broken_observation(*args, **kwargs):
+            raise RuntimeError('simulated observation failure after input')
+        monkeypatch.setattr(browser, '_observe', broken_observation)
+        with pytest.raises(ToolError) as error:
+            await browser.act(page['page_id'], page['snapshot_id'], 'fill', element(page, '用户名'), text='already sent')
+        assert error.value.code == 'browser_action_unconfirmed'
+        with pytest.raises(ToolError, match='快照已失效'):
+            await browser.act(page['page_id'], page['snapshot_id'], 'fill', element(page, '用户名'), text='duplicate')
+        monkeypatch.setattr(browser, '_observe', original)
+        observed = await browser.observe(page['page_id'])
+        assert next(item for item in observed['elements'] if item['name'] == '用户名')['value'] == 'already sent'
+    finally:
+        await browser.close()

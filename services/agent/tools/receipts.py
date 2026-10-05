@@ -10,6 +10,8 @@ def receipt(name, result=None, effect="read", code=None, message=None):
     execution, scope = "succeeded", "returned_data" if effect == "read" else "operation_only"
     if code:
         execution, verification, scope = "failed", "unverified", "none"
+        if code == "browser_action_unconfirmed":
+            execution, scope = "uncertain", "input_may_have_been_sent"
     elif data.get("timed_out"):
         execution, verification, scope = "timed_out", "unverified", "none"
         code, message = "tool_timeout", "执行超时，已停止本次操作"
@@ -33,5 +35,7 @@ def receipt(name, result=None, effect="read", code=None, message=None):
         verification, scope = "execution_only", "command_exit_and_output"
     elif name.startswith("process."):
         verification, scope = "observed", "process_state_only"
+    elif name.startswith("browser."):
+        verification, scope = "observed", "browser_page_observation"
     return {"execution": execution, "verification": verification, "scope": scope,
             "code": code, "message": message, "retryable": code in RETRYABLE, "audience": "assistant"}

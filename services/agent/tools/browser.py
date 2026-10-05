@@ -203,6 +203,67 @@ class BrowserTools:
             except Exception:
                 raise ToolError("browser_observation", "页面暂时无法观察，请重新打开或稍后重试") from None
 
+    async def act(self, page_id, snapshot_id, kind, element_id=None, text=None, checked=None, key=None):
+        self._access()
+        if kind not in {"click", "fill", "select", "check", "press", "close"}:
+            raise ToolError("invalid_arguments", "不支持的浏览器动作")
+        if kind in {"fill", "select"} and (not isinstance(text, str) or len(text) > 4000):
+            raise ToolError("invalid_arguments", "填写或选择需要有效 text")
+        if kind == "check" and type(checked) is not bool:
+            raise ToolError("invalid_arguments", "勾选需要 checked=true 或 false")
+        if kind == "press" and key not in {"Enter", "Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Backspace"}:
+            raise ToolError("invalid_arguments", "不支持的按键")
+        if (text is not None and kind not in {"fill", "select"} or checked is not None and kind != "check"
+                or key is not None and kind != "press" or element_id is not None and kind == "close"):
+            raise ToolError("invalid_arguments", "动作包含不适用的参数")
+        async with self.lock:
+            page_id, page = self._pick(page_id)
+            snapshot = self.snapshots.get(page_id)
+            if not snapshot or snapshot["snapshot_id"] != snapshot_id or snapshot["frame"].is_detached():
+                raise ToolError("stale_snapshot", "浏览器快照已失效，请先重新观察页面")
+            if kind == "close":
+                self.snapshots.pop(page_id)
+                await self._dispose(snapshot["handles"].values())
+                await page.close()
+                return {"status": "closed", "page_id": page_id, "expected_result_verified": page.is_closed()}
+            element = snapshot["handles"].get(element_id)
+            if element is None:
+                raise ToolError("unknown_element", "元素 ID 不属于当前快照，请重新观察，不要猜测")
+            try:
+                raw, temporary, current = await self._capture(snapshot["frame"], snapshot["options"])
+                await self._dispose(temporary)
+                if current != snapshot["fingerprint"] or not await element.evaluate("element => element.isConnected"):
+                    raise ToolError("stale_snapshot", "页面或目标元素已改变，请先重新观察")
+                if not await element.is_visible() or not await element.is_enabled():
+                    raise ToolError("element_unavailable", "目标元素当前不可操作，请重新观察页面")
+            except (ToolError, asyncio.CancelledError):
+                raise
+            except Exception:
+                raise ToolError("stale_snapshot", "页面已改变或无法核对，请先重新观察") from None
+            # Consume before sending input: an uncertain timeout must never let
+            # the same snapshot silently submit the same action a second time.
+            self.snapshots.pop(page_id)
+            try:
+                if kind == "click":
+                    await element.click()
+                elif kind == "fill":
+                    await element.fill(text)
+                elif kind == "select":
+                    await element.select_option(value=text)
+                elif kind == "check":
+                    await element.set_checked(checked)
+                else:
+                    await element.press(key)
+                observation = await self._observe(page_id, snapshot["frame_id"] if not snapshot["frame"].is_detached() else None)
+                return {"status": "observed", "action": {"kind": kind, "element_id": element_id, "status": "input_sent"},
+                        "observation": observation, "verification": "observation_only"}
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                raise ToolError("browser_action_unconfirmed", "页面操作未能核实，输入可能已经发送；请先观察实际页面，再决定后续步骤，避免重复提交") from None
+            finally:
+                await self._dispose(snapshot["handles"].values())
+
     async def close(self):
         context, driver = self.context, self.driver
         self.context = self.driver = None
