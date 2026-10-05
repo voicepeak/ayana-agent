@@ -170,33 +170,7 @@ class SystemTools:
         return self.browser.list(root_id, path, limit, recursive, text_only)
 
     def find_files(self, root_id, query, path="", limit=30):
-        root = self.policy.resolve(root_id, path, allow_root=True)
-        if not root.is_dir():
-            raise ToolError("not_directory", "目标不是目录")
-        matches, visited = [], 0
-        deadline = time.monotonic() + 3
-        stack = [(root, 0)]
-        while stack:
-            directory, depth = stack.pop()
-            with os.scandir(directory) as items:
-                for item in items:
-                    visited += 1
-                    if visited > 5000 or time.monotonic() > deadline:
-                        return {"root_id": root_id, "matches": matches, "truncated": True}
-                    relative = Path(item.path).relative_to(self.policy.root(root_id)["path"]).as_posix()
-                    try:
-                        target = self.policy.resolve(root_id, relative)
-                        is_directory = target.is_dir()
-                        if is_directory and depth < 12:
-                            stack.append((target, depth + 1))
-                        if query.casefold() in item.name.casefold():
-                            matches.append({"path": relative, "kind": "directory" if is_directory else "file",
-                                            "openable": is_directory or is_openable(target)})
-                    except (ToolError, OSError):
-                        continue
-                    if len(matches) >= limit:
-                        return {"root_id": root_id, "matches": matches, "truncated": True}
-        return {"root_id": root_id, "matches": matches, "truncated": False}
+        return self.browser.find(root_id, query, path, limit)
 
     def open_file(self, root_id, path, cancelled):
         target = self.policy.resolve(root_id, path, allow_root=True)

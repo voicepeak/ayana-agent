@@ -81,3 +81,34 @@ async def test_selected_repository_is_live_readonly_scope_and_default_can_be_ove
     assert "read_file" not in runtime.registry.tools and "list_files" not in runtime.registry.tools
     assert len(runtime.registry.tools) == 18
     runtime.store.close()
+
+
+def test_name_search_and_content_search_have_distinct_results_and_shared_budgets(tmp_path):
+    (tmp_path / "needle.txt").write_text("unrelated content")
+    (tmp_path / "other.txt").write_text("\n".join(["earlier"] * 220 + ["NEEDLE in content"]))
+    (tmp_path / "large.py").write_bytes(b"x" * 65535 + b"\nneedle beyond budget")
+    (tmp_path / ".env.txt").write_text("needle secret")
+    browser = FileBrowser(DirectoryPolicy(tmp_path))
+    assert [item["path"] for item in browser.find("output", "needle")["matches"]] == ["needle.txt"]
+    result = browser.search("output", "needle")
+    assert result["matches"] == [{"path": "other.txt", "line": 221, "text": "NEEDLE in content"}]
+    assert result["truncated"]  # Large files are bounded excerpts, not exhaustive searches.
+    (tmp_path / "many.txt").write_text("needle\n" * 15)
+    limited = browser.search("output", "needle", limit=3)
+    assert len(limited["matches"]) == 3 and limited["truncated"]
+
+
+@pytest.mark.asyncio
+async def test_search_works_in_selected_repository_and_explicit_readonly_grant(tmp_path):
+    runtime = AgentRuntime(Settings(Path(__file__).resolve().parents[1], data_root=tmp_path / "data"), desktop=object(), tts=object())
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "a.md").write_text("confirmed fact")
+    runtime.repository = {"root": str(docs)}
+    repository_result = await runtime.registry.execute("files.search", {"query": "fact"})
+    runtime.policy.grant("docs", docs)
+    grant_result = await runtime.registry.execute("files.search", {"root_id": "docs", "query": "fact"})
+    assert repository_result["matches"] == grant_result["matches"] == [{"path": "a.md", "line": 1, "text": "confirmed fact"}]
+    assert "search_text" not in runtime.registry.tools
+    assert len(runtime.registry.tools) == 18
+    runtime.store.close()

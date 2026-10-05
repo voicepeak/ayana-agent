@@ -12,7 +12,6 @@ from pathlib import Path
 
 from .tasks import TaskRunner
 from .tools.registry import ToolRegistry, ToolError, arguments, string
-from .tools.repository import RepositoryReader
 from packages.protocol import validate_tool_request
 
 
@@ -20,13 +19,6 @@ class CapabilityRuntime:
     def _make_tools(self):
         registry = ToolRegistry()
         integer = lambda low, high: {"type": "integer", "minimum": low, "maximum": high}
-        async def repository(method, **args):
-            if not self.repository:
-                raise ToolError("no_repository", "请先选择仓库")
-            return await asyncio.to_thread(getattr(RepositoryReader(self.repository["root"]), method), **args)
-        async def search_text(**args):
-            return await repository("search_text", **args)
-        registry.add("search_text", "在所选仓库搜索关键词", arguments({"query": string(120), "limit": integer(1, 100)}, ["query"]), search_text)
         registry.add("capture_target", "重新截图；新图片随后交给模型", arguments(), self._capture_tool)
         registry.add("observe_controls", "读取当前绑定窗口的控件", arguments(), self._controls_tool)
         registry.add("computer.run", "执行模式：在用户绑定的当前窗口完成明确要求的桌面任务。自动观察、输入或点击、核实结果；不能启动应用、跨窗口操作或执行命令。只有用户要求操作桌面时使用。", arguments({"goal": string(4000)}, ["goal"]), self._computer_tool, "write")
@@ -41,7 +33,9 @@ class CapabilityRuntime:
         registry.add("apps.search", "按名称查找本机安装应用，返回可供 apps.open 使用的真实 app_id；支持中文名及常见 Windows 应用英文别名", arguments({"query": string(200), "limit": integer(1, 20)}, ["query"]), self._apps_search)
         registry.add("apps.open", "执行模式：打开 apps.search 返回的应用 ID。不能传命令或启动参数。返回 Windows 请求回执及能观察到的窗口", arguments({"app_id": string(100)}, ["app_id"]), self._apps_open, "write")
         registry.add("files.list", "列举授权范围的文件和目录。root_id 省略时优先当前只读仓库 repository，否则 output；path 为空列举根。recursive 递归列举，text_only 仅列文本，遍历有上限", arguments({"root_id": string(100), "path": {"type": "string", "maxLength": 1000}, "limit": integer(1, 400), "recursive": {"type": "boolean"}, "text_only": {"type": "boolean"}}), self._files_list)
-        registry.add("files.find", "在授权目录内按名称片段查找文件或目录；遍历有上限，返回真实相对路径", arguments({"root_id": string(100), "query": string(200), "path": {"type": "string", "maxLength": 1000}, "limit": integer(1, 100)}, ["root_id", "query"]), self._files_find)
+        search_args = {"root_id": string(100), "query": string(200), "path": {"type": "string", "maxLength": 1000}, "limit": integer(1, 100)}
+        registry.add("files.find", "按文件或目录名称片段查找，返回真实路径。root_id 省略时优先当前只读仓库，否则 output；遍历有上限。不搜索文件内容", arguments(search_args, ["query"]), self._files_find)
+        registry.add("files.search", "在授权范围的文本内容中搜索，返回路径、行号和原文。root_id 省略时优先当前只读仓库，否则 output；最多检查 400 文件，每文件 64 KiB。不按文件名匹配", arguments(search_args, ["query"]), self._files_search)
         registry.add("files.open", "执行模式：打开授权目录内真实存在的文件或目录，path 为空打开目录根。文本/源码用记事本，PDF/Office/影音用默认应用。不能执行脚本或安装程序", arguments({"root_id": string(100), "path": {"type": "string", "maxLength": 1000}}, ["root_id", "path"]), self._files_open, "write")
         registry.add("web.open", "执行模式：用默认浏览器打开用户要求的 HTTP/HTTPS 网址，包括用户提供的本地开发网址。这不会读取页面，也不会提交表单", arguments({"url": string(3000)}, ["url"]), self._web_open, "write")
         registry.add("windows.list", "列出本机可见应用窗口，返回可信 window_id。打开应用后使用它查找窗口，不要猜测 ID", arguments(), self._windows_list)
@@ -59,8 +53,11 @@ class CapabilityRuntime:
     async def _files_list(self, root_id=None, **args):
         return await asyncio.to_thread(self.files.browser.list, self._file_root(root_id), **args)
 
-    async def _files_find(self, **args):
-        return await asyncio.to_thread(self.system.find_files, **args)
+    async def _files_find(self, root_id=None, **args):
+        return await asyncio.to_thread(self.files.browser.find, self._file_root(root_id), **args)
+
+    async def _files_search(self, root_id=None, **args):
+        return await asyncio.to_thread(self.files.browser.search, self._file_root(root_id), **args)
 
     async def _system_open(self, method, **args):
         self._write_allowed()

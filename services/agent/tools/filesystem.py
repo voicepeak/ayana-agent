@@ -107,3 +107,45 @@ class FileBrowser:
                 break
         return {"root_id": root_id, "path": path, "entries": sorted(results[:limit],
                 key=lambda item: (item["kind"] != "directory", item["path"].casefold())), **state}
+
+    def find(self, root_id, query, path="", limit=30):
+        state, results = {"truncated": False}, []
+        for relative, target, is_directory in self._walk(root_id, path, True, state):
+            if query.casefold() not in target.name.casefold():
+                continue
+            results.append(self._entry(relative, target, is_directory))
+            if len(results) > limit:
+                state["truncated"] = True
+                break
+        return {"root_id": root_id, "matches": results[:limit], **state}
+
+    def search(self, root_id, query, path="", limit=40):
+        if not isinstance(query, str) or not 1 <= len(query) <= 200:
+            raise ToolError("invalid_arguments", "搜索内容长度必须为 1–200 字符")
+        state, results, read_files = {"truncated": False}, [], 0
+        for relative, target, is_directory in self._walk(root_id, path, True, state):
+            if is_directory or not is_text(target):
+                continue
+            if read_files == 400:
+                state["truncated"] = True
+                break
+            read_files += 1
+            try:
+                with target.open("rb") as source:
+                    oversized = os.fstat(source.fileno()).st_size > READ_LIMIT
+                    raw = source.read(READ_LIMIT)
+                if b"\0" in raw:
+                    continue
+                lines = raw.decode("utf-8", errors="replace").splitlines()
+            except OSError:
+                state["truncated"] = True
+                continue
+            if oversized:
+                state["truncated"] = True
+            for index, line in enumerate(lines, 1):
+                if query.casefold() in line.casefold():
+                    results.append({"path": relative, "line": index, "text": line[:400]})
+                    if len(results) > limit:
+                        state["truncated"] = True
+                        return {"root_id": root_id, "matches": results[:limit], **state}
+        return {"root_id": root_id, "matches": results, **state}

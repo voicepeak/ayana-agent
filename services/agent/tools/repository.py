@@ -26,28 +26,7 @@ class RepositoryReader:
         return read_text(self.policy, "repository", path, start_line, max_lines)
 
     def search_text(self, query: str, limit=40) -> list[dict]:
-        if not isinstance(query, str) or not 1 <= len(query) <= 120:
-            raise ValueError("Search query length must be 1–120")
-        out = []
-        folded_query = query.casefold()
-        for name in self.list_files():
-            try:
-                # Search the entire byte-bounded excerpt. The display preview
-                # has a 200-line cap, which must not hide later entry points.
-                path = self._path(name)
-                with path.open("rb") as source:
-                    raw = source.read(65536)
-                if b"\0" in raw:
-                    continue
-                lines = raw.decode("utf-8", errors="replace").splitlines()
-            except (OSError, ValueError):
-                continue
-            for i, line in enumerate(lines, 1):
-                if folded_query in line.casefold():
-                    out.append({"path": name, "line": i, "text": line[:400]})
-                    if len(out) >= limit:
-                        return out
-        return out
+        return self.browser.search("repository", query, limit=limit)["matches"]
 
     def inspect(self) -> dict:
         files = self.list_files()
