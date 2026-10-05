@@ -26,17 +26,17 @@ class CapabilityRuntime:
         return self.full_access or self.mode == "execute"
 
     def _make_tools(self):
-        registry = ToolRegistry()
+        registry = ToolRegistry(lambda: self.full_access)
         integer = lambda low, high: {"type": "integer", "minimum": low, "maximum": high}
         registry.add("capture_target", "重新截图；新图片随后交给模型", arguments(), self._capture_tool)
         registry.add("observe_controls", "读取当前绑定窗口的控件", arguments(), self._controls_tool)
         registry.add("computer.run", "执行模式：在用户绑定的当前窗口完成明确要求的桌面任务。自动观察、输入或点击、核实结果；不能启动应用、跨窗口操作或执行命令。只有用户要求操作桌面时使用。", arguments({"goal": string(4000)}, ["goal"]), self._computer_tool, "write")
-        registry.set_availability("computer.run", lambda: bool(self.target and self.computer.status["available"]))
-        registry.set_availability("capture_target", lambda: bool(self.target and self.settings.values.get("send_screenshot")))
-        registry.set_availability("observe_controls", lambda: bool(self.target))
+        registry.set_availability("computer.run", lambda: bool(self.target and self.computer.status["available"]), "需要绑定窗口并启用桌面执行组件")
+        registry.set_availability("capture_target", lambda: bool(self.target and self.settings.values.get("send_screenshot")), "需要绑定窗口并开启截图发送")
+        registry.set_availability("observe_controls", lambda: bool(self.target), "需要先绑定目标窗口")
         registry.add("web.search", "公网搜索；重要结论继续 web.fetch 核对原文", arguments({"query": string(1000), "count": integer(1, 10)}, ["query"]), self._web_search)
         registry.add("web.fetch", "读取公网网页或 source_id 的正文", arguments({"url": string(3000)}, ["url"]), self._web_fetch)
-        registry.set_availability("web.search", lambda: self.web.search_available)
+        registry.set_availability("web.search", lambda: self.web.search_available, "当前搜索服务尚未配置完成")
         path_args = {"root_id": string(100), "path": string()}
         registry.add("files.read", "读取文本；可按 start_line/max_lines 分段。普通模式 root_id 为 repository 或授权目录 ID；Full access 可用 root_id=filesystem 加任意绝对路径。省略 root_id 时优先仓库，否则 output。完整 UTF-8 文件返回 sha256；修改前必须完整读取", arguments({**path_args, "start_line": integer(1, 1000000), "max_lines": integer(1, 200)}, ["path"]), self._file_read)
         registry.add("files.create", "执行模式：在授权目录创建新文本文件，绝不覆盖", arguments({**path_args, "content": string(40000)}, [*path_args, "content"]), self._file_create, "write")
@@ -53,20 +53,20 @@ class CapabilityRuntime:
         registry.add("windows.list", "列出本机可见应用窗口，返回可信 window_id。打开应用后使用它查找窗口，不要猜测 ID", arguments(), self._windows_list)
         registry.add("windows.select", "执行模式：选定 windows.list 返回的窗口作为观察/桌面任务目标，同时返回新截图。不能用旧窗口 ID 操作已关闭或被替换的窗口", arguments({"window_id": string(100)}, ["window_id"]), self._windows_select, "write")
         registry.add("shell.run", "Full access：执行 PowerShell 命令（非 Windows 为 sh），可访问任意本机路径、操作文件、运行脚本和程序、读取本地服务。cwd 为现有绝对路径，省略时使用当前仓库或数据目录。返回真实退出码和输出；失败不代表成功。命令超时/取消会停止整棵进程树，不能用于启动持久后台服务", arguments({"command": string(16000), "cwd": string(1000), "timeout_seconds": integer(1, 300)}, ["command"]), self._shell_run, "write")
-        registry.set_availability("shell.run", lambda: self.full_access)
+        registry.set_availability("shell.run", lambda: self.full_access, "命令执行需要开启 Full access")
         registry.add("desktop.step", "Full access：根据当前截图直接执行一个桌面动作并返回观察结果；snapshot_id 必须与最新截图一致。click/scroll 需要截图坐标 point；type 使用 text；key 使用 key；不得猜测坐标", arguments({
             "snapshot_id": string(100), "kind": {"type": "string", "enum": ["click", "type", "scroll", "highlight", "key"]},
             "point": arguments({"x": integer(0, 20000), "y": integer(0, 20000)}, ["x", "y"]),
             "text": string(4000), "key": {"type": "string", "enum": ["enter", "tab", "escape", "backspace", "left", "up", "right", "down", "home", "end", "pageup", "pagedown"]},
             "delta": {**integer(-20, 20), "description": "滚动刻度，必须非零；省略时为 -3"},
             "expected_result": string(1000), "expected_text": string(1000)}, ["snapshot_id", "kind"]), self._desktop_step, "write")
-        registry.set_availability("desktop.step", lambda: self.full_access and bool(self.target and self.snapshot))
+        registry.set_availability("desktop.step", lambda: self.full_access and bool(self.target and self.snapshot), "需要 Full access、绑定窗口和当前截图")
         for name in ("apps.search", "apps.open", "files.open", "web.open", "windows.list", "windows.select"):
-            registry.set_availability(name, lambda: os.name == "nt")
+            registry.set_availability(name, lambda: os.name == "nt", "该系统操作目前只支持 Windows")
         for tool in registry.tools.values():
             if tool.effect == "write":
-                registry.set_visibility(tool.name, self._execution_enabled)
-        registry.set_visibility("files.propose_restore", self._has_restorable_artifact)
+                registry.set_visibility(tool.name, self._execution_enabled, "需要执行模式或 Full access")
+        registry.set_visibility("files.propose_restore", self._has_restorable_artifact, "当前没有可恢复且可写的文件备份")
         return registry
 
     def _has_restorable_artifact(self):
@@ -80,10 +80,15 @@ class CapabilityRuntime:
                 "Only currently supplied tools are available; their set may change after a tool result."
                 if self.settings.values.get("native_tools", True) else self.registry.prompt())
         access = ("Full access is ON. All local paths and shell.run are authorized. Writes and desktop actions execute without per-step approval. "
-                  "Use root_id=filesystem and absolute paths for filesystem tools. Tool schemas retain general-mode descriptions: Full access overrides grant/execute-mode/approval requirements. "
+                  "Use root_id=filesystem and absolute paths for filesystem tools. "
                   "Stay within the user's task, check actual results, and stop on cancellation."
                   if self.full_access else "Full access is OFF. Directory grants, execution mode and user approval rules apply. shell.run is unavailable.")
-        return "<ayana_tools>\n" + text + "\n" + access + "\n</ayana_tools>"
+        guidance = ("Use dedicated file/app/web tools for their operations. Use computer.run for a whole bound-window task, "
+                    "desktop.step for an observed single action or recovery; do not repeatedly switch executors. "
+                    "Tool failures are evidence for you: explain what happened in ordinary language, and either recover, "
+                    "ask for the missing information, or report blocked. Never present raw error codes as instructions to the user. "
+                    "Unavailable capabilities (not callable): " + json.dumps({item["name"]: item["reason"] for item in self.registry.catalog() if not item["available"]}, ensure_ascii=False))
+        return "<ayana_tools>\n" + text + "\n" + access + "\n" + guidance + "\n</ayana_tools>"
 
     def _model_tools(self, messages=None):
         if messages and messages[0].get("role") == "system":
@@ -379,6 +384,7 @@ class CapabilityRuntime:
 
     async def _capabilities_snapshot(self):
         await self.emit("capabilities.ready", directories=self.policy.public(),
+                        tools=self.registry.catalog(),
                         full_access=self.full_access,
                         computer_use=self.computer.status,
                         search_configured=self.web.search_available,
