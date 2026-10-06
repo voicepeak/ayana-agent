@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Speech } from './state';
 import { dialoguePages, dialoguePageAt, dialogueRevealCount, dialogueRevealDuration } from './cinematic';
 
-export function CinematicDialogue({ speech, translate, textOnly, show = true, showJapanese = false, onVisibilityChange }: { speech?: Speech; translate: boolean; textOnly: boolean; show?: boolean; showJapanese?: boolean; onVisibilityChange?: (visible: boolean) => void }) {
+export function CinematicDialogue({ speech, translate, textOnly, show = true, showJapanese = false, onVisibilityChange, onComplete }: { speech?: Speech; translate: boolean; textOnly: boolean; show?: boolean; showJapanese?: boolean; onVisibilityChange?: (visible: boolean) => void; onComplete?: (id: string) => void }) {
   const ref = useRef<HTMLElement>(null);
   const [columns, setColumns] = useState(14);
   const [originalColumns, setOriginalColumns] = useState(26);
@@ -44,6 +44,12 @@ export function CinematicDialogue({ speech, translate, textOnly, show = true, sh
   const page = dialoguePageAt(pages, count);
   const visible = Boolean(show && speech && text && page);
   useEffect(() => { onVisibilityChange?.(visible); }, [visible, onVisibilityChange]);
+  const complete = visible && (timed ? elapsed >= dialogueRevealDuration(text) : speech?.state === 'played');
+  useEffect(() => {
+    if (!complete || !speech || !onComplete) return;
+    const timer = setTimeout(() => onComplete(speech.id), 900);
+    return () => clearTimeout(timer);
+  }, [complete, speech?.id, onComplete]);
   const original = showJapanese && translate && speech?.zh ? speech.ja : '';
   const originalCount = dialogueRevealCount(original, timed ? elapsed / dialogueRevealDuration(text) : speech?.state === 'played' ? 1 : (speech?.total ? speech.played / speech.total : 0));
   const originalPage = dialoguePageAt(dialoguePages(original, originalColumns), originalCount);
