@@ -22,6 +22,7 @@ export interface DesktopState {
   events: RuntimeEvent[];
   composerRequested?: boolean;
   designPreview?: Record<string, unknown>;
+  designDraft?: Record<string, unknown>;
   designOpen?: boolean;
 }
 
@@ -38,8 +39,9 @@ export interface AyanaBridge {
   openDesign(): Promise<void>;
   closeDesign(): Promise<void>;
   previewDesign(value: Record<string, unknown>): void;
+  revertDesignPreview(): Promise<void>;
   openCompanionMenu(): Promise<void>;
-  chooseNoteBackground(): Promise<{ ok: boolean; error?: string }>;
+  chooseNoteBackground(): Promise<{ ok: boolean; error?: string; imageId?: string }>;
   openSettings(tab?: 'tasks' | 'history'): Promise<void>;
   hideSettings(): Promise<void>;
   chooseRepository(): Promise<string | null>;

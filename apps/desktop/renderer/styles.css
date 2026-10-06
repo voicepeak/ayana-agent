@@ -177,7 +177,6 @@ select { width: 100%; outline: none; border: 1px solid var(--color-default-200);
 .avatar-bubble.visible { opacity: 1; transform: translateY(0); }.avatar-bubble > span { font-size: 9px; color: var(--color-primary-text); font-weight: 600; letter-spacing: 1px; }.avatar-bubble p { font-size: 12px; line-height: 1.8; margin: 6px 0 10px; }
 .highlight-frame { position: absolute; inset: 16px; border: 3px solid var(--color-primary); border-radius: var(--radius-kun-md); box-shadow: 0 0 0 2px white,0 0 0 4px var(--color-primary-200); background: color-mix(in oklch,var(--color-primary) 9%,transparent); }
 .highlight-frame span { position: absolute; left: -2px; top: -24px; background: var(--color-primary); color: var(--color-primary-foreground); padding: 4px 9px; font-size: 9px; border-radius: 5px 5px 0 0; }
-.mic-button.recording { background: var(--color-danger-100); color: var(--color-danger-text); animation: pulse 1s infinite; }
 @keyframes pulse { 50% { opacity: .4; } }
 @media (max-width:1100px) { .workshop { grid-template-columns: 180px minmax(390px,1fr) 255px; }.sidebar { padding-left: 12px; padding-right: 12px; }.context-panel { padding-left: 13px; padding-right: 13px; }.main-header { padding-left: 24px; padding-right: 24px; }.conversation { padding-left: 24px; padding-right: 24px; }.composer-area { padding-left: 20px; padding-right: 20px; }.composer-hint span { display: none; } }
 @media (max-width:1000px) { .workshop { grid-template-columns: 165px minmax(340px,1fr) 235px; }.main-header { padding: 21px 18px; }.conversation { padding-left: 18px; padding-right: 18px; }.composer-area { padding-left: 15px; padding-right: 15px; }.composer-footer > span { display: none; }.composer-footer > div { margin-left: auto; }.mode-strip > span { display: none; }.brand { margin-left: 3px; gap: 8px; }.brand strong { font-size: 22px; }.brand-mark { width: 35px; height: 35px; }.brand span { font-size: 9px; }.main-header h1 { font-size: 20px; }.main-status { padding: 10px 18px; } }
@@ -318,12 +317,7 @@ select { width: 100%; outline: none; border: 1px solid var(--color-default-200);
 .floating-input button, .companion-error button { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 32px; width: 32px; height: 36px; padding: 0; border: 0; background: transparent; color: #fff8f4; filter: drop-shadow(0 1px 2px #15121c); cursor: pointer; }
 .floating-input button:hover { color: #ead2bd; }
 .floating-input button:disabled { opacity: .38; cursor: default; }
-.floating-input .floating-input-more { height: 32px; width: 24px; flex-basis: 24px; font: 20px/1 Georgia, serif; letter-spacing: 2px; opacity: .4; transition: opacity 180ms; }
-.floating-input .floating-input-more:hover, .floating-input .floating-input-more:focus-visible, .floating-input .floating-input-more[aria-expanded=true] { opacity: 1; }
 .floating-input button:focus-visible { outline: none; color: #ead2bd; filter: drop-shadow(0 0 3px #efd4ad); }
-.floating-input-tools { position: absolute; right: 0; bottom: -38px; display: flex; gap: 8px; animation: floating-input-arrival 180ms ease-out; }
-.floating-input .mic-button.recording { color: #ffbaa9; }
-.speech-review { position: absolute; left: 0; top: 42px; font-size: 12px; color: #eee5e0; text-shadow: 0 1px 4px #15121c; }
 .companion-error { position: absolute; left: 30px; right: 28px; bottom: 12px; display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 1.6; color: #ffdfd3; text-shadow: 0 1px 4px #15121c, 0 0 3px #15121c; }
 .companion-error button { margin-left: auto; }
 .companion-approval { position: absolute; left: 30px; bottom: 20px; display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; color: #f3dcc1; font-size: 13px; text-shadow: 0 1px 4px #15121c; cursor: pointer; }

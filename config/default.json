@@ -13,15 +13,47 @@
   "max_utterances": 8,
   "detailed_max_utterances": 32,
   "model_max_tokens": 6000,
-  "task_limits": {"rounds": 12, "calls": 24, "seconds": 180},
+  "task_limits": {
+    "rounds": 12,
+    "calls": 24,
+    "seconds": 180
+  },
   "max_audio_ahead_ms": 10000,
-  "voice": {"voice_mode": "auto"},
-  "stt": {"provider": "local", "model": "tiny"},
+  "voice": {
+    "voice_mode": "auto"
+  },
+  "stt": {
+    "provider": "local",
+    "model": "tiny"
+  },
   "avatar_root": "assets/ayana",
   "avatar_costume": "校服",
   "sentence_motion": true,
   "volume": 1,
   "subtitles": true,
-  "companion_ui": {"portrait_range": "full", "portrait_size": 320, "frame_width": 760, "frame_height": 480, "font_size": 24, "opacity": 100, "show_subtitles": true, "show_japanese": false, "primary_language": "zh", "translation_language": "none", "background_mode": "minimal", "background_color": "#25282d", "portrait_side": "right", "portrait_x": 0, "portrait_y": 0},
+  "companion_ui": {
+    "portrait_range": "full",
+    "portrait_size": 320,
+    "frame_width": 760,
+    "frame_height": 480,
+    "font_size": 24,
+    "opacity": 100,
+    "show_subtitles": true,
+    "show_japanese": false,
+    "primary_language": "zh",
+    "translation_language": "none",
+    "background_mode": "minimal",
+    "background_color": "#25282d",
+    "portrait_side": "right",
+    "portrait_x": 0,
+    "portrait_y": 0,
+    "show_bubbles": true,
+    "bubble_color": "#25282d",
+    "background_x": 50,
+    "background_y": 50,
+    "background_image": "",
+    "theme": "ink",
+    "background_zoom": 100
+  },
   "save_history": true
 }

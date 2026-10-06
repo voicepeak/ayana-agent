@@ -4,7 +4,7 @@ import {
   shell,
 } from 'electron';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import { existsSync, appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
@@ -12,6 +12,7 @@ import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 import defaults from '../../../config/default.json';
 import { clampCompanion, companionSize, companionDragBounds, inspectorBounds, type Bounds, type Point } from './companionGeometry';
+import { resolveTheme } from '../renderer/companionThemes';
 
 type Event = Record<string, unknown> & { type: string; protocol_version: number };
 const commands = new Set([
@@ -62,13 +63,18 @@ let companionPositionTimer: ReturnType<typeof setTimeout> | undefined;
 let companionSettings: Record<string, unknown> = {};
 let companionMode = 'teach';
 let designPreview = { ...defaults.companion_ui };
+let designDraft = { ...designPreview };
+let designPreviewReverted = true;
+const designSaves = new Map<string, typeof designDraft>();
 let companionDrag: { origin: Bounds; cursor: Point; moved: boolean; timer: ReturnType<typeof setInterval> } | undefined;
 
 function storedDesign(settings: Record<string, unknown>) {
   const stored = settings.companion_ui as Partial<typeof designPreview> || {};
   const primary = stored.primary_language || (settings.subtitles === false ? 'ja' : defaults.companion_ui.primary_language);
   const translation = stored.translation_language || (stored.show_japanese && primary !== 'ja' ? 'ja' : 'none');
-  return { ...defaults.companion_ui, ...stored, primary_language: primary, translation_language: translation === primary ? 'none' : translation };
+  return { ...defaults.companion_ui, ...stored, theme: resolveTheme(stored), opacity: 100,
+    background_mode: ['transparent', 'frosted'].includes(stored.background_mode || '') ? 'solid' : stored.background_mode || defaults.companion_ui.background_mode,
+    primary_language: primary, translation_language: translation === primary ? 'none' : translation };
 }
 
 function persistCompanionPosition() {
@@ -89,19 +95,33 @@ function positionDesignWindow() {
 }
 
 function notifyDesignPreview() {
-  broadcast({ protocol_version: 1, type: 'desktop.design-preview', value: designPreview }, false);
+  for (const [window, value] of [[chat, designPreview], [designWindow, designDraft]] as const) {
+    if (windowId(window)) window!.webContents.send('ayana:event', { protocol_version: 1, type: 'desktop.design-preview', value });
+  }
+}
+
+function revertDesignPreview() {
+  designPreviewReverted = true;
+  designPreview = storedDesign(companionSettings);
+  placeCompanion(); notifyDesignPreview();
 }
 
 function openDesign() {
   if (!designWindow || !chat) return;
+  designPreviewReverted = false;
+  designPreview = { ...designDraft };
   designWindow.setBounds(inspectorBounds(chat.getBounds(), screen.getDisplayMatching(chat.getBounds()).workArea, designPreview.portrait_side as 'left' | 'right'));
   designWindow.show(); designWindow.focus();
+  chat.setMovable(true);
   notifyDesignPreview();
   broadcast({ protocol_version: 1, type: 'desktop.design-visibility', open: true }, false);
 }
 
 function closeDesign() {
+  endCompanionDrag();
+  chat?.setMovable(true);
   designWindow?.hide();
+  revertDesignPreview();
   broadcast({ protocol_version: 1, type: 'desktop.design-visibility', open: false }, false);
 }
 
@@ -374,18 +394,19 @@ function receive(event: Event) {
   if (event.type === 'settings.ready') {
     const settings = (event.settings ?? {}) as Record<string, unknown>;
     const before = storedDesign(companionSettings);
-    const edits = Object.fromEntries(Object.entries(designPreview).filter(([key, value]) => value !== before[key as keyof typeof before]));
-    designPreview = { ...storedDesign(settings), ...edits };
+    const requestId = String(event.request_id || '');
+    const baseline = designSaves.get(requestId) || before;
+    const edits = Object.fromEntries(Object.entries(designDraft).filter(([key, value]) => value !== baseline[key as keyof typeof baseline]));
+    designSaves.delete(requestId);
+    designDraft = { ...storedDesign(settings), ...edits };
+    designPreview = designWindow?.isVisible() && !designPreviewReverted ? { ...designDraft } : storedDesign(settings);
     companionSettings = settings;
     placeCompanion(); notifyDesignPreview();
     updateShortcuts(settings);
   }
+  if (event.type === 'error' && designSaves.delete(String(event.request_id || ''))) revertDesignPreview();
   if (event.type === 'mode.ready') companionMode = event.mode === 'execute' ? 'execute' : 'teach';
   if (event.type === 'conversation.changed') highlight?.hide();
-  if (event.type === 'utterance.ready' && event.presentation === 'costume-change') {
-    // Show the saved outfit's acknowledgment without summoning/cancelling its generation.
-    chat?.showInactive();
-  }
   // The backend captures the foreground identity before chat takes focus.
   // Later screenshots and playback must not restart the summon effect.
   if (event.type === 'session.started' && focusAfterCapture) {
@@ -498,6 +519,7 @@ async function restartRuntime() {
     await stopRuntime(previous);
   }
   recentEvents = [];
+  designSaves.clear(); revertDesignPreview();
   currentGeneration = 0;
   desktopEvent('desktop.reset');
   // connectRuntime must be enabled before the new service is started.
@@ -541,7 +563,12 @@ function registerIpc() {
       desktopEvent('desktop.cancelled', { cancelled_generation_id: currentGeneration });
     }
     if (command.type === 'repository.inspect' && typeof command.root === 'string') repositoryRoot = command.root;
-    return runtimeSend(command) ? { ok: true } : { ok: false, error: '本地服务未连接，请稍后重试。' };
+    const designRequest = command.type === 'settings.update' && typeof command.request_id === 'string'
+      && Boolean((command.settings as Record<string, unknown> | undefined)?.companion_ui);
+    if (designRequest) designSaves.set(String(command.request_id), { ...designDraft });
+    if (runtimeSend(command)) return { ok: true };
+    if (designRequest) { designSaves.delete(String(command.request_id)); revertDesignPreview(); }
+    return { ok: false, error: '本地服务未连接，请稍后重试。' };
   });
   ipcMain.on('ayana:playback', (event, value: unknown) => {
     if (event.sender.id !== windowId(chat) || !value || typeof value !== 'object') return;
@@ -576,20 +603,24 @@ function registerIpc() {
   ipcMain.on('ayana:companion-drag-end', event => { if (event.sender.id === windowId(chat)) endCompanionDrag(); });
   ipcMain.handle('ayana:design-open', event => { if (event.sender.id === windowId(chat)) openDesign(); });
   ipcMain.handle('ayana:design-close', event => { if ([windowId(chat), windowId(designWindow)].includes(event.sender.id)) closeDesign(); });
+  ipcMain.handle('ayana:design-revert-preview', event => { if (event.sender.id === windowId(designWindow)) revertDesignPreview(); });
   ipcMain.on('ayana:design-preview', (event, value: unknown) => {
     if (![windowId(designWindow), windowId(chat)].includes(event.sender.id) || !value || typeof value !== 'object' || Array.isArray(value)) return;
     const next = value as Record<string, unknown>;
-    const bounds = { portrait_size: [160, 640], frame_width: [380, 900], frame_height: [320, 720], font_size: [18, 26], opacity: [0, 100], portrait_x: [-4096, 4096], portrait_y: [-4096, 4096] };
+    const bounds = { portrait_size: [160, 640], frame_width: [380, 900], frame_height: [320, 720], font_size: [14, 40], opacity: [0, 100], portrait_x: [-4096, 4096], portrait_y: [-4096, 4096], background_x: [0, 100], background_y: [0, 100], background_zoom: [100, 300] };
     if (Object.keys(next).some(key => !(key in defaults.companion_ui))) return;
     if (Object.entries(bounds).some(([key, [low, high]]) => key in next && (!Number.isInteger(next[key]) || Number(next[key]) < low || Number(next[key]) > high))) return;
-    if (['show_subtitles', 'show_japanese'].some(key => key in next && typeof next[key] !== 'boolean')) return;
+    if (['show_subtitles', 'show_japanese', 'show_bubbles'].some(key => key in next && typeof next[key] !== 'boolean')) return;
     if ('portrait_range' in next && !['half', 'full'].includes(String(next.portrait_range))) return;
     if ('background_mode' in next && !['transparent', 'frosted', 'image', 'minimal', 'solid'].includes(String(next.background_mode))) return;
-    if ('background_color' in next && (typeof next.background_color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(next.background_color))) return;
+    if ('theme' in next && !['ink', 'paper', 'forest', 'sea', 'custom'].includes(String(next.theme))) return;
+    if (['background_color', 'bubble_color'].some(key => key in next && (typeof next[key] !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(String(next[key]))))) return;
+    if ('background_image' in next && (typeof next.background_image !== 'string' || !/^(?:[0-9a-f]{64})?$/.test(next.background_image))) return;
     if ('portrait_side' in next && !['left', 'right'].includes(String(next.portrait_side))) return;
     if ('primary_language' in next && !['ja', 'zh', 'en'].includes(String(next.primary_language))) return;
     if ('translation_language' in next && !['none', 'ja', 'zh', 'en'].includes(String(next.translation_language))) return;
-    designPreview = { ...designPreview, ...next };
+    designDraft = { ...designDraft, ...next };
+    if (designWindow?.isVisible()) { designPreviewReverted = false; designPreview = { ...designDraft }; }
     placeCompanion();
     if ('portrait_side' in next) positionDesignWindow();
     notifyDesignPreview();
@@ -615,9 +646,12 @@ function registerIpc() {
       const { width, height } = image.getSize();
       const scale = Math.min(1, 1280 / Math.max(width, height));
       if (scale < 1) image = image.resize({ width: Math.round(width * scale), height: Math.round(height * scale) });
-      writeFileSync(path.join(app.getPath('userData'), 'companion-background.png'), image.toPNG());
+      const png = image.toPNG();
+      const imageId = createHash('sha256').update(png).digest('hex');
+      // Immutable assets keep an unsaved replacement from overwriting the saved background.
+      writeFileSync(path.join(app.getPath('userData'), `companion-background-${imageId}.png`), png);
       broadcast({ protocol_version: 1, type: 'desktop.background-changed', revision: Date.now() }, false);
-      return { ok: true };
+      return { ok: true, imageId };
     } catch { return { ok: false, error: '背景图片未保存，请重试。' }; }
   });
   ipcMain.handle('ayana:hide-settings', event => {
@@ -636,7 +670,7 @@ function registerIpc() {
   ipcMain.handle('ayana:restart', (event) => event.sender.id === windowId(settingsWindow) ? restartRuntime() : undefined);
   ipcMain.handle('ayana:state', (event) => {
     if (!trustedSender(event.sender.id)) return null;
-    return { connected: socket?.readyState === WebSocket.OPEN, service, version: app.getVersion(), repositoryRoot, events: recentEvents, composerRequested, designPreview, designOpen: designWindow?.isVisible() === true };
+    return { connected: socket?.readyState === WebSocket.OPEN, service, version: app.getVersion(), repositoryRoot, events: recentEvents, composerRequested, designPreview, designDraft, designOpen: designWindow?.isVisible() === true };
   });
 }
 
@@ -652,6 +686,7 @@ function createWindow(kind: 'chat' | 'settings' | 'design' | 'highlight') {
     alwaysOnTop: overlay, focusable: kind !== 'highlight', skipTaskbar: overlay,
     title: kind === 'settings' ? 'Ayana · 设置与管理' : kind === 'design' ? '彩名 · 外观' : 'Ayana', autoHideMenuBar: true, hasShadow: !overlay,
     resizable: kind === 'settings' || kind === 'chat',
+    movable: true,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   if (overlay) {
@@ -732,8 +767,10 @@ async function ready() {
     } catch { return new Response(null, { status: 503 }); }
   });
   protocol.handle('ayana-background', request => {
-    if (new URL(request.url).hostname !== 'custom') return new Response(null, { status: 404 });
-    const file = path.join(app.getPath('userData'), 'companion-background.png');
+    const url = new URL(request.url);
+    const imageId = url.searchParams.get('image') || '';
+    if (url.hostname !== 'custom' || !/^(?:[0-9a-f]{64})?$/.test(imageId)) return new Response(null, { status: 404 });
+    const file = path.join(app.getPath('userData'), imageId ? `companion-background-${imageId}.png` : 'companion-background.png');
     return existsSync(file) ? new Response(readFileSync(file), { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' } }) : new Response(null, { status: 404 });
   });
   chat = createWindow('chat');

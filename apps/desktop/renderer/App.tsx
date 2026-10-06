@@ -10,7 +10,8 @@ import desktopPackage from '../package.json';
 import { companionDesign, useCompanionDesign, designStyle, designTone, DesignControls, type CompanionDesign } from './CompanionDesign';
 import { savePreferences } from './preferences';
 import { CompanionPortrait } from './CompanionPortrait';
-import { captionLayout, type CaptionLayout, type PortraitScene } from './captionLayout';
+import { captionLayout, type PortraitScene } from './captionLayout';
+import { usePortraitEditing } from './portraitEditing';
 
 const taskLabels: Record<string, string> = { idle: '空闲', observing: '正在观察目标', thinking: '正在整理思路', acting: '正在执行这一步', failed: '需要留意', speaking: 'Ayana 正在说话' };
 
@@ -27,11 +28,9 @@ export default function App() {
   const [actionText, setActionText] = useState('');
   const [actionKey, setActionKey] = useState('enter');
   const [localError, setLocalError] = useState('');
-  const [recording, setRecording] = useState(false);
-  const [speechReview, setSpeechReview] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
-  const [inputToolsOpen, setInputToolsOpen] = useState(false);
   const [designOpen, setDesignOpen] = useState(false);
+  const { portraitEditing, changePortraitEditing } = usePortraitEditing(kind, designOpen);
   const { draft: design, setDraft: setDesign, patch: designPatch } = useCompanionDesign(state.settings);
   const [designSaving, setDesignSaving] = useState(false);
   const [costumeSaving, setCostumeSaving] = useState(false);
@@ -39,25 +38,14 @@ export default function App() {
   const [captionVisible, setCaptionVisible] = useState(false);
   const [backgroundRevision, setBackgroundRevision] = useState(0);
   const [portraitScene, setPortraitScene] = useState<PortraitScene>();
-  const [captionArea, setCaptionArea] = useState<CaptionLayout>();
-  const captionTarget = portraitScene && captionLayout(portraitScene, design.font_size);
-  useEffect(() => {
-    if (captionTarget && !portraitScene?.dragging) setCaptionArea(current =>
-      JSON.stringify(current) === JSON.stringify(captionTarget) ? current : captionTarget);
-  }, [portraitScene, design.font_size]);
+  const captionArea = portraitScene && captionLayout(portraitScene, design.font_size);
   const designDirty = Object.keys(designPatch).length > 0;
   const companion = useRef<HTMLElement>(null);
-  const recorder = useRef<MediaRecorder | null>(null);
-  const microphone = useRef<MediaStream | null>(null);
-  const recordRequested = useRef(false);
-  const discardRecording = useRef(false);
-  const recordingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const targetDialog = useRef<HTMLDialogElement>(null);
   const current = state.speeches.find(speech => speech.id === state.current);
   const captionsOccupyScene = design.show_subtitles && (captionVisible || state.questions.length > 0
     || state.history.some(record => record.role === 'user' || record.displayed === true || ['played', 'partial'].includes(String(record.status))));
-  const busy = state.task === 'thinking' || state.task === 'observing' || state.inputState === 'transcribing' || Boolean(current);
 
   function openComposer() { setComposerOpen(true); textarea.current?.focus({ preventScroll: true }); }
   function changeDesign(patch: Partial<CompanionDesign>) {
@@ -80,7 +68,8 @@ export default function App() {
     let active = true;
     void bridge.getState().then(snapshot => {
       if (!active) return;
-      if (snapshot.designPreview) setDesign(snapshot.designPreview as unknown as CompanionDesign);
+      const initialDesign = kind === 'design' ? snapshot.designDraft || snapshot.designPreview : snapshot.designPreview;
+      if (initialDesign) setDesign(initialDesign as unknown as CompanionDesign);
       setDesignOpen(snapshot.designOpen === true);
     });
     return () => { active = false; off(); };
@@ -89,13 +78,16 @@ export default function App() {
     if (designSaving || !designDirty) return;
     setDesignSaving(true); setDesignMessage('');
     try { await savePreferences({ companion_ui: designPatch }); setDesignMessage('设计已保存'); }
-    catch (error) { setDesignMessage(error instanceof Error ? error.message : '未保存，请重试'); }
+    catch (error) {
+      await bridge.revertDesignPreview();
+      setDesignMessage(`${error instanceof Error ? error.message : '未保存，请重试'} 预览已撤销，修改已保留，可重新保存。`);
+    }
     finally { setDesignSaving(false); }
   }
   async function chooseBackground() {
     try {
       const result = await bridge.chooseNoteBackground();
-      if (result.ok) { setBackgroundRevision(Date.now()); changeDesign({ background_mode: 'image' }); }
+      if (result.ok && result.imageId) { setBackgroundRevision(Date.now()); changeDesign({ theme: 'custom', background_mode: 'image', background_image: result.imageId, background_x: 50, background_y: 50, background_zoom: 100 }); }
       else if (result.error) setDesignMessage(result.error);
     } catch (error) { setDesignMessage(error instanceof Error ? error.message : '背景图片未保存，请重试。'); }
   }
@@ -105,9 +97,9 @@ export default function App() {
     return () => cancelAnimationFrame(frame);
   }, [composerOpen]);
   useEffect(() => {
-    if (!composerOpen) { setInputToolsOpen(false); return; }
+    if (!composerOpen) return;
     const node = textarea.current;
-    if (node) { node.style.height = '32px'; node.style.height = `${Math.min(64, Math.max(32, node.scrollHeight))}px`; }
+    if (node) { node.style.height = '24px'; node.style.height = `${Math.min(48, Math.max(24, node.scrollHeight))}px`; }
   }, [composerOpen, text]);
   useEffect(() => {
     if (kind !== 'chat') return;
@@ -116,7 +108,7 @@ export default function App() {
       event.preventDefault();
       if (designOpen) { void bridge.closeDesign(); textarea.current?.focus({ preventScroll: true }); }
       else if (composerOpen) {
-        discardRecording.current = true; endMicrophone(); setComposerOpen(false);
+        setComposerOpen(false);
         companion.current?.querySelector<HTMLButtonElement>('.portrait-stage')?.focus({ preventScroll: true });
       } else void bridge.hide();
     };
@@ -134,7 +126,7 @@ export default function App() {
     const onWindowFocus = () => { if (pendingFocus) focusInput(); };
     const off = bridge.onEvent(event => {
       if (event.type === 'desktop.focus-input') focusInput();
-      if (event.type === 'desktop.hidden') { pendingFocus = false; discardRecording.current = true; endMicrophone(); setComposerOpen(false); setDesignOpen(false); }
+      if (event.type === 'desktop.hidden') { pendingFocus = false; setComposerOpen(false); setDesignOpen(false); }
       if (event.type === 'desktop.new-topic') { setComposerOpen(true); void send({ type: 'conversation.create', keep_materials: false }); }
     });
     window.addEventListener('focus', onWindowFocus);
@@ -157,7 +149,7 @@ export default function App() {
     document.documentElement.classList.toggle('overlay-root', kind !== 'settings');
     document.body.classList.toggle('overlay-body', kind !== 'settings');
   }, [kind]);
-  useEffect(() => { setText(''); setSpeechReview(false); }, [state.conversation?.conversation_id]);
+  useEffect(() => { setText(''); }, [state.conversation?.conversation_id]);
   useEffect(() => { player.current?.setVolume(Number(state.settings.volume ?? 1)); }, [state.settings.volume, player]);
   useEffect(() => { setMode(state.mode); }, [state.mode]);
   useEffect(() => { if (targetOpen) targetDialog.current?.showModal(); else targetDialog.current?.close(); }, [targetOpen]);
@@ -166,25 +158,7 @@ export default function App() {
     if (event.type === 'desktop.navigate' && event.tab === 'tasks') { setTab('tasks'); void send({ type: 'capabilities.get' }); }
     if (event.type === 'desktop.navigate' && event.tab === 'history') { setTab('history'); void send({ type: 'history.get' }); void send({ type: 'conversations.get' }); }
     if (event.type === 'desktop.navigate' && event.tab === 'settings') { setTab('chat'); setSettingsSection('appearance'); }
-    if (event.type === 'input.transcribed') {
-      setText(String(event.text || ''));
-      setTab('chat');
-      setSpeechReview(true);
-      setComposerOpen(true);
-      setTimeout(() => textarea.current?.focus(), 0);
-    }
-    if (event.type === 'desktop.cancelled' && recorder.current?.state === 'recording') {
-      discardRecording.current = true;
-      recorder.current.stop();
-    }
   }), []);
-  useEffect(() => () => {
-    discardRecording.current = true;
-    recordRequested.current = false;
-    if (recordingTimer.current) clearTimeout(recordingTimer.current);
-    recorder.current?.state === 'recording' && recorder.current.stop();
-    microphone.current?.getTracks().forEach(track => track.stop());
-  }, []);
 
   async function send(command: Record<string, unknown> & { type: string }) {
     const result = await bridge.send(command);
@@ -193,73 +167,18 @@ export default function App() {
     return result.ok;
   }
   async function ask(question = text) {
-    if (recordRequested.current || state.inputState === 'transcribing') return;
     if (!question.trim()) { textarea.current?.focus(); return; }
     player.current?.cancel(state.generation);
     dispatch({ protocol_version: 1, type: 'desktop.cancelled', cancelled_generation_id: state.generation });
     await player.current?.unlock();
     if (await send({ type: 'turn.start', text: question.trim(), repository_root: state.repository?.root || undefined, mode })) {
-      setText(''); setSpeechReview(false); setTab('chat'); setComposerOpen(false);
+      setText(''); setTab('chat'); setComposerOpen(false);
     }
-  }
-  async function stop() {
-    player.current?.cancel(state.generation);
-    dispatch({ protocol_version: 1, type: 'desktop.cancelled', cancelled_generation_id: state.generation });
-    await send({ type: 'generation.cancel' });
   }
   async function setTaskMode(next: 'teach' | 'execute') {
     const previous = mode;
     setMode(next);
     if (!await send({ type: 'mode.set', mode: next })) setMode(previous);
-  }
-  async function startMicrophone() {
-    if (recordRequested.current || recorder.current?.state === 'recording' || !state.connected) return;
-    recordRequested.current = true;
-    discardRecording.current = false;
-    setSpeechReview(false);
-    await stop();
-    await send({ type: 'mode.set', mode });
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
-      if (!recordRequested.current) { stream.getTracks().forEach(track => track.stop()); return; }
-      microphone.current = stream;
-      const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
-      const instance = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: 64000 });
-      recorder.current = instance;
-      const chunks: Blob[] = [];
-      instance.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
-      instance.onstop = async () => {
-        recordRequested.current = false;
-        setRecording(false);
-        if (recordingTimer.current) clearTimeout(recordingTimer.current);
-        stream.getTracks().forEach(track => track.stop());
-        microphone.current = null;
-        recorder.current = null;
-        dispatch({ protocol_version: 1, type: 'input.state', state: 'idle' });
-        if (discardRecording.current || !chunks.length) return;
-        const blob = new Blob(chunks, { type: mime });
-        if (blob.size > 1_200_000) { setLocalError('录音过大，请用更短的问题再试一次。'); return; }
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result));
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
-        await send({ type: 'input.audio', audio_base64: dataUrl.split(',')[1], mime_type: mime });
-      };
-      instance.start(100);
-      setRecording(true);
-      dispatch({ protocol_version: 1, type: 'input.state', state: 'listening' });
-      recordingTimer.current = setTimeout(endMicrophone, 15000);
-    } catch (error) {
-      recordRequested.current = false;
-      microphone.current?.getTracks().forEach(track => track.stop());
-      setLocalError(`麦克风无法开始录音：${String(error)}`);
-    }
-  }
-  function endMicrophone() {
-    recordRequested.current = false;
-    if (recorder.current?.state === 'recording') recorder.current.stop();
   }
   async function executeManual() {
     if (!state.snapshot?.snapshot_id) return;
@@ -286,33 +205,26 @@ export default function App() {
   if (kind === 'highlight') return state.targetCue?.variant === 'summon'
     ? <div key={String(state.targetCue.cue_id)} className="target-aura" aria-label="Ayana 正在观察这个窗口"><i/><b/><em/><span/></div>
     : <div className="highlight-frame"><span>Ayana · 看这里</span></div>;
-  if (kind === 'design') return <DesignControls value={design} onChange={changeDesign} onSave={() => void saveDesign()} onClose={() => void bridge.closeDesign()} onBackground={() => void chooseBackground()} onUndo={() => changeDesign(companionDesign(state.settings))} costume={String(state.settings.avatar_costume || '校服')} onCostume={value => void changeCostume(value)} saving={designSaving || costumeSaving} dirty={designDirty} message={designMessage}/>;
-  if (kind === 'chat') return <main ref={companion} className="companion-shell companion-framed" data-design-open={designOpen} style={designStyle(design)} onContextMenu={event => { event.preventDefault(); void bridge.openCompanionMenu(); }}>
-    <section className="companion-frame companion-note is-visible" data-tone={designTone(design)} data-background={design.background_mode} data-portrait-side={design.portrait_side} data-speaking={captionVisible} aria-label="彩名便签" data-companion-interactive>
+  if (kind === 'design') return <DesignControls backgroundRevision={backgroundRevision} value={design} onChange={changeDesign} portraitEditing={portraitEditing} onPortraitEditing={changePortraitEditing} onSave={() => void saveDesign()} onClose={() => void bridge.closeDesign()} onBackground={() => void chooseBackground()} onUndo={() => changeDesign(companionDesign(state.settings))} costume={String(state.settings.avatar_costume || '校服')} onCostume={value => void changeCostume(value)} saving={designSaving || costumeSaving} dirty={designDirty} message={designMessage}/>;
+  if (kind === 'chat') return <main ref={companion} className="companion-shell companion-framed" data-design-open={designOpen} data-portrait-editing={portraitEditing} style={designStyle(design)} onContextMenu={event => { event.preventDefault(); void bridge.openCompanionMenu(); }}>
+    <section className="companion-frame companion-note is-visible" data-theme={design.theme} data-tone={designTone(design)} data-bubbles={design.show_bubbles} data-background={design.background_mode} data-portrait-side={design.portrait_side} data-speaking={captionVisible} aria-label="彩名便签" data-companion-interactive>
     {['minimal', 'solid'].includes(design.background_mode) && <div className="note-surface" aria-hidden="true"/>}
-    {design.background_mode === 'image' && <div className="note-background-image" style={{ backgroundImage: `url("ayana-background://custom/?v=${backgroundRevision}")` }} aria-hidden="true"/>}
-    <header className="companion-frame-heading" title="系统标题栏：拖动移动彩名"><div className="companion-heading-start"><div className="companion-signature"><i/><strong>彩名</strong><span>AYANA</span></div><button className="companion-appearance-button" type="button" aria-label="打开设计控件" aria-expanded={designOpen} title="调整外观" onClick={() => { if (designOpen) void bridge.closeDesign(); else void bridge.openDesign(); }}><Icon name="settings" size={14}/><span>外观</span></button></div><span className="companion-title-drag-area" aria-hidden="true"/><div className="companion-frame-actions">
+    {design.background_mode === 'image' && <div className="note-background-image" aria-hidden="true"><img alt="" src={`ayana-background://custom/?image=${design.background_image}&v=${backgroundRevision}`} style={{ objectPosition: `${design.background_x}% ${design.background_y}%`, transform: `scale(${design.background_zoom / 100})`, transformOrigin: `${design.background_x}% ${design.background_y}%` }}/></div>}
+    <header className="companion-frame-heading" title="拖动标题栏移动窗口"><div className="companion-heading-start"><div className="companion-signature"><strong>彩名</strong></div><button className="companion-appearance-button" type="button" aria-label="打开设计控件" aria-expanded={designOpen} title="调整外观" onClick={() => { if (designOpen) void bridge.closeDesign(); else void bridge.openDesign(); }}><Icon name="settings" size={14}/></button></div><span className="companion-title-drag-area" aria-hidden="true"/><div className="companion-frame-actions">
       <button type="button" aria-label="输入回复" title="输入回复" onMouseDown={event => event.preventDefault()} onClick={openComposer}><Icon name="message" size={15}/></button>
       <button type="button" aria-label="更多操作" title="话题、任务与设置" onClick={() => void bridge.openCompanionMenu()}>···</button>
       <button type="button" aria-label="隐藏彩名" title="隐藏彩名" onClick={() => void bridge.hide()}><Icon name="close" size={14}/></button>
     </div></header>
     <CompanionPortrait design={design} expression={state.expression} motion={state.settings.sentence_motion !== false}
-      connected={state.connected} onChange={changeDesign} onClick={openComposer}
+      connected={state.connected} editable={portraitEditing} onChange={changeDesign} onClick={openComposer}
       onSceneChange={setPortraitScene} bottomInset={captionsOccupyScene ? captionArea?.portraitBottomInset : 0}
-      onCommit={patch => { void savePreferences({ companion_ui: patch }).catch(error => setLocalError(`立绘位置未保存：${String(error)}`)); }}/>
-    {design.show_subtitles && portraitScene?.dragging && captionTarget && <div className="caption-layout-preview" aria-label="松手后的字幕位置" data-layout={captionTarget.mode}
-      style={{ left: captionTarget.x, top: captionTarget.y, width: captionTarget.width, height: captionTarget.height }}><span>松手后字幕放在这里</span></div>}
+      onCommit={changeDesign}/>
     <CompanionWorkspace state={state} speech={presented} textOnly={textOnly} show={design.show_subtitles} primaryLanguage={design.primary_language} translationLanguage={design.translation_language} onVisibilityChange={setCaptionVisible} layout={captionArea}/>
     <form className="floating-input" data-companion-interactive onSubmit={event => { event.preventDefault(); void ask(); }} onBlur={event => {
-      if (!companion.current?.contains(event.relatedTarget as Node | null) && !recordRequested.current && state.inputState !== 'transcribing') setComposerOpen(false);
+      if (!companion.current?.contains(event.relatedTarget as Node | null)) setComposerOpen(false);
     }}>
-      <textarea ref={textarea} value={text} maxLength={4000} rows={1} onFocus={() => setComposerOpen(true)} onChange={event => setText(event.target.value)} placeholder={recording ? '正在聆听…' : state.inputState === 'transcribing' ? '正在识别…' : '写下一句话…'} aria-label="输入问题" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void ask(); } }}/>
-      <button type="button" className="floating-input-more" aria-label="更多输入操作" aria-expanded={inputToolsOpen} title="语音与发送 · Enter 直接发送" onClick={() => setInputToolsOpen(open => !open)}>···</button>
-      {inputToolsOpen && <div className="floating-input-tools">
-      <button type="button" className={`mic-button ${recording ? 'recording' : ''}`} disabled={!state.connected || state.inputState === 'transcribing'} aria-label="按住说话，松开识别，最长15秒" title="按住说话，松开后识别" onPointerDown={event => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); void startMicrophone(); }} onPointerUp={endMicrophone} onPointerCancel={() => { discardRecording.current = true; endMicrophone(); }} onKeyDown={event => { if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) { event.preventDefault(); void startMicrophone(); } }} onKeyUp={event => { if (event.key === ' ' || event.key === 'Enter') endMicrophone(); }}><Icon name="mic" size={18}/></button>
-      <button type="submit" aria-label="发送" title="发送 · Enter" disabled={!text.trim() || !state.connected || recording || state.inputState === 'transcribing'}><Icon name="arrow" size={19}/></button>
-      </div>}
-      {speechReview && <span className="speech-review" role="status">已识别，可修改后发送</span>}
+      <textarea ref={textarea} value={text} maxLength={4000} rows={1} onFocus={() => setComposerOpen(true)} onChange={event => setText(event.target.value)} placeholder="写下一句话…" aria-label="输入问题" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void ask(); } }}/>
+      <button type="submit" aria-label="发送" title="发送 · Enter" disabled={!text.trim() || !state.connected}><Icon name="arrow" size={19}/></button>
     </form>
     </section>
     {(localError || state.error) && <div className="companion-error" role="alert" data-companion-interactive>{localError || state.error}<button aria-label="关闭错误提示" onClick={() => { setLocalError(''); dispatch({ protocol_version: 1, type: 'desktop.dismiss-error' }); }}><Icon name="close" size={14}/></button></div>}
@@ -320,7 +232,7 @@ export default function App() {
   </main>;
 
   const targetName = state.target?.title || '还未选择窗口';
-  const statusText = recording ? '正在聆听 · 松开后识别' : state.inputState === 'transcribing' ? '正在识别语音' : current ? 'Ayana 正在说话' : taskLabels[state.task] || state.task;
+  const statusText = current ? 'Ayana 正在说话' : taskLabels[state.task] || state.task;
 
   return <div className="workshop workshop-focused">
     <aside className="sidebar">

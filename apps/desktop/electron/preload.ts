@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('ayana', Object.freeze({
   openDesign: () => ipcRenderer.invoke('ayana:design-open'),
   closeDesign: () => ipcRenderer.invoke('ayana:design-close'),
   previewDesign: (value: Record<string, unknown>) => ipcRenderer.send('ayana:design-preview', value),
+  revertDesignPreview: () => ipcRenderer.invoke('ayana:design-revert-preview'),
   openCompanionMenu: () => ipcRenderer.invoke('ayana:companion-menu'),
   chooseNoteBackground: () => ipcRenderer.invoke('ayana:note-background'),
   openSettings: (tab?: string) => ipcRenderer.invoke('ayana:settings', tab),

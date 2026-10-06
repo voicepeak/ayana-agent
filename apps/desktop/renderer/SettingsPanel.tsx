@@ -73,7 +73,6 @@ export function Settings({ state, section }: { state: ModelState; section: Setti
         </div>
         <div className="form-section"><h3>声音</h3><label>语音引擎<select aria-label="语音引擎" value={draft.voice.voice_mode} onChange={event => update('voice', { voice_mode: event.target.value })}><option value="auto">自动选择</option><option value="sovits">Ayana 本地音色</option><option value="system">Windows 日语语音</option><option value="silent">仅显示文字</option></select></label>
           <label>播放音量 · {Math.round(draft.volume * 100)}%<input aria-label="播放音量" type="range" min="0" max="1" step="0.05" value={draft.volume} disabled={draft.voice.voice_mode === 'silent'} onChange={event => update('volume', Number(event.target.value))}/></label>
-          <label>识别语言<select aria-label="识别语言" value={draft.stt.language} onChange={event => update('stt', { language: event.target.value })}><option value="auto">自动识别</option><option value="zh">中文</option><option value="ja">日语</option><option value="en">英语</option>{!['auto', 'zh', 'ja', 'en'].includes(draft.stt.language) && <option value={draft.stt.language}>{draft.stt.language}</option>}</select></label>
         </div>
       </>}
       {section === 'model' && <>

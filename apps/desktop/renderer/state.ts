@@ -258,6 +258,7 @@ const previewBridge: AyanaBridge = {
   onEvent: () => () => {}, playback: () => {}, summon: async () => {}, hide: async () => {}, openSettings: async () => {}, hideSettings: async () => {},
   setCompanionInteractive: () => {}, moveCompanion: () => {}, openCompanionMenu: async () => {},
   beginCompanionDrag: () => {}, endCompanionDrag: () => {}, openDesign: async () => {}, closeDesign: async () => {}, previewDesign: () => {},
+  revertDesignPreview: async () => {},
   chooseNoteBackground: async () => ({ ok: false, error: '请在桌面应用中选择图片。' }),
   chooseRepository: async () => null, chooseDirectory: async () => null, restart: async () => {},
   getState: async () => ({ connected: false, service: 'preview', version: '0.3.3', repositoryRoot: '', events: [] }),
