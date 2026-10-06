@@ -202,8 +202,8 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [kind, nextText?.id, nextText?.generation, state.presented, state.generation, dispatch]);
 
-  if (kind === 'highlight') return state.targetCue?.variant === 'summon'
-    ? <div key={String(state.targetCue.cue_id)} className="target-aura" aria-label="Ayana 正在观察这个窗口"><i/><b/><em/><span/></div>
+  if (kind === 'highlight') return state.watching
+    ? <div className="target-aura is-watching" aria-label="Ayana 正在注视这个窗口"><i/><b/><em/><span/></div>
     : <div className="highlight-frame"><span>Ayana · 看这里</span></div>;
   if (kind === 'design') return <DesignControls backgroundRevision={backgroundRevision} value={design} onChange={changeDesign} portraitEditing={portraitEditing} onPortraitEditing={changePortraitEditing} onSave={() => void saveDesign()} onClose={() => void bridge.closeDesign()} onBackground={() => void chooseBackground()} onUndo={() => changeDesign(companionDesign(state.settings))} costume={String(state.settings.avatar_costume || '校服')} onCostume={value => void changeCostume(value)} saving={designSaving || costumeSaving} dirty={designDirty} message={designMessage}/>;
   if (kind === 'chat') return <main ref={companion} className="companion-shell companion-framed" data-design-open={designOpen} data-portrait-editing={portraitEditing} style={designStyle(design)} onContextMenu={event => { event.preventDefault(); void bridge.openCompanionMenu(); }}>
@@ -258,6 +258,7 @@ export default function App() {
       {tab === 'tasks' && <>
         {state.actions.map(event => { const action = event.action as Record<string, unknown>; return <div className="proposed-action" key={String(action.action_id)}><p>{String(event.label || action.expected_result)}</p><Button color="primary" disabled={mode !== 'execute' && state.settings.full_access !== true && action.kind !== 'highlight'} onClick={() => void send({ type: 'tool.execute', action_id: action.action_id, snapshot_id: action.snapshot_id })}>确认并执行一步</Button></div>; })}
         <TaskPanel state={state} send={send} controls={<>{state.settings.full_access !== true && <div className="mode-strip"><div className="segmented"><button className={mode === 'teach' ? 'selected' : ''} disabled={!state.connected} onClick={() => void setTaskMode('teach')}>对话与观察</button><button className={mode === 'execute' ? 'selected' : ''} disabled={!state.connected} onClick={() => void setTaskMode('execute')}>执行任务</button></div></div>}<div className="target-card"><div className="target-title"><span className="window-icon"><Icon name="monitor" size={17}/></span><div><small>当前目标窗口</small><strong title={targetName}>{targetName}</strong></div></div><div className="target-actions"><Button variant="light" onClick={() => { void send({ type: 'windows.list' }); setTargetOpen(true); }}>选择窗口</Button><Button variant="light" onClick={() => void send({ type: 'target.capture' })} disabled={!state.target}><Icon name="refresh" size={14}/>刷新</Button></div>
+        {state.observation && !state.observation.available && <p className="observation-note" role="status">{state.observation.message}</p>}
         {state.snapshot?.png_base64 ? <div className="snapshot-wrap"><img className="snapshot" src={`data:image/png;base64,${String(state.snapshot.png_base64)}`} alt="所绑定目标窗口的当前截图" onClick={event => {
           const rect = event.currentTarget.getBoundingClientRect();
           const x = Math.floor((event.clientX - rect.left) / rect.width * event.currentTarget.naturalWidth);

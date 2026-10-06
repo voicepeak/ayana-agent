@@ -86,6 +86,7 @@ def test_failed_settings_write_keeps_memory_and_disk_consistent(tmp_path, monkey
     {"task_limits": {"seconds": 601}}, {"max_utterances": 0},
     {"provider": "openai", "model": " "}, {"hotkey": " "},
     {"hotkey": "Control+A", "cancel_hotkey": "control+a"},
+    {"watch_hotkey": "CommandOrControl+Alt+A"},
 ])
 def test_invalid_preferences_do_not_mutate_memory_or_disk(tmp_path, patch):
     settings = Settings(root=ROOT, data_root=tmp_path)

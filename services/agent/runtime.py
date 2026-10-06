@@ -66,6 +66,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
         self.clients = set()
         self.target = None
         self.snapshot = None
+        self.observation = None
         self.repository = None
         self.task = None
         self.action_task = None
@@ -250,16 +251,35 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             raise ValueError("请先绑定一个目标窗口")
         try:
             snap = await asyncio.to_thread(self.desktop.capture, self.target["target_id"])
-        except Exception:
+        except Exception as error:
             self.snapshot = None
             self.actions.clear()
-            await self.emit("snapshot.invalidated")
+            await self.emit("snapshot.invalidated", reason=getattr(error, "code", None), message=str(error)[:500])
             raise
         self.snapshot = snap
         await self.emit("snapshot.ready", **snap)
         if self.task is None or self.task.done():
             await self.emit("task.state", state="idle")
+        self.observation = {"available": True}
         return snap
+
+    async def _mark_unobserved(self, error):
+        self.observation = {"available": False, "code": getattr(error, "code", "capture_failed"),
+                            "message": "目标窗口当前无法截图。对话可以继续；查看或操作前请恢复窗口。"}
+        await self.emit("observation.unavailable", target=self.target, **self.observation)
+
+    async def _refresh_conversation_snapshot(self):
+        if not (self.target and self.settings.values.get("send_screenshot")):
+            self.observation = None
+            return
+        captured = (self.snapshot or {}).get("captured_at_monotonic_ms")
+        if self.snapshot and (not isinstance(captured, (int, float)) or time.monotonic() * 1000 - captured <= 30000):
+            self.observation = {"available": True}
+            return
+        try:
+            await self.capture()
+        except Exception as error:
+            await self._mark_unobserved(error)
 
     async def handle(self, cmd: dict):
         async with self.command_lock:
@@ -279,19 +299,42 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             for hwnd in cmd.get("hwnds", [])[:4]:
                 self.desktop.register_assistant_window(int(hwnd))
         elif kind == "session.start":
+            # Opening the companion is not a request to watch a window.
             await self.cancel("summon")
+            self.target = None
+            self.snapshot = None
+            self.actions.clear()
+            await self.emit("snapshot.invalidated")
+            self.observation = None
+            await self.emit("session.started", target=None, provider=self.settings.values["provider"])
+        elif kind == "session.watch":
+            await self.cancel("watch")
             target = await asyncio.to_thread(self.desktop.foreground)
-            if cmd.get("hwnd"):
-                target = await asyncio.to_thread(self.desktop.bind, int(cmd["hwnd"]))
             self.target = target
             self.snapshot = None
-            await self.emit("session.started", target=target, provider=self.settings.values["provider"])
+            self.observation = None
+            self.actions.clear()
+            await self.emit("session.started", target=target, watching=bool(target), provider=self.settings.values["provider"])
             if target:
                 await self.emit("target.bound", target=target)
-                try:
-                    await self.capture()
-                except Exception as e:
-                    await self.emit("error", source="capture", message=str(e)[:500])
+                if self.settings.values.get("send_screenshot"):
+                    try:
+                        await self.capture()
+                    except Exception as e:
+                        await self._mark_unobserved(e)
+                else:
+                    await self.emit("snapshot.invalidated")
+            else:
+                await self.emit("snapshot.invalidated")
+                await self.emit("observation.unavailable", available=False, code="no_target",
+                                message="没有可注视的前台窗口。对话可以继续。")
+        elif kind == "session.unwatch":
+            self.target = None
+            self.snapshot = None
+            self.observation = None
+            self.actions.clear()
+            await self.emit("snapshot.invalidated")
+            await self.emit("session.started", target=None, watching=False, provider=self.settings.values["provider"])
         elif kind == "session.close":
             await self.cancel("session_closed")
             await self.emit("session.closed")
@@ -304,7 +347,15 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             await self.emit("target.bound", target=self.target)
             await self.capture()
         elif kind == "target.capture":
-            await self.capture()
+            if cmd.get("watch") and not self.settings.values.get("send_screenshot"):
+                return
+            try:
+                await self.capture()
+            except Exception as error:
+                if cmd.get("watch"):
+                    await self._mark_unobserved(error)
+                else:
+                    await self.emit("error", source="capture", message=str(error)[:500])
         elif kind == "windows.list":
             await self.emit("windows.list", windows=await asyncio.to_thread(self.desktop.list_windows))
         elif kind == "repository.inspect":
@@ -373,7 +424,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             validated = self.settings.validate(patch)
             # Presentation changes can be applied while a reply is playing.
             # Persist first: a failed write must not stop a task or voice.
-            presentation = {"companion_ui", "avatar_costume", "volume", "subtitles", "sentence_motion", "hotkey", "cancel_hotkey"}
+            presentation = {"companion_ui", "avatar_costume", "volume", "subtitles", "sentence_motion", "hotkey", "cancel_hotkey", "watch_hotkey"}
             interrupt = any(key not in presentation and value != self.settings.values.get(key)
                             for key, value in validated.items())
             previous_voice = self.settings.values.get("voice", {})
@@ -570,8 +621,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 streams = [LocalProvider().stream_reply(text, self.repository, self.target)]
                 messages = None
             else:
-                if self.snapshot and self.target and time.monotonic() * 1000 - self.snapshot.get("captured_at_monotonic_ms", time.monotonic() * 1000) > 30000:
-                    await self.capture()
+                await self._refresh_conversation_snapshot()
                 bundle = self.prompts.build(full_access=self.full_access,
                                             costume=self.settings.values.get("avatar_costume", "校服"),
                                             tools=self._tool_prompt())
@@ -580,6 +630,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 # Keep one copy of repository evidence ahead of dialogue history.
                 evidence_prefix = repository_message(self.repository)
                 context = {"mode": "execute" if self._execution_enabled() else "teach", "full_access": self.full_access, "target": self.target,
+                           "observation": self.observation or {"available": bool(self.snapshot)},
                            "local_clock": local_clock(), "work_context": self._prompt_work_context(),
                            "speech_budget": self._speech_budget(audio_count),
                            "directories": self.policy.public(include_repository=True),

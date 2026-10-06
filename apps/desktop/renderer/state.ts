@@ -21,12 +21,12 @@ export interface Conversation {
 export interface ModelState {
   connected: boolean; service: string; generation: number; cancelledGeneration: number;
   task: string; voice: string; mode: 'teach' | 'execute'; target?: Target;
-  snapshot?: RuntimeEvent; speeches: Speech[]; current?: string; expression: string;
+  snapshot?: RuntimeEvent; observation?: { available: boolean; code?: string; message?: string }; speeches: Speech[]; current?: string; expression: string;
   expressionAt: number; inputState: string;
   settingsLoaded: boolean;
   apiKeyConfigured?: boolean;
   presented?: string; sentenceVersion: number;
-  summonVersion: number; workspaceHintAt: number; targetCue?: RuntimeEvent;
+  summonVersion: number; workspaceHintAt: number; targetCue?: RuntimeEvent; watching: boolean;
   progress: number; repository?: Repository; settings: Record<string, unknown>;
   history: Record<string, unknown>[]; windows: Target[]; evidence: Evidence[];
   actions: RuntimeEvent[]; tools: RuntimeEvent[]; error?: string; shortcuts?: RuntimeEvent;
@@ -43,7 +43,7 @@ export interface ModelState {
 export const initialState: ModelState = {
   connected: false, service: 'starting', generation: 0, cancelledGeneration: -1,
   task: 'idle', voice: 'starting', mode: 'teach', speeches: [], expression: 'neutral', expressionAt: 0, inputState: 'idle',
-  progress: 0, sentenceVersion: 0, summonVersion: 0, workspaceHintAt: 0, settingsLoaded: false, settings: {}, history: [], windows: [], evidence: [], actions: [], tools: [], questions: [],
+  progress: 0, sentenceVersion: 0, summonVersion: 0, workspaceHintAt: 0, watching: false, settingsLoaded: false, settings: {}, history: [], windows: [], evidence: [], actions: [], tools: [], questions: [],
   approvals: [], artifacts: [], sources: [], directories: [], taskHistory: [], searchConfigured: false,
   computerProgress: [],
   conversations: [], persistentHistory: true, contextSummary: '', contextState: 'ready', retainedTurns: 0, historyHasMore: false,
@@ -133,7 +133,10 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
     }
     case 'desktop.summoned': next.summonVersion = state.summonVersion + 1; break;
     case 'desktop.workspace-hint': next.workspaceHintAt = Date.now(); break;
-    case 'desktop.target-cue': next.targetCue = event; break;
+    case 'desktop.target-cue':
+      next.targetCue = event;
+      next.watching = event.variant === 'watch';
+      break;
     case 'desktop.dismiss-error': next.error = undefined; break;
     case 'desktop.service':
       next.connected = Boolean(event.connected); next.service = String(event.state); break;
@@ -151,8 +154,12 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
     case 'input.state': next.inputState = String(event.state || 'idle'); break;
     case 'mode.ready': next.mode = event.mode === 'execute' ? 'execute' : 'teach'; break;
     case 'target.bound': next.target = (event.target ?? event.window ?? event) as Target; next.snapshot = undefined; break;
-    case 'snapshot.ready': next.snapshot = event; next.target = (event.target ?? next.target) as Target; if (next.task === 'observing') next.task = 'idle'; break;
+    case 'snapshot.ready': next.snapshot = event; next.observation = { available: true }; next.target = (event.target ?? next.target) as Target; if (next.task === 'observing') next.task = 'idle'; break;
     case 'snapshot.invalidated': next.snapshot = undefined; next.actions = []; break;
+    case 'observation.unavailable':
+      next.snapshot = undefined;
+      next.observation = { available: false, code: String(event.code || ''), message: String(event.message || '目标窗口当前无法截图。') };
+      break;
     case 'windows.list': next.windows = (event.windows ?? []) as Target[]; break;
     case 'repository.inspected': {
       const repo = (event.repository ?? event.result ?? event) as unknown as Repository;
@@ -246,7 +253,7 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
     case 'error':
       // Correlated command errors are shown by the initiating form. They must
       // neither duplicate its feedback nor mark an unrelated live task failed.
-      if (event.request_id) break;
+      if (event.request_id || (event.source === 'capture' && state.watching)) break;
       next.error = String(event.message || event.error || '发生了未知错误。'); next.task = 'failed'; break;
   }
   return next;

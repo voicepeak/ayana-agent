@@ -16,7 +16,7 @@ import { resolveTheme } from '../renderer/companionThemes';
 
 type Event = Record<string, unknown> & { type: string; protocol_version: number };
 const commands = new Set([
-  'session.start', 'session.close', 'turn.start', 'generation.cancel', 'target.bind',
+  'session.start', 'session.close', 'session.watch', 'session.unwatch', 'turn.start', 'generation.cancel', 'target.bind',
   'target.capture', 'windows.list', 'repository.inspect', 'repository.read',
   'repository.search', 'settings.get', 'settings.update', 'history.get', 'tool.execute', 'utterance.displayed', 'mode.set', 'input.audio',
   'capabilities.get', 'directory.grant', 'directory.revoke', 'task.pause', 'task.resume', 'task.cancel',
@@ -56,6 +56,10 @@ let recentEvents: Event[] = [];
 let repositoryRoot = '';
 let summonShortcut = 'Control+Alt+A';
 let cancelShortcut = 'Control+Alt+Space';
+let watchShortcut = 'Control+Alt+W';
+let watching = false;
+let watchPaused = false;
+let watchFollowTimer: ReturnType<typeof setInterval> | undefined;
 let inputAfterCapture = true;
 let composerRequested = false;
 let companionMenuOpen = false;
@@ -206,6 +210,16 @@ function cancel() {
   highlight?.hide();
 }
 
+function stopWatch() {
+  watching = false;
+  watchPaused = false;
+  if (watchFollowTimer) clearInterval(watchFollowTimer);
+  watchFollowTimer = undefined;
+  if (highlightTimer) clearTimeout(highlightTimer);
+  highlight?.hide();
+  desktopEvent('desktop.target-cue', { cue_id: Date.now(), variant: 'released' });
+}
+
 function hide() {
   endCompanionDrag(); closeDesign();
   composerRequested = false;
@@ -214,6 +228,7 @@ function hide() {
   companionShown = false;
   refreshSummon = false;
   if (focusTimer) clearTimeout(focusTimer);
+  stopWatch();
   cancel();
   runtimeSend({ type: 'session.close' });
   chat?.hide();
@@ -221,27 +236,25 @@ function hide() {
   desktopEvent('desktop.hidden');
 }
 
-async function summon(openInput = true) {
-  // Already waiting on the runtime: the portrait is on screen; keep it still.
-  if (summonPending) return;
-  // A repeat summon still re-captures the foreground window (so the user can switch
-  // workspace) but must not replay the portrait entrance.
-  const refresh = companionShown;
-  // Runtime records the foreground HWND before either assistant window gains focus.
-  cancel();
+function summon(openInput = true) {
+  // The summon key is a conversation toggle. It never binds a window.
+  if (companionShown || summonPending) {
+    hide();
+    return;
+  }
+  stopWatch();
+  runtimeSend({ type: 'session.unwatch' });
   inputAfterCapture = openInput;
   focusAfterCapture = true;
-  refreshSummon = refresh;
+  refreshSummon = false;
   if (!runtimeSend({ type: 'session.start' })) {
     summonPending = true;
     chat?.showInactive();
-    if (!refresh) desktopEvent('desktop.summoned');
+    desktopEvent('desktop.summoned');
     desktopEvent('desktop.service', { state: service, message: '本地服务正在启动…' });
     return;
   }
   if (focusTimer) clearTimeout(focusTimer);
-  // In an unavailable target scenario, runtime should emit target/error; this fallback
-  // allows typing after a bounded wait without performing another foreground query.
   focusTimer = setTimeout(() => focusChat(), 3000);
 }
 
@@ -250,13 +263,9 @@ function focusChat() {
   focusAfterCapture = false;
   if (focusTimer) clearTimeout(focusTimer);
   if (inputAfterCapture) chat?.show(); else chat?.showInactive();
-  const refresh = refreshSummon;
   refreshSummon = false;
   companionShown = true;
-  // A repeat summon names the freshly captured workspace instead of replaying the entrance.
-  // Deferred so the runtime's session.started target reaches the renderer first.
-  if (refresh) setTimeout(() => desktopEvent('desktop.workspace-hint'), 0);
-  else desktopEvent('desktop.summoned');
+  desktopEvent('desktop.summoned');
   if (inputAfterCapture) chat?.focus();
   // Request composer focus on every summon, including an already-focused chat.
   // This is transient UI intent and must not be replayed with runtime history.
@@ -318,16 +327,21 @@ function updateShortcuts(settings: Record<string, unknown>) {
   const raw = settings.shortcuts as Record<string, unknown> | undefined;
   const nextSummon = String(raw?.summon || settings.hotkey || settings.summon_shortcut || summonShortcut);
   const nextCancel = String(raw?.cancel || settings.cancel_hotkey || settings.cancel_shortcut || cancelShortcut);
+  const nextWatch = String(raw?.watch || settings.watch_hotkey || settings.watch_shortcut || watchShortcut);
   globalShortcut.unregisterAll();
   summonShortcut = nextSummon;
   cancelShortcut = nextCancel;
+  watchShortcut = nextWatch;
   let summonOk = false;
   let cancelOk = false;
-  try { summonOk = globalShortcut.register(summonShortcut, () => { void summon(); }); } catch { /* Invalid accelerator. */ }
+  let watchOk = false;
+  try { summonOk = globalShortcut.register(summonShortcut, () => { summon(); }); } catch { /* Invalid accelerator. */ }
   try { cancelOk = globalShortcut.register(cancelShortcut, cancel); } catch { /* Invalid accelerator. */ }
-  desktopEvent('desktop.shortcuts', { summon: summonShortcut, cancel: cancelShortcut, summon_ok: summonOk, cancel_ok: cancelOk });
+  try { watchOk = globalShortcut.register(watchShortcut, () => { void watchForeground(); }); } catch { /* Invalid accelerator. */ }
+  desktopEvent('desktop.shortcuts', { summon: summonShortcut, cancel: cancelShortcut, watch: watchShortcut, summon_ok: summonOk, cancel_ok: cancelOk, watch_ok: watchOk });
   if (tray) tray.setContextMenu(Menu.buildFromTemplate([
-    { label: `呼出 Ayana · ${summonShortcut}`, click: () => { void summon(); } },
+    { label: `呼出 Ayana · ${summonShortcut}`, click: () => { summon(); } },
+    { label: `注视当前窗口 · ${watchShortcut}`, click: () => { void watchForeground(); } },
     { label: `停止当前回复 · ${cancelShortcut}`, click: cancel },
     { label: '收起会话', click: hide },
     { label: '话题与记录', click: () => openManagement('history') },
@@ -357,17 +371,36 @@ function showHighlight(event: Event) {
   highlightTimer = setTimeout(() => highlight?.hide(), 6000);
 }
 
-function showTargetCue(event: Event) {
-  const target = event.target as Record<string, unknown> | undefined;
+function placeWatch(target: Record<string, unknown> | undefined) {
   const rect = target?.bounds as Record<string, number> | undefined;
-  if (!highlight || !chat || !rect || ![rect.left, rect.top, rect.right, rect.bottom].every(Number.isFinite)) return;
-  if (rect.right <= rect.left || rect.bottom <= rect.top) return;
+  if (!highlight || !chat || !rect || ![rect.left, rect.top, rect.right, rect.bottom].every(Number.isFinite)) return false;
+  if (rect.right <= rect.left || rect.bottom <= rect.top) return false;
   const bounds = screen.screenToDipRect(chat, { x: rect.left, y: rect.top, width: rect.right - rect.left, height: rect.bottom - rect.top });
   highlight.setBounds({ x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(40, Math.round(bounds.width)), height: Math.max(40, Math.round(bounds.height)) });
   highlight.showInactive();
-  desktopEvent('desktop.target-cue', { cue_id: Date.now(), variant: 'summon', title: String(target?.title || '') });
-  if (highlightTimer) clearTimeout(highlightTimer);
-  highlightTimer = setTimeout(() => highlight?.hide(), 1800);
+  return true;
+}
+
+async function watchForeground() {
+  if (watching) {
+    stopWatch();
+    runtimeSend({ type: 'session.unwatch' });
+    if (!companionShown) summon(false);
+    return;
+  }
+  if (!companionShown) {
+    inputAfterCapture = false;
+    focusAfterCapture = true;
+    chat?.showInactive();
+    companionShown = true;
+    desktopEvent('desktop.summoned');
+  }
+  watching = true;
+  if (watchFollowTimer) clearInterval(watchFollowTimer);
+  watchFollowTimer = setInterval(() => {
+    if (watching && !watchPaused && companionSettings.send_screenshot !== false) runtimeSend({ type: 'target.capture', watch: true });
+  }, 1200);
+  runtimeSend({ type: 'session.watch' });
 }
 
 function receive(event: Event) {
@@ -406,13 +439,25 @@ function receive(event: Event) {
   }
   if (event.type === 'error' && designSaves.delete(String(event.request_id || ''))) revertDesignPreview();
   if (event.type === 'mode.ready') companionMode = event.mode === 'execute' ? 'execute' : 'teach';
-  if (event.type === 'conversation.changed') highlight?.hide();
-  // The backend captures the foreground identity before chat takes focus.
-  // Later screenshots and playback must not restart the summon effect.
-  if (event.type === 'session.started' && focusAfterCapture) {
-    showTargetCue(event);
-    focusChat();
+  if (event.type === 'conversation.changed' && !watching) highlight?.hide();
+  if (event.type === 'session.started' && event.watching === true && placeWatch(event.target as Record<string, unknown> | undefined)) {
+    desktopEvent('desktop.target-cue', { cue_id: Date.now(), variant: 'watch', title: String((event.target as Record<string, unknown> | undefined)?.title || '') });
   }
+  if (event.type === 'session.started' && focusAfterCapture) focusChat();
+  if (event.type === 'target.bound' && watching) {
+    if (placeWatch(event.target as Record<string, unknown> | undefined)) {
+      desktopEvent('desktop.target-cue', { cue_id: Date.now(), variant: 'watch', title: String((event.target as Record<string, unknown> | undefined)?.title || '') });
+    }
+  }
+  if (event.type === 'snapshot.ready' && watching) placeWatch(event.target as Record<string, unknown> | undefined);
+  if (event.type === 'observation.unavailable' && watching) {
+    watchPaused = true;
+    if (watchFollowTimer) clearInterval(watchFollowTimer);
+    watchFollowTimer = undefined;
+    highlight?.hide();
+  }
+  if (event.type === 'snapshot.ready' && watchPaused) watchPaused = false;
+  if (event.type === 'snapshot.invalidated' && watching) highlight?.hide();
   if (event.type === 'target.bound' || event.type === 'snapshot.ready' || event.type === 'error') focusChat();
   if (event.type === 'highlight.ready' || event.type === 'target.highlight'
     || (event.type === 'tool.completed' && ((event.result as Record<string, unknown> | undefined)?.kind === 'highlight'))) {
@@ -450,7 +495,8 @@ function connectRuntime(attempt = 0) {
       const openInput = summonPending ? inputAfterCapture : false;
       summonPending = false;
       startupSummonDone = true;
-      void summon(openInput);
+      companionShown = false;
+      summon(openInput);
     }
   });
   ws.on('message', (raw) => {

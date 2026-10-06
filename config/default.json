@@ -1,6 +1,7 @@
 {
   "hotkey": "CommandOrControl+Alt+A",
   "cancel_hotkey": "CommandOrControl+Alt+Space",
+  "watch_hotkey": "CommandOrControl+Alt+W",
   "provider": "local",
   "base_url": "https://api.openai.com/v1",
   "model": "",

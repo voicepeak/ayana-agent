@@ -5,7 +5,7 @@ import type { AyanaBridge } from './types';
 export interface Preferences {
   provider: string; base_url: string; model: string; avatar_costume: string;
   volume: number; subtitles: boolean; sentence_motion: boolean;
-  hotkey: string; cancel_hotkey: string; save_history: boolean; send_screenshot: boolean; full_access: boolean;
+  hotkey: string; cancel_hotkey: string; watch_hotkey: string; save_history: boolean; send_screenshot: boolean; full_access: boolean;
   native_tools: boolean; search_provider: string; search_proxy: string;
   max_utterances: number; detailed_max_utterances: number; model_max_tokens: number;
   voice: { voice_mode: string }; stt: { language: string };
@@ -19,7 +19,7 @@ export function preferences(settings: Record<string, unknown>): Preferences {
   return {
     provider: cfg.provider, base_url: cfg.base_url, model: cfg.model, avatar_costume: cfg.avatar_costume,
     volume: cfg.volume, subtitles: cfg.subtitles, sentence_motion: cfg.sentence_motion,
-    hotkey: cfg.hotkey, cancel_hotkey: cfg.cancel_hotkey, save_history: cfg.save_history,
+    hotkey: cfg.hotkey, cancel_hotkey: cfg.cancel_hotkey, watch_hotkey: cfg.watch_hotkey, save_history: cfg.save_history,
     send_screenshot: cfg.send_screenshot, full_access: cfg.full_access === true, native_tools: cfg.native_tools,
     search_provider: cfg.search_provider, search_proxy: cfg.search_proxy,
     max_utterances: cfg.max_utterances, detailed_max_utterances: cfg.detailed_max_utterances,

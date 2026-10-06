@@ -176,6 +176,79 @@ async def test_transcript_waits_for_review_and_late_cancelled_result_is_dropped(
 
 
 @pytest.mark.asyncio
+async def test_summon_does_not_bind_a_window_and_watch_can_be_released(tmp_path):
+    class ForegroundDesktop(Desktop):
+        def foreground(self):
+            return {"target_id": "front", "title": "Home / X", "bounds": {"left": 1, "top": 2, "right": 3, "bottom": 4}}
+        def capture(self, target):
+            return {"snapshot_id": "fresh", "target": {"title": "Home / X"}}
+    runtime = AgentRuntime(settings(tmp_path), desktop=ForegroundDesktop(), tts=Tts())
+    ws = Ws()
+    runtime.clients.add(ws)
+    runtime.target = {"target_id": "old"}
+    runtime.snapshot = {"snapshot_id": "old"}
+    await runtime.handle({"type": "session.start"})
+    assert runtime.target is None and runtime.snapshot is None
+    started = next(event for event in ws.events if event["type"] == "session.started")
+    assert started["target"] is None and "watching" not in started
+    await runtime.handle({"type": "session.watch"})
+    assert runtime.target["target_id"] == "front" and runtime.snapshot["snapshot_id"] == "fresh"
+    watched = [event for event in ws.events if event["type"] == "session.started"][-1]
+    assert watched["watching"] is True
+    await runtime.handle({"type": "session.unwatch"})
+    assert runtime.target is None and runtime.snapshot is None
+    released = [event for event in ws.events if event["type"] == "session.started"][-1]
+    assert released["watching"] is False
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_hidden_window_does_not_stop_chat_and_watch_refresh_fails_once(tmp_path):
+    import httpx
+    import time
+    from native.windows.desktop import DesktopError
+    from tests.test_model import sse_response
+
+    class HiddenDesktop(Desktop):
+        def __init__(self):
+            self.calls = 0
+        def capture(self, target):
+            self.calls += 1
+            raise DesktopError("window_unavailable", "Target must be visible and not minimized")
+
+    cfg = Settings(root=Path(__file__).resolve().parents[1], data_root=tmp_path)
+    cfg.values.update(provider="openai", model="test", send_screenshot=True)
+    cfg.key = lambda: "test-key"
+    desktop = HiddenDesktop()
+    runtime = AgentRuntime(cfg, desktop=desktop, tts=Tts())
+    ws = Ws()
+    runtime.clients.add(ws)
+    runtime.target = {"target_id": "chrome", "title": "Home / X"}
+    runtime.snapshot = {"snapshot_id": "old", "png_base64": "stale-image",
+                        "captured_at_monotonic_ms": (time.monotonic() - 31) * 1000}
+    calls = []
+    runtime.model_client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: calls.append(json.loads(request.content)["messages"]) or sse_response([
+        {"type": "speech", "key": "s1", "speech_ja": "大丈夫だよ。", "intent": "explain"}])))
+    await runtime.handle({"type": "turn.start", "text": "我错了"})
+    await runtime.task
+    context = json.loads(calls[0][-1]["content"][0]["text"])
+    assert context["observation"]["code"] == "window_unavailable" and context["snapshot_id"] is None
+    assert "stale-image" not in json.dumps(calls[0])
+    assert any(event["type"] == "utterance.ready" for event in ws.events)
+    assert not any(event["type"] == "error" for event in ws.events)
+    before = desktop.calls
+    await runtime.handle({"type": "target.capture", "watch": True})
+    await runtime.handle({"type": "target.capture", "watch": True})
+    assert desktop.calls == before + 2
+    assert sum(event["type"] == "observation.unavailable" for event in ws.events) == 3
+    assert not any(event["type"] == "error" for event in ws.events)
+    runtime.settings.values["send_screenshot"] = False
+    await runtime.handle({"type": "target.capture", "watch": True})
+    assert desktop.calls == before + 2
+    await runtime.close()
+
+
+@pytest.mark.asyncio
 async def test_capture_failure_invalidates_old_image_and_actions(tmp_path):
     class ClosedDesktop(Desktop):
         def capture(self, target):

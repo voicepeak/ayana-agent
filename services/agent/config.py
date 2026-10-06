@@ -34,7 +34,7 @@ class Settings:
         return clean(self.values)
 
     def validate(self, patch: dict):
-        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "detailed_max_utterances", "avatar_costume", "sentence_motion", "volume", "task_limits", "model_max_tokens", "native_tools", "full_access", "search_proxy", "search_provider", "companion_ui"}
+        allowed = {"hotkey", "cancel_hotkey", "watch_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "detailed_max_utterances", "avatar_costume", "sentence_motion", "volume", "task_limits", "model_max_tokens", "native_tools", "full_access", "search_proxy", "search_provider", "companion_ui"}
         if not isinstance(patch, dict) or set(patch) - allowed:
             raise ValueError("Unsupported settings field")
         for key in ("send_screenshot", "subtitles", "save_history"):
@@ -105,17 +105,18 @@ class Settings:
                 raise ValueError("Invalid API base URL")
             if url.scheme == "http" and url.hostname not in {"127.0.0.1", "localhost", "::1"}:
                 raise ValueError("Remote model endpoints require HTTPS")
-        for key in ("hotkey", "cancel_hotkey", "model", "base_url"):
+        for key in ("hotkey", "cancel_hotkey", "watch_hotkey", "model", "base_url"):
             if key in patch and (not isinstance(patch[key], str) or len(patch[key]) > 500):
                 raise ValueError(f"Invalid {key}")
-        for key in ("hotkey", "cancel_hotkey"):
+        for key in ("hotkey", "cancel_hotkey", "watch_hotkey"):
             if key in patch and not patch[key].strip():
                 raise ValueError(f"{key} must not be empty")
         candidate = {**self.values, **patch}
         if candidate.get("provider") == "openai" and any(key in patch for key in ("provider", "model")) and not candidate.get("model", "").strip():
             raise ValueError("在线模型需要填写模型名称")
-        if any(key in patch for key in ("hotkey", "cancel_hotkey")) and candidate.get("hotkey", "").strip().casefold() == candidate.get("cancel_hotkey", "").strip().casefold():
-            raise ValueError("呼出和打断快捷键不能相同")
+        shortcuts = [candidate.get(key, "").strip().casefold() for key in ("hotkey", "cancel_hotkey", "watch_hotkey")]
+        if any(key in patch for key in ("hotkey", "cancel_hotkey", "watch_hotkey")) and len(set(shortcuts)) < len(shortcuts):
+            raise ValueError("呼出、打断和注视快捷键不能相同")
         for key, low, high in (("max_utterances", 1, 12), ("detailed_max_utterances", 12, 64), ("max_audio_ahead_ms", 2000, 15000)):
             if key in patch and (type(patch[key]) is not int or not low <= patch[key] <= high):
                 raise ValueError(f"{key} out of range")
