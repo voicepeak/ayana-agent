@@ -4,14 +4,16 @@ import { dialogueGlyphs } from './cinematic';
 import type { ModelState, Speech } from './state';
 import { bridge } from './state';
 import type { DialogueLanguage } from './dialogueLanguages';
+import type { CaptionLayout } from './captionLayout';
 
 export function CompanionWorkspace(props: {
   state: ModelState; speech?: Speech; textOnly: boolean; show: boolean; primaryLanguage: DialogueLanguage;
   translationLanguage: 'none' | DialogueLanguage; onVisibilityChange: (visible: boolean) => void;
+  layout?: CaptionLayout;
 }) {
   return <DialogueScene key={props.state.conversation?.conversation_id || 'initial'} {...props}/>;
 }
-function DialogueScene({ state, speech, textOnly, show, primaryLanguage, translationLanguage, onVisibilityChange }: Parameters<typeof CompanionWorkspace>[0]) {
+function DialogueScene({ state, speech, textOnly, show, primaryLanguage, translationLanguage, onVisibilityChange, layout }: Parameters<typeof CompanionWorkspace>[0]) {
   const [loading, setLoading] = useState(false);
   const [reading, setReading] = useState(false);
   const list = useRef<HTMLDivElement>(null);
@@ -124,7 +126,8 @@ function DialogueScene({ state, speech, textOnly, show, primaryLanguage, transla
     older.current = { height: node.scrollHeight, top: node.scrollTop, history: state.history }; setLoading(true);
     void bridge.send({ type: 'history.get', before: state.historyBefore }).then(result => { if (!result.ok) { older.current = undefined; setLoading(false); } });
   }
-  return <section className="companion-workspace" aria-label="对话与工作区" data-companion-interactive>
+  return <section className="companion-workspace" aria-label="对话与工作区" data-companion-interactive
+    data-caption-layout={layout?.mode} style={layout && { left: layout.x, top: layout.y, width: layout.width, height: layout.height }}>
     {questionText && <aside className="cinematic-question" aria-label="你上一句说的话"><span className="cinematic-question-label">你</span><p key={questionText}>{dialogueGlyphs(questionText).map((glyph, index) => <span key={index} className="cinematic-question-glyph" style={{ animationDelay: `${Math.min(index * 14, 560)}ms` }}>{glyph}</span>)}</p></aside>}
     <div className="cinematic-memory" aria-label="彩名的台词与历史，向上滚动查看" tabIndex={0} ref={list} data-reading={reading} hidden={!show}
       onWheel={event => { if (event.deltaY) { follow.current = false; setReading(true); scheduleFocus(); if (event.deltaY < 0 && event.currentTarget.scrollTop < 40) loadOlder(); } }}

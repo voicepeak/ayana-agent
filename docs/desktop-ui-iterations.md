@@ -11,6 +11,7 @@
 | 0.3.11 | 去掉回看按钮；完成的台词上移、变淡，进入可滚动的历史层；上一句用户台词独立置顶；读旧记录时保持滚动位置。 |
 | 0.3.12 | 使用完整立绘并独立调整框内位置与大小；系统边缘、四角缩放；窗口大小与位置自动保存。 |
 | 0.3.13 | 删除全身/膝盖预设按钮；日语、中文、英文主语言与可选翻译；滚动焦点居中放大，稳定保留旧句节点，消除回复交接闪烁。 |
+| 0.3.14 | 字幕与问题使用独立气泡，透明或自定义背景下保持可读；根据立绘实际位置避让，拖动时预览，松手后平滑调整，窄窗使用底部字幕区；历史翻译事件不再推进当前语音代次。 |
 
 每轮重新运行了桌面构建与单元测试，并对照对应打包版核对前端运行产物。
 Electron 产物比较只归一化临时副本使用的依赖目录路径。修改后端配置的轮次还运行了配置与换装相关测试。
@@ -20,8 +21,10 @@ Electron 产物比较只归一化临时副本使用的依赖目录路径。修�
 - `scripts/verify_companion_lifecycle.mjs`：销毁窗口后的延迟 IPC 与正常退出。
 - 0.3.11 的 `verify_cinematic.mjs`、`verify_cinematic_memory.mjs`、`verify_workspace_design.mjs`、`verify_companion_bugs.mjs`、`verify_companion_drag.mjs`：字幕、历史层、上下文恢复及该版本的外观操作。重现这些检查时使用对应版本的独立副本；0.3.12 已改变立绘拖动含义和外观控件。
 - 0.3.12 的 `scripts/verify_companion_appearance.mjs`：原生标题栏、八个边缘/角落缩放目标、框内立绘拖动、大小与位置在重启后恢复。
+- 0.3.13 的 `scripts/verify_dialogue_focus.mjs`：焦点滚动、旧句节点保留、翻译切换与历史浏览。`tests/test_subtitle_languages.py` 检查语言设置、历史迁移、翻译缓存与话题隔离；安装包源码与运行产物已核对。
+- 0.3.14 的 `apps/desktop/scripts/test-caption-layout.mjs` 与 `scripts/verify_caption_layout.mjs`：立绘与字幕区几何、透明/自定义背景、深浅色气泡、拖动预览及窄窗回退；桌面生命周期测试确认历史翻译不影响新回复或取消操作。
+- 0.3.14 的 `scripts/verify_voice_recovery.mjs`：等待后端连接和真实 TTS 就绪，验证 GPT-SoVITS PCM 播放、取消后下一句恢复；源码版与隔离配置下的打包版均通过。
 
 专项检查使用隔离的静音/本地模型配置；支持 `--playwright-root` 指定 Playwright 依赖目录，支持 `--packaged` 指定打包程序。
-- 0.3.13 的 `scripts/verify_dialogue_focus.mjs`：焦点滚动、旧句节点保留、翻译切换与历史浏览。`tests/test_subtitle_languages.py` 检查语言设置、历史迁移、翻译缓存与话题隔离；安装包源码与运行产物已核对。
-
+语音恢复检查使用真实 TTS。就绪条件通过实际读取状态轮询，避免把异步条件返回的 Promise 当成已就绪。
 个人配置、密钥、聊天数据库、构建缓存与安装包不进入这些提交。

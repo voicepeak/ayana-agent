@@ -36,14 +36,14 @@ try{
  assert(await row('first').evaluate(n=>n.querySelector('.cinematic-dialogue')===window.__oldCaption&&n.querySelector('.cinematic-glyph')===window.__oldGlyph),'Retirement keeps the exact same caption and glyph nodes.');
  const samples=[];for(let i=0;i<9;i++){await page.waitForTimeout(70);samples.push(await row('first').evaluate(n=>({y:n.getBoundingClientRect().y,opacity:Number(getComputedStyle(n.firstElementChild).opacity),text:n.textContent,shown:[...n.querySelectorAll('.cinematic-glyph')].every(g=>g.classList.contains('is-shown'))})));}
  assert(samples.every(s=>s.shown),'Old glyphs never disappear or replay their reveal.');assert(samples.every(s=>s.opacity>.2));assert(samples.at(-1).y<samples[0].y+1);
- const current=await row('second').locator('.cinematic-dialogue').evaluate(n=>({opacity:Number(getComputedStyle(n).opacity),scale:new DOMMatrixReadOnly(getComputedStyle(n).transform).a}));
- const old=await row('first').locator('.cinematic-dialogue').evaluate(n=>({opacity:Number(getComputedStyle(n).opacity),scale:new DOMMatrixReadOnly(getComputedStyle(n).transform).a}));assert(current.opacity>old.opacity);assert(current.scale>old.scale);
+ const current=await row('second').locator('.cinematic-dialogue').evaluate(n=>({opacity:Number(getComputedStyle(n.querySelector('.cinematic-shot')).opacity),scale:new DOMMatrixReadOnly(getComputedStyle(n).transform).a}));
+ const old=await row('first').locator('.cinematic-dialogue').evaluate(n=>({opacity:Number(getComputedStyle(n.querySelector('.cinematic-shot')).opacity),scale:new DOMMatrixReadOnly(getComputedStyle(n).transform).a}));assert(current.opacity>old.opacity);assert(current.scale>old.scale);
  await page.screenshot({path:path.join(directory,'new-reply.png'),omitBackground:true});report.samples=samples;
  report.checks.push('Latest reply remains centered and clear; previous sentences shrink/fade behind it; consecutive replies preserve text-node identity and never flash hidden glyphs');
  for(let i=0;i<5;i++){await emit(reply('past-'+i,'这是一句用于滚轮回看的历史台词。'));await page.waitForTimeout(120);}await page.waitForTimeout(750);
  await row('first').evaluate(n=>{const list=document.querySelector('.cinematic-memory');list.dispatchEvent(new WheelEvent('wheel',{deltaY:-300,bubbles:true}));list.scrollTop=n.offsetTop+n.offsetHeight/2-list.clientHeight/2;list.dispatchEvent(new Event('scroll'));});await page.waitForTimeout(450);
  assert.equal(await row('first').getAttribute('data-focused'),'true');
- const focused=await row('first').locator('.cinematic-dialogue').evaluate(n=>Number(getComputedStyle(n).opacity));assert(focused>.94);
+ const focused=await row('first').locator('.cinematic-dialogue').evaluate(n=>Number(getComputedStyle(n.querySelector('.cinematic-shot')).opacity));assert(focused>.94);
  const anchor=await row('first').evaluate(n=>n.getBoundingClientRect().top);
  await emit(reply('fresh','你查看历史时，新回复不会拉走视线。'));await page.waitForTimeout(750);
  const after=await row('first').evaluate(n=>n.getBoundingClientRect().top);assert(Math.abs(after-anchor)<3,'Reading viewport remains anchored.');

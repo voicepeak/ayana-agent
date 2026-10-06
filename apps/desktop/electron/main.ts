@@ -352,7 +352,10 @@ function showTargetCue(event: Event) {
 
 function receive(event: Event) {
   if (event.protocol_version !== 1 || typeof event.type !== 'string') return;
-  if (typeof event.generation_id === 'number') currentGeneration = Math.max(currentGeneration, event.generation_id);
+  // Historical translations keep their original generation. They must not
+  // make a desktop cancel reject newer audio from this running session.
+  if (!['subtitle.translated', 'subtitle.translation-failed'].includes(event.type)
+      && typeof event.generation_id === 'number') currentGeneration = Math.max(currentGeneration, event.generation_id);
   if (event.type === 'artifact.open') {
     const artifact = event.artifact as Record<string, unknown> | undefined;
     const file = String(artifact?.absolute_path || '');

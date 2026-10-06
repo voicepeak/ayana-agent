@@ -2,11 +2,13 @@ import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from 
 import { Character } from './components';
 import type { CompanionDesign } from './CompanionDesign';
 import { portraitLayout } from './portraitGeometry';
+import type { PortraitScene } from './captionLayout';
 
-export function CompanionPortrait({ design, expression, motion, connected, onChange, onCommit, onClick }: {
+export function CompanionPortrait({ design, expression, motion, connected, onChange, onCommit, onClick, onSceneChange, bottomInset = 0 }: {
   design: CompanionDesign; expression: string; motion: boolean; connected: boolean;
   onChange: (patch: Partial<CompanionDesign>) => void;
   onCommit: (patch: Partial<CompanionDesign>) => void; onClick: () => void;
+  onSceneChange: (scene: PortraitScene) => void; bottomInset?: number;
 }) {
   const canvas = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
@@ -14,6 +16,8 @@ export function CompanionPortrait({ design, expression, motion, connected, onCha
   const [aspect, setAspect] = useState(472 / 1656);
   const [dragging, setDragging] = useState(false);
   const layout = portraitLayout(area, aspect, design);
+  useLayoutEffect(() => { onSceneChange({ area, portrait: layout, dragging }); },
+    [area.width, area.height, layout.x, layout.y, layout.width, layout.height, dragging, onSceneChange]);
   const latest = useRef({ layout, design, onChange, onCommit });
   latest.current = { layout, design, onChange, onCommit };
   const gesture = useRef<{ id: number; clientX: number; clientY: number; x: number; y: number;
@@ -51,7 +55,8 @@ export function CompanionPortrait({ design, expression, motion, connected, onCha
     current.patch = { portrait_x: Math.round(next.x - next.anchorX), portrait_y: Math.round(next.y) };
     onChange(current.patch);
   }
-  return <div ref={canvas} className="portrait-canvas" aria-label="立绘位置预览">
+  return <div ref={canvas} className="portrait-canvas" aria-label="立绘位置预览"
+    style={{ clipPath: bottomInset ? `inset(0 0 ${bottomInset}px 0)` : undefined }}>
     <button ref={button} className="portrait-stage" type="button" data-dragging={dragging}
       aria-label="彩名：拖动调整框内位置，点击输入，右键操作"
       style={{ left: layout.x, top: layout.y, width: layout.width, height: layout.height }}

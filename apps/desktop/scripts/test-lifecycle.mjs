@@ -10,7 +10,8 @@ import { build } from 'esbuild';
 const require = createRequire(import.meta.url);
 const main = await readFile(new URL('../electron/main.ts', import.meta.url), 'utf8');
 const compiled = await build({
-  stdin: { contents: main + `\nexport const lifecycleProbe = { restart: restartRuntime, deadWindows: () => {
+  stdin: { contents: main + `\nexport const lifecycleProbe = { restart: restartRuntime, receive,
+    generation: () => currentGeneration, deadWindows: () => {
     const dead = { isDestroyed: () => true, get webContents() { throw new Error('Object has been destroyed'); } } as unknown as BrowserWindow;
     chat = dead; settingsWindow = dead; designWindow = dead; highlight = dead; registerIpc();
   } };`, loader: 'ts',
@@ -53,6 +54,11 @@ assert.equal(connections, 1, 'Restart must initiate a connection to the new back
 await mod.exports.lifecycleProbe.restart();
 assert.equal(connections, 2, 'A second restart must also connect.');
 console.log('PASS: Backend restart creates a new authenticated connection on every restart.');
+mod.exports.lifecycleProbe.receive({ protocol_version: 1, type: 'task.state', generation_id: 3 });
+mod.exports.lifecycleProbe.receive({ protocol_version: 1, type: 'subtitle.translated', generation_id: 900 });
+mod.exports.lifecycleProbe.receive({ protocol_version: 1, type: 'subtitle.translation-failed', generation_id: 901 });
+assert.equal(mod.exports.lifecycleProbe.generation(), 3, 'Historical translations cannot advance the desktop cancellation generation.');
+console.log('PASS: historical subtitle responses cannot invalidate current-session playback through desktop cancellation.');
 mod.exports.lifecycleProbe.deadWindows();
 const event = { sender: { id: 19, isDestroyed: () => false } };
 for (const name of electron.ipcMain.eventNames()) assert.doesNotThrow(() => electron.ipcMain.emit(name, event, true));

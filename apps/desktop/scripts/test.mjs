@@ -8,6 +8,7 @@ import './test-preferences.mjs';
 import './test-cinematic.mjs';
 import './test-companion-geometry.mjs';
 import './test-portrait-geometry.mjs';
+import './test-caption-layout.mjs';
 
 await verifyPortableIsolation();
 

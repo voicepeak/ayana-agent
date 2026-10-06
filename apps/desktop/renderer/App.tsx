@@ -10,6 +10,7 @@ import desktopPackage from '../package.json';
 import { companionDesign, useCompanionDesign, designStyle, designTone, DesignControls, type CompanionDesign } from './CompanionDesign';
 import { savePreferences } from './preferences';
 import { CompanionPortrait } from './CompanionPortrait';
+import { captionLayout, type CaptionLayout, type PortraitScene } from './captionLayout';
 
 const taskLabels: Record<string, string> = { idle: '空闲', observing: '正在观察目标', thinking: '正在整理思路', acting: '正在执行这一步', failed: '需要留意', speaking: 'Ayana 正在说话' };
 
@@ -37,6 +38,13 @@ export default function App() {
   const [designMessage, setDesignMessage] = useState('');
   const [captionVisible, setCaptionVisible] = useState(false);
   const [backgroundRevision, setBackgroundRevision] = useState(0);
+  const [portraitScene, setPortraitScene] = useState<PortraitScene>();
+  const [captionArea, setCaptionArea] = useState<CaptionLayout>();
+  const captionTarget = portraitScene && captionLayout(portraitScene, design.font_size);
+  useEffect(() => {
+    if (captionTarget && !portraitScene?.dragging) setCaptionArea(current =>
+      JSON.stringify(current) === JSON.stringify(captionTarget) ? current : captionTarget);
+  }, [portraitScene, design.font_size]);
   const designDirty = Object.keys(designPatch).length > 0;
   const companion = useRef<HTMLElement>(null);
   const recorder = useRef<MediaRecorder | null>(null);
@@ -47,6 +55,8 @@ export default function App() {
   const textarea = useRef<HTMLTextAreaElement>(null);
   const targetDialog = useRef<HTMLDialogElement>(null);
   const current = state.speeches.find(speech => speech.id === state.current);
+  const captionsOccupyScene = design.show_subtitles && (captionVisible || state.questions.length > 0
+    || state.history.some(record => record.role === 'user' || record.displayed === true || ['played', 'partial'].includes(String(record.status))));
   const busy = state.task === 'thinking' || state.task === 'observing' || state.inputState === 'transcribing' || Boolean(current);
 
   function openComposer() { setComposerOpen(true); textarea.current?.focus({ preventScroll: true }); }
@@ -288,8 +298,11 @@ export default function App() {
     </div></header>
     <CompanionPortrait design={design} expression={state.expression} motion={state.settings.sentence_motion !== false}
       connected={state.connected} onChange={changeDesign} onClick={openComposer}
+      onSceneChange={setPortraitScene} bottomInset={captionsOccupyScene ? captionArea?.portraitBottomInset : 0}
       onCommit={patch => { void savePreferences({ companion_ui: patch }).catch(error => setLocalError(`立绘位置未保存：${String(error)}`)); }}/>
-    <CompanionWorkspace state={state} speech={presented} textOnly={textOnly} show={design.show_subtitles} primaryLanguage={design.primary_language} translationLanguage={design.translation_language} onVisibilityChange={setCaptionVisible}/>
+    {design.show_subtitles && portraitScene?.dragging && captionTarget && <div className="caption-layout-preview" aria-label="松手后的字幕位置" data-layout={captionTarget.mode}
+      style={{ left: captionTarget.x, top: captionTarget.y, width: captionTarget.width, height: captionTarget.height }}><span>松手后字幕放在这里</span></div>}
+    <CompanionWorkspace state={state} speech={presented} textOnly={textOnly} show={design.show_subtitles} primaryLanguage={design.primary_language} translationLanguage={design.translation_language} onVisibilityChange={setCaptionVisible} layout={captionArea}/>
     <form className="floating-input" data-companion-interactive onSubmit={event => { event.preventDefault(); void ask(); }} onBlur={event => {
       if (!companion.current?.contains(event.relatedTarget as Node | null) && !recordRequested.current && state.inputState !== 'transcribing') setComposerOpen(false);
     }}>

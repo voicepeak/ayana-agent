@@ -64,7 +64,7 @@ try {
  await page.waitForFunction(() => document.querySelector('.floating-input textarea').value === '');
  await page.locator('.cinematic-glyph.is-shown').first().waitFor();
  const style = await page.locator('.cinematic-dialogue').evaluate(el => { const s = getComputedStyle(el); return { background: s.backgroundColor, border: s.borderWidth, font: s.fontFamily, weight: s.fontWeight }; });
- assert.equal(style.background, 'rgba(0, 0, 0, 0)'); assert.equal(style.border, '0px'); assert(style.font.includes('Noto Serif SC')); assert.equal(style.weight, '300');
+ assert.notEqual(style.background, 'rgba(0, 0, 0, 0)'); assert(parseFloat(style.border)>0); assert(style.font.includes('Noto Serif SC')); assert.equal(style.weight, '300');
  const frameStyle = await page.locator('.companion-frame').evaluate(node => ({ background: getComputedStyle(node.querySelector('.note-surface') || node).backgroundColor, width: node.getBoundingClientRect().width }));
  assert.notEqual(frameStyle.background, 'rgba(0, 0, 0, 0)'); assert(Math.abs(frameStyle.width - (await page.evaluate(() => innerWidth))) <= 3, 'Visible frame reaches the native resize border.');
  const cdp = await page.context().newCDPSession(page);

@@ -34,7 +34,7 @@ try{
  const animation=await row('memory-one').evaluate(n=>n.getAnimations().map(a=>({duration:a.effect.getTiming().duration,frames:a.effect.getKeyframes()})));
  assert(animation.length>0,'Retirement has an actual smooth transform/opacity animation.');
  await page.waitForTimeout(750);
- const after=await row('memory-one').boundingBox(),retiredStyle=await row('memory-one').evaluate(n=>({opacity:Number(getComputedStyle(n.firstElementChild).opacity),z:getComputedStyle(n).zIndex}));
+ const after=await row('memory-one').boundingBox(),retiredStyle=await row('memory-one').evaluate(n=>({opacity:Number(getComputedStyle(n.querySelector('.cinematic-shot')).opacity),z:getComputedStyle(n).zIndex}));
  report.retirement={before,after,style:retiredStyle,animation};assert(after.y<before.y,'The completed caption moves upward.');assert(retiredStyle.opacity<.95);
  await emit(reply('memory-two','下一句保持清晰，上一句留在后面。'));
  assert.equal(await row('memory-two').evaluate(n=>getComputedStyle(n).opacity),'1');
