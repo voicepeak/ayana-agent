@@ -4,14 +4,97 @@ import asyncio
 from copy import deepcopy
 import httpx
 import json
+import os
 from .storage import without_media
 
-from .context import summarize_history
+from .context import summarize_history, summary_batches
 from .prompts import INTERRUPTED_PREFIX
 from .work import remember_result
 
+# The contextual work snapshot sent to the model must stay small even when the
+# 8-pending-task limit is full; otherwise fixed material can exceed the budget.
+WORK_CONTEXT_BUDGET = 16000
+
 
 class ConversationRuntime:
+    def _reconcile_restart_tasks(self):
+        """Derive work_context task state from the single persisted record.
+
+        A task table row is marked interrupted at startup; the topic's task
+        snapshot must not stay "running" (and must become continuable again).
+        """
+        context = self.conversations.current.get("work_context")
+        if not isinstance(context, dict):
+            return
+        active = {"running", "paused", "waiting_approval"}
+        changed = False
+        for key in ("current_task", "last_task", "pending_task"):
+            task = context.get(key)
+            if isinstance(task, dict) and task.get("state") in active:
+                task["state"] = "interrupted"
+                changed = True
+        pending = context.get("pending_tasks", [])
+        for task in pending:
+            if isinstance(task, dict) and task.get("state") in active:
+                task["state"] = "interrupted"
+                changed = True
+        task = context.get("current_task")
+        if isinstance(task, dict) and task.get("state") == "interrupted" and task.get("kind") == "action":
+            replaced = {task.get("task_id"), task.get("continues_task_id")}
+            pending = [item for item in pending if item.get("task_id") not in replaced]
+            pending.append(task)
+            context["pending_tasks"] = pending[-8:]
+            context["pending_task"] = pending[-1]
+            changed = True
+        if changed:
+            self.conversations.save()
+
+    @staticmethod
+    def _trim_task_snapshot(task):
+        if not isinstance(task, dict):
+            return
+        for key in ("goal", "resolved_goal", "reason", "continues_task_id"):
+            value = task.get(key)
+            if isinstance(value, str) and len(value) > 800:
+                task[key] = value[:800] + "…"
+        checks = task.get("checks")
+        if isinstance(checks, list):
+            task["checks"] = [{"description": str(check.get("description", ""))[:200], "verified": check.get("verified")}
+                              for check in checks if isinstance(check, dict)]
+
+    def _mark_stale_references(self, objects):
+        root = (self.repository or {}).get("root")
+        if not root:
+            return
+        base = os.path.abspath(root)
+        for obj in objects:
+            absolute = obj.get("absolute_path") if isinstance(obj, dict) else None
+            if not absolute:
+                continue
+            try:
+                inside = os.path.commonpath([os.path.abspath(absolute), base]) == base
+            except ValueError:
+                inside = False
+            if not inside:
+                obj["stale"] = True
+                obj["note"] = "此引用来自之前的材料，当前仓库可能已不同，请重新读取"
+
+    def _prompt_work_context(self):
+        context = deepcopy(self._work_context())
+        context.pop("last_task", None)
+        for key in ("current_task", "pending_task"):
+            self._trim_task_snapshot(context.get(key))
+        for task in context.get("pending_tasks", []):
+            self._trim_task_snapshot(task)
+        self._mark_stale_references(context.get("objects", []))
+        if len(json.dumps(context, ensure_ascii=False)) > WORK_CONTEXT_BUDGET:
+            context["pending_tasks"] = context.get("pending_tasks", [])[:2]
+            context["objects"] = context.get("objects", [])[:8]
+        if len(json.dumps(context, ensure_ascii=False)) > WORK_CONTEXT_BUDGET:
+            context.pop("pending_tasks", None)
+            context.pop("pending_task", None)
+        return context
+
     def _work_context(self):
         current = self.conversations.current
         if "work_context" not in current:
@@ -98,6 +181,7 @@ class ConversationRuntime:
             self.active_task = None
             self.last_reply_turn = None
             self.last_reply_keys = {}
+            self.last_reply_delivered = None
             self.turn_id = ""
             if kind == "conversation.create":
                 await asyncio.to_thread(self.conversations.create)
@@ -161,11 +245,13 @@ class ConversationRuntime:
             self.model_client = httpx.AsyncClient(timeout=httpx.Timeout(75, connect=12), trust_env=False)
         try:
             async with asyncio.timeout(48):
-                summary = await summarize_history(self.settings, self.model_client, self.prompt_history.summary, turns,
-                                                  request_observer=self._record_prompt)
-            if gen != self.generation:
-                raise asyncio.CancelledError
-            await asyncio.to_thread(self.prompt_history.compact, count, summary)
+                summary = self.prompt_history.summary
+                for batch in summary_batches(turns):
+                    summary = await summarize_history(self.settings, self.model_client, summary, batch,
+                                                      request_observer=self._record_prompt)
+                    if gen != self.generation:
+                        raise asyncio.CancelledError
+                await asyncio.to_thread(self.prompt_history.compact, count, summary)
             await self._conversation_snapshot()
         finally:
             await self.emit("context.state", state="ready")

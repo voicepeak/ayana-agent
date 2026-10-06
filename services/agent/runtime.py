@@ -13,8 +13,9 @@ import httpx
 from packages.protocol import PROTOCOL_VERSION, validate_speech
 from .providers.model import LocalProvider, OpenAIProvider
 from .prompts import PromptAssembler, update_budget, completion_feedback, subtitle_language_instruction
+from .prompts import TOOL_RESULT_PREFIX, INTERRUPTED_PREFIX
 from .prompts.trace import PromptTrace
-from .storage import ConversationStore
+from .storage import ConversationStore, without_media
 from .context import PromptHistory, repository_message
 from .tools.repository import RepositoryReader
 from .tools.registry import ToolRegistry, ToolError, arguments, string
@@ -33,6 +34,11 @@ from .work import local_clock
 
 def identifier(prefix):
     return f"{prefix}-{uuid.uuid4().hex[:12]}"
+
+
+# Older tool evidence inside one in-flight turn is replaced by this notice so
+# the project's own budget also constrains tool rounds, not just history.
+COMPRESSED_TOOL_NOTICE = "Tool result omitted to stay within the context budget; re-read if still needed. "
 
 
 class AgentRuntime(CapabilityRuntime, ConversationRuntime):
@@ -70,6 +76,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
         self.utterances = {}
         self.last_reply_keys = {}
         self.last_reply_turn = None
+        self.last_reply_delivered = None
         self.mode = "teach"
         self.closed = False
         self.stt = None
@@ -107,6 +114,8 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             if record["state"] in {"running", "waiting_approval", "paused"}:
                 record["state"] = "interrupted"
                 self.store.put_record("task", record["task_id"], record)
+        # Keep the topic's task snapshot consistent with that single record.
+        self._reconcile_restart_tasks()
 
     async def emit(self, event_type, **payload):
         if event_type in {"subtitle.ready", "subtitle.translated"} and (record := self.utterances.get(payload.get("utterance_id"))):
@@ -379,6 +388,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 self.repository = self.target = self.snapshot = None
                 self.active_task = self.last_reply_turn = None
                 self.last_reply_keys = {}
+                self.last_reply_delivered = None
                 await self.emit("repository.cleared")
                 await self.emit("session.started", target=None, provider=self.settings.values["provider"])
                 await self._conversation_snapshot(changed=True)
@@ -569,6 +579,10 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
         count = 0
         audio_count = continuation.get("audio_count", 0) if continuation else 0
         streams = []
+        messages = None
+        prefix_length = 0
+        reserve = continuation.get("reserve", 0) if continuation else 0
+        sealed = False
         try:
             await self.emit("task.state", state="thinking")
             if root:
@@ -581,6 +595,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 prefix_length = continuation["prefix_length"]
                 provider = OpenAIProvider(self.settings, self.model_client)
                 provider.request_observer = self._record_prompt
+                self._cap_request(messages, prefix_length, reserve)
                 streams = [provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names)]
             elif self.settings.values["provider"] == "local":
                 await self.emit("service.state", service="model", state="ready", engine="local-evidence", message="本地文件教学模式，无视觉模型")
@@ -597,7 +612,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 # Keep one copy of repository evidence ahead of dialogue history.
                 evidence_prefix = repository_message(self.repository)
                 context = {"mode": "execute" if self._execution_enabled() else "teach", "full_access": self.full_access, "target": self.target,
-                           "local_clock": local_clock(), "work_context": self._work_context(),
+                           "local_clock": local_clock(), "work_context": self._prompt_work_context(),
                            "speech_budget": self._speech_budget(audio_count),
                            "directories": self.policy.public(include_repository=True),
                            "avatar_context": self._avatar_context(),
@@ -729,6 +744,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                         messages.append({"role": "system", "content": completion_feedback(
                             task.completion_feedback(), self._speech_budget(audio_count)["remaining"])})
                         tool_schemas, tool_names = self._model_tools(messages)
+                        self._cap_request(messages, prefix_length, reserve)
                         streams.append(provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names))
                         continue
                 if not requests or messages is None:
@@ -760,6 +776,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 if self.approvals:
                     break
                 tool_schemas, tool_names = self._model_tools(messages)
+                self._cap_request(messages, prefix_length, reserve)
                 streams.append(provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names))
             else:
                 raise ToolError("round_budget", "任务工具往返已达到上限")
@@ -769,10 +786,13 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 raise RuntimeError("模型没有返回可播放的完整日语语句")
             if waiting and messages is not None:
                 self.continuation = {"messages": messages, "prefix_length": prefix_length, "keys": keys,
-                                     "audio_count": audio_count}
+                                     "audio_count": audio_count, "reserve": reserve}
+                sealed = True
             elif messages is not None:
                 self.prompt_history.append(self.turn_id, messages[prefix_length:], keys,
                                            persist=self.settings.values.get("save_history", True))
+                self.last_reply_delivered = self.turn_id
+                sealed = True
             await self._conversation_snapshot()
             await self._history_snapshot()
             await self._drain_speech(queue, speaker)
@@ -812,9 +832,32 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 speaker.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await speaker
+            # Success seals in the try block; failure or cancellation must still
+            # persist the confirmed exchange so tool evidence is not lost.
+            if messages is not None and not sealed:
+                self._seal_interrupted_turn(messages, prefix_length)
+
+    def _seal_interrupted_turn(self, messages, prefix_length):
+        if not self.turn_id:
+            return
+        if any(turn["turn_id"] == self.turn_id for turn in self.prompt_history.turns):
+            return
+        goal = self.active_task.goal if self.active_task else None
+        items = self.conversations.history(self.conversations.current_id)["items"]
+        evidence = {"state": "interrupted",
+                    "reply": [item for item in items
+                              if item.get("turn_id") == self.turn_id and item.get("role") == "assistant"],
+                    "actual_tool_results": self.active_task.results if self.active_task else {}}
+        factual = [message for message in messages[prefix_length:] if message.get("role") != "system"]
+        if not factual and goal:
+            factual = [{"role": "user", "content": goal}]
+        sealed_messages = [*factual, {"role": "user", "content": INTERRUPTED_PREFIX + json.dumps(
+            without_media(evidence), ensure_ascii=False)}]
+        self.prompt_history.append(self.turn_id, sealed_messages, {},
+                                   persist=self.settings.values.get("save_history", True))
 
     def _interrupted_reply(self):
-        if not self.last_reply_turn or (self.prompt_history.turns and self.prompt_history.turns[-1]["turn_id"] == self.last_reply_turn):
+        if not self.last_reply_turn or self.last_reply_delivered == self.last_reply_turn:
             return []
         return [{"key": key, "speech_ja": record["speech_ja"], "status": record.get("status", "generated"),
                  "displayed": record.get("displayed", False), "played_samples": record.get("played_samples", 0)}
@@ -822,6 +865,47 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
 
     async def _read_tool(self, request):
         return await self._dispatch_tool(request)
+
+    def _cap_request(self, messages, prefix_length, reserve_chars):
+        """Keep an in-flight request, including tool rounds, within budget.
+
+        Only current-turn evidence after the latest user message is compressed;
+        the fixed prefix and the live question are left untouched.
+        """
+        if messages is None or not reserve_chars:
+            return messages
+        budget = self.prompt_history.max_chars - reserve_chars
+        if budget <= 0:
+            return messages
+        def size():
+            return len(json.dumps(messages, ensure_ascii=False))
+        if size() <= budget:
+            return messages
+        for index in range(prefix_length + 1, len(messages)):
+            if size() <= budget:
+                break
+            message = messages[index]
+            content = message.get("content")
+            if message.get("role") == "tool":
+                message["content"] = COMPRESSED_TOOL_NOTICE + json.dumps(
+                    {"call_id": message.get("tool_call_id")}, ensure_ascii=False)
+            elif isinstance(content, str) and content.startswith(TOOL_RESULT_PREFIX):
+                try:
+                    value = json.loads(content[len(TOOL_RESULT_PREFIX):])
+                except (ValueError, TypeError):
+                    continue
+                if isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, dict):
+                            item.pop("result", None)
+                            item.pop("receipt", None)
+                            item["compressed"] = True
+                message["content"] = TOOL_RESULT_PREFIX + json.dumps(value, ensure_ascii=False)
+            elif isinstance(content, list):
+                stripped = [part for part in content if part.get("type") != "image_url"]
+                if len(stripped) != len(content):
+                    message["content"] = stripped
+        return messages
 
     async def _propose_action(self, event):
         if not self.snapshot:

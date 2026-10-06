@@ -520,9 +520,16 @@ class CapabilityRuntime:
             task.results[call_id] = {"signature": signature, "value": value}
             if tool and tool.effect != "read" and ("error" not in value or evidence["execution"] == "uncertain"):
                 task.effects.append(call_id)
-        remember_result(self._work_context(), name, args, value)
+        remember_result(self._work_context(), name, args, value, resolver=self._reference_path)
         self.conversations.save()
         return value
+
+    def _reference_path(self, root_id, path):
+        """Resolve a tool reference to its real absolute path now, or nothing."""
+        try:
+            return str(self.policy.path(root_id, path).resolve())
+        except (ValueError, OSError, TypeError):
+            return None
 
     async def _capability_command(self, cmd):
         kind = cmd["type"]

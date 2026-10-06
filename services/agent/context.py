@@ -7,6 +7,10 @@ import json
 import httpx
 from .prompts import SUMMARY_INSTRUCTION, is_transient, REPOSITORY_PREFIX, HISTORY_PREFIX
 
+# A summary request gets its own input ceiling, independent of the main model
+# request, so a huge retained turn cannot wedge compaction forever.
+SUMMARY_INPUT_BUDGET = 40000
+
 
 def text_messages(messages):
     """Do not retain screenshots in history or on disk."""
@@ -68,7 +72,11 @@ class PromptHistory:
         return text_messages([*prefix, *[message for turn in self.turns for message in turn["messages"]]])
 
     def compaction_count(self, reserve_chars=0):
-        budget = max(0, self.max_chars - reserve_chars)
+        budget = self.max_chars - reserve_chars
+        if budget <= 0:
+            # The fixed material alone already exceeds the ceiling. Returning
+            # zero here would send an oversized request, so fail loudly instead.
+            raise ValueError("当前材料过大，请解除部分材料或开始新话题")
         sizes = [len(json.dumps(turn, ensure_ascii=False)) for turn in self.turns]
         size = sum(sizes) + len(self.summary)
         if size <= budget:
@@ -110,6 +118,43 @@ class PromptHistory:
             elif key in saved:
                 result.append(saved[key])
         return result
+
+
+def _truncate_turn(turn, budget):
+    """Bound one oversized turn so it can still be summarized at all."""
+    messages = turn["messages"]
+    per_message = max(400, budget // max(1, len(messages)))
+    trimmed = []
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, str) and len(content) > per_message:
+            content = content[:per_message] + "…[truncated for summary]"
+        trimmed.append({**message, "content": content})
+    return {**turn, "messages": trimmed, "truncated": True}
+
+
+def summary_batches(turns, budget=SUMMARY_INPUT_BUDGET):
+    """Split retained turns into batches sized for the summary endpoint.
+
+    An individual turn larger than the whole budget is truncated first; it is
+    never handed to the endpoint whole, which is what let compaction wedge.
+    """
+    prepared = [{"turn_id": turn["turn_id"], "keys": turn.get("keys", {}),
+                 "messages": text_messages(turn["messages"])} for turn in turns]
+    batches, current, size = [], [], 2
+    for turn in prepared:
+        encoded = len(json.dumps(turn, ensure_ascii=False))
+        if encoded > budget:
+            turn, encoded = _truncate_turn(turn, budget), None
+            encoded = len(json.dumps(turn, ensure_ascii=False))
+        if current and size + encoded > budget:
+            batches.append(current)
+            current, size = [], 2
+        current.append(turn)
+        size += encoded
+    if current:
+        batches.append(current)
+    return batches
 
 
 async def summarize_history(settings, client, previous, turns, request_observer=None):

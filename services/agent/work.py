@@ -4,6 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime
 import json
+import os
 
 
 def local_clock():
@@ -109,7 +110,26 @@ def check_evidence(check, results):
     return True
 
 
-def remember_result(context, name, args, value):
+def reference_identity(item):
+    """A stable identity so a reference cannot silently point at another file.
+
+    A resolved absolute path wins over the mutable ``root_id`` (which tracks the
+    currently bound repository); object references keep their existing keys.
+    """
+    if item.get("absolute_path"):
+        return ("file", os.path.normcase(os.path.abspath(item["absolute_path"])))
+    if "path" in item:
+        return ("file", item.get("root_id"), item["path"])
+    if "source_id" in item:
+        return ("source", item["source_id"])
+    if "app_id" in item:
+        return ("app", item["app_id"])
+    if "target_id" in item:
+        return ("window", item["target_id"])
+    return ("url", item.get("url"))
+
+
+def remember_result(context, name, args, value, resolver=None):
     """Keep bounded references, not file contents, scripts, or screenshot blobs."""
     if "error" in value:
         context["last_error"] = {"tool": name, "code": value.get("code"), "message": value["error"]}
@@ -118,13 +138,13 @@ def remember_result(context, name, args, value):
     if isinstance(result, list):
         for item in result[-8:]:
             if isinstance(item, dict):
-                remember_result(context, name, args, {**value, "result": item})
+                remember_result(context, name, args, {**value, "result": item}, resolver)
         return
     if not isinstance(result, dict):
         return
     for item in result.get("matches", [])[-8:] if isinstance(result.get("matches"), list) else []:
         if isinstance(item, dict):
-            remember_result(context, name, args, {**value, "result": {"root_id": result.get("root_id", args.get("root_id")), **item}})
+            remember_result(context, name, args, {**value, "result": {"root_id": result.get("root_id", args.get("root_id")), **item}}, resolver)
     keys = {"artifact_id", "root_id", "path", "absolute_path", "app_id", "name", "source_id", "url", "title", "target_id"}
     ref = {key: deepcopy(result[key]) for key in keys if key in result and isinstance(result[key], (str, int))}
     for key in ("root_id", "path", "app_id", "url"):
@@ -134,14 +154,21 @@ def remember_result(context, name, args, value):
         return
     if "absolute_path" in ref and "path" not in ref:
         ref["path"] = ref["absolute_path"]
+    # Bind the file's real location at the moment it was read, so a later
+    # material switch cannot reinterpret the same reference as another file.
+    if resolver and "path" in ref and "absolute_path" not in ref:
+        try:
+            absolute = resolver(ref.get("root_id"), ref["path"])
+        except Exception:
+            absolute = None
+        if absolute:
+            ref["absolute_path"] = absolute
     ref.update(tool=name, call_id=value["call_id"], status=result.get("status", "observed"))
     if name == "files.create":
         ref["created_by"] = "assistant"
     objects = context.setdefault("objects", [])
-    identity = lambda item: ("file", item.get("root_id"), item["path"]) if "path" in item else (
-        "source", item["source_id"]) if "source_id" in item else ("app", item["app_id"]) if "app_id" in item else (
-        "window", item["target_id"]) if "target_id" in item else ("url", item["url"])
-    previous = next((item for item in objects if identity(item) == identity(ref)), {})
-    objects[:] = [item for item in objects if identity(item) != identity(ref)]
+    identity = reference_identity(ref)
+    previous = next((item for item in objects if reference_identity(item) == identity), {})
+    objects[:] = [item for item in objects if reference_identity(item) != identity]
     objects.append({**previous, **ref})
     context["objects"] = objects[-16:]
