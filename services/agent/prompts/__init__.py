@@ -84,8 +84,6 @@ def expression_prompt(catalog, costume):
     descriptions = "\n".join(f"- {label}: {text}" for label, text in catalog.guide.items() if label in choices)
     root = catalog.character_root.parents[1]
     return (character_text(root, "expression-rules.md") + "\n全部可用表情及区别：\n" + descriptions
-            + "\n以下是独立场景中的输出格式示例，实际回复按当前语境选择，不照搬台词：\n"
-            + character_text(root, "expression-examples.ndjson")
             + "\n每句 speech 后仍按协议发出对应的 translation 事件。")
 
 
@@ -131,7 +129,7 @@ class PromptAssembler:
               for name, file in [("work", "work-policy.md"), ("events", "event-protocol.md"), ("tasks", "task-protocol.md")]],
             {"name": "permissions", "source": "characters/ayana/" + policy, "text": character_text(self.root, policy)},
             {"name": "tools", "source": "runtime tool catalog", "text": tools},
-            {"name": "expressions", "source": "characters/ayana/expression-rules.md + expression-guide.json + expression-examples.ndjson",
+            {"name": "expressions", "source": "characters/ayana/expression-rules.md + expression-guide.json",
              "text": self.catalog.prompt(costume)},
         ]))
 

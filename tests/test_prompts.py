@@ -47,6 +47,9 @@ def test_permission_branches_and_character_examples_are_consistent():
     catalog = AvatarCatalog(ROOT)
     assembler = PromptAssembler(ROOT, catalog)
     registry = ToolRegistry()
+    examples = (ROOT / "characters/ayana/expression-examples.ndjson").read_text(encoding="utf-8")
+    # Archived format samples must not become reusable lines in production prompts.
+    sample_sentences = [json.loads(line)["speech_ja"] for line in examples.splitlines()]
     for full in (False, True):
         bundle = assembler.build(full_access=full, costume="校服",
                                  tools=tool_prompt(registry, native_tools=True, full_access=full))
@@ -62,7 +65,8 @@ def test_permission_branches_and_character_examples_are_consistent():
             assert "任意本机路径、修改仓库" not in bundle.system
             assert "等待用户在界面确认" in bundle.system
         assert "Use fresh speech keys throughout" not in bundle.system
-    examples = (ROOT / "characters/ayana/expression-examples.ndjson").read_text(encoding="utf-8")
+        assert all(sentence not in bundle.system for sentence in sample_sentences)
+        assert "まず、入口を見てみよう。" not in bundle.system
     for line in examples.splitlines():
         event = json.loads(line)
         validate_speech(event)

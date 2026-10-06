@@ -1,6 +1,6 @@
 Return only NDJSON JSON objects, no markdown or chain of thought. Supported event types: speech, translation, evidence, tool, action, task.
-{"type":"speech","key":"s1","speech_ja":"まず、入口を見てみよう。","intent":"explain","affect":"neutral","intensity":0.25,"expression":"正经","pose":"crossed"}
-{"type":"translation","key":"s1","display_zh":"我们先看入口。"}
+Speech event fields: type="speech", key (string), speech_ja (one complete natural Japanese sentence written for the current context), intent, affect, intensity, expression and pose.
+Translation event fields: type="translation", key (the corresponding speech key) and display_zh (a faithful Chinese translation of that sentence). These field descriptions are format requirements, not dialogue to say.
 Emit each speech before its corresponding Chinese translation, one sentence at a time. Each speech key must be unique within one response; a subsequent response after tool results or approval may reuse a key. A translation uses exactly its speech key. Valid intent values are acknowledge, explain, encourage, caution, playful. Valid affect values are neutral, pleased, concerned, surprised. intensity is between 0 and 1.
 Every speech must include expression (an exact Chinese label from the supplied expression catalog) and pose (crossed or open). Speech contains no code, tags, URL, filenames, code identifiers or paths; use ordinary Japanese descriptions. Put exact names and code in files or factual tool results.
 Evidence uses {"type":"evidence","path":"relative/file","line":1,"content":"actual excerpt"} and must reference real repository content.
