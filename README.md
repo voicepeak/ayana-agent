@@ -1,12 +1,12 @@
 # Ayana · Personal Agent
 
-Windows 个性化 Agent：立绘、细宋体电影对白和输入收在可定制的便签中，跳字跟随实际语音播放进度；日语 Ayana 音色、可打断播放。便签支持透明、磨砂和自选图片背景，设计控件按需展开。模型、声音、服装和桌面工具通过右键菜单或托盘进入独立管理窗口。正式人设见 `characters/ayana/persona.md`。
+Windows 个性化 Agent：立绘、细宋体电影对白和紧凑的文字输入收在可定制的便签中，跳字跟随实际语音播放进度；日语 Ayana 音色、可打断播放。便签提供夜墨、茶白、苔绿、雾蓝四套主题，以及自定义图片或纯色。模型、声音、服装和桌面工具通过右键菜单或托盘进入独立管理窗口。正式人设见 `characters/ayana/persona.md`。
 
 ## 在本机运行
 
-最新整合版为 `apps/desktop/release/Ayana-0.3.6-win-x64.exe`（2026-10-06）：包含宽幅便签、可更换背景、按需展开的设计控件、简化后的设置窗口与可靠保存回执，以及集中管理的模型提示词和工具流程更新；保留细宋体电影对白、任务连续性、完成核验，以及自动语音回应和闪光换装。个人配置和话题继续使用 `%APPDATA%/Ayana`；交互与验证见 [电影对白便签](docs/CINEMATIC_COMPANION_2026-10-06.md)。
+最新整合版为 `apps/desktop/release/Ayana-0.3.15-win-x64.exe`（2026-10-07），下载见 [GitHub Releases](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.15)。本版改为柔和光影的卡片气泡，翻阅历史时有过渡动效，思考时保留上一条回答；茶白主题关闭气泡后使用无描边文字。字幕字号支持 14–40，立绘调整与自定义背景支持滚轮缩放。换装保留表情和正在播放的语句；上下文修复保留中断前的工具证据并限制请求大小。文字输入保留，语音输入入口暂时移除。个人配置和话题继续使用 `%APPDATA%/Ayana`；完整改动与验证见 [0.3.15 发布记录](docs/RELEASE_0.3.15.md)。
 
-本机交付版可直接双击 `apps/desktop/release/Ayana-0.3.2-win-x64.exe`。它包含独立 Python、桌面程序、立绘与本地识别模型；个人模型配置保存在 `%APPDATA%/Ayana/config/local.json`。首次解包和加载音色需要等待；此前版本首次语音冷启动实测约 43 秒，期间文字输入与界面保持可用。启动新版前请退出旧版。
+本机交付版可直接双击 `apps/desktop/release/Ayana-0.3.15-win-x64.exe`。它包含独立 Python、桌面程序与立绘；个人模型配置保存在 `%APPDATA%/Ayana/config/local.json`。首次解包和加载音色需要等待；此前版本首次语音冷启动实测约 43 秒，期间文字输入与界面保持可用。启动新版前请退出旧版。
 
 开发目录也可双击 `启动 Ayana.cmd`，后续修改仍按下面的流程构建。
 
@@ -14,7 +14,7 @@ Windows 个性化 Agent：立绘、细宋体电影对白和输入收在可定制
 
 Full access 版为 `apps/desktop/release/Ayana-0.3.2-full-access-win-x64.exe`，包含话题管理和访问权限开关。退出旧版后启动，在「任务与结果」开启 Full access 即可。
 
-最新对话修复版为 `apps/desktop/release/Ayana-0.3.2-dialogue-fix-win-x64.exe`，包含上述功能及默认免 Key 的 Bing 搜索；与当前通用交付包内容一致。新增非日语句子重试/单句修复、损坏末尾字幕补回和报错时有效语音保留，详情见 [对话异常修复](docs/DIALOGUE_RECOVERY.md)。
+0.3.2 的历史对话修复包为 `apps/desktop/release/Ayana-0.3.2-dialogue-fix-win-x64.exe`，包含上述功能及默认免 Key 的 Bing 搜索。新增非日语句子重试/单句修复、损坏末尾字幕补回和报错时有效语音保留，详情见 [对话异常修复](docs/DIALOGUE_RECOVERY.md)。
 
 ```powershell
 python -m venv .venv
