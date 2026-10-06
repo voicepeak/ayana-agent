@@ -121,13 +121,13 @@ try {
  assert(readFileSync(path.join(data, 'companion-background.png')).length > 0);
  report.checks.push('transparent and frosted backgrounds render correctly; native image selection copies a valid private PNG; controlled background protocol and saved image mode work');
  await design.getByLabel('重置设计', { exact: true }).click(); await design.getByRole('tab', { name: '对白', exact: true }).click();
- await design.getByText('同时显示日语', { exact: true }).locator('..').locator('input').check();
+ await design.getByLabel('对白翻译语言',{exact:true}).selectOption('ja');
  await design.getByRole('button', { name: '保存设计', exact: true }).click();
  await design.getByText('设计已保存', { exact: true }).waitFor();
  await page.screenshot({ path: path.join(directory, 'design-controls.png'), omitBackground: true });
  await design.getByLabel('收起设计控件', { exact: true }).click();
  await page.waitForFunction(() => window.ayana.getState().then(s => !s.designOpen));
- report.checks.push('native frame resize and drawing scale/presets/font/opacity preview work; backend persists appearance without touching voice; reload restores it; subtitles can hide; reset and collapse work');
+ report.checks.push('native frame resize and drawing scale/font/opacity preview work; backend persists appearance without touching voice; reload restores it; subtitles can hide; reset and collapse work');
  const long = '慢慢来，我们先把整件事情想清楚，再一步一步去做。很长的台词也会继续往下展示，所有内容都应该能读到。';
  await emit([{ type: 'settings.ready', settings: { subtitles: true, voice: { voice_mode: 'sovits' } } },
   { type: 'utterance.ready', generation_id: 500, utterance_id: 'paused-caption', speech_ja: 'ゆっくり話そう。', audio_enabled: true },
@@ -153,14 +153,14 @@ try {
  const firstCount = await page.locator('.cinematic-glyph.is-shown').count();
  await page.waitForTimeout(450);
  assert.equal(await page.locator('.cinematic-glyph.is-shown').count(), firstCount, 'No receipt means no advancing voiced text.');
- assert(await page.locator('.cinematic-shot p').count() <= 2);
+ assert((await page.locator('.is-current .cinematic-shot').textContent()).length>0);
  await emit([{ type: 'playback.progress', generation_id: 500, utterance_id: 'paused-caption', played_samples: 900, total_samples: 1000 }]);
  await page.waitForTimeout(300);
- assert(!(await page.locator('.cinematic-shot').innerText()).startsWith('慢慢来'), 'Long replies page forward.');
+ assert((await page.locator('.is-current .cinematic-glyph.is-shown').count())>firstCount,'Consumed audio reveals more of the retained sentence.');
  await page.screenshot({ path: path.join(directory, 'voiced-caption.png'), omitBackground: true });
  await emit([{ type: 'desktop.cancelled', generation_id: 501, cancelled_generation_id: 500 }]);
- await page.waitForFunction(() => !document.querySelector('.cinematic-shot'));
- report.checks.push('voiced reveal freezes without consumed receipts, long lines paginate to two lines, cancellation clears immediately');
+ await page.waitForFunction(() => !document.querySelector('.is-current .cinematic-dialogue:not([data-complete=true])'));
+ report.checks.push('voiced reveal freezes without consumed receipts, long lines retain their complete text, cancellation stops active reveal');
  await page.evaluate(() => { window.__cinematicEvents = []; window.ayana.onEvent(e => { if (e.type.startsWith('playback.')) window.__cinematicEvents.push(e); }); });
  const samples = Buffer.alloc(16000 * 3 * 4); // silent PCM tests consumption without acoustic output
  await emit([{ type: 'utterance.ready', generation_id: 600, utterance_id: 'real-pcm', speech_ja: 'ちゃんと聞いているよ。', audio_enabled: true },
@@ -168,7 +168,7 @@ try {
   { type: 'audio.ready', generation_id: 600, utterance_id: 'real-pcm', sample_rate: 16000, channels: 1, duration_ms: 3000, pcm_base64: samples.toString('base64') }]);
  await page.waitForFunction(() => window.__cinematicEvents.some(e => e.type === 'playback.progress' && e.utterance_id === 'real-pcm' && e.played_samples > 0), null, { timeout: 15000 });
  await page.waitForFunction(() => window.__cinematicEvents.some(e => e.type === 'playback.ended' && e.utterance_id === 'real-pcm'), null, { timeout: 15000 });
- await page.waitForFunction(() => document.querySelector('.cinematic-shot')?.textContent.includes('慢慢说'));
+ await page.waitForFunction(() => document.querySelector('.is-current .cinematic-shot')?.textContent.includes('慢慢说'));
  await page.waitForTimeout(2500); assert(await page.locator('[data-caption-id="real-pcm"].is-current').isVisible(), 'Completed dialogue stays centered until another sentence arrives.');
  report.checks.push('actual AudioWorklet PCM consumption drives captions; completed sentence remains clear and readable');
  await application.evaluate(({ BrowserWindow, Menu, app }) => {

@@ -12,7 +12,7 @@ import httpx
 
 from packages.protocol import PROTOCOL_VERSION, validate_speech
 from .providers.model import LocalProvider, OpenAIProvider
-from .prompts import PromptAssembler, update_budget, completion_feedback
+from .prompts import PromptAssembler, update_budget, completion_feedback, subtitle_language_instruction
 from .prompts.trace import PromptTrace
 from .storage import ConversationStore
 from .context import PromptHistory, repository_message
@@ -100,12 +100,17 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
         self.client_queues = {}
         self.client_senders = {}
         self.persistence_lock = asyncio.Lock()
+        self.subtitle_jobs = set()
+        self.subtitle_pending = set()
+        self.subtitle_lock = asyncio.Lock()
         for record in self.store.records("task"):
             if record["state"] in {"running", "waiting_approval", "paused"}:
                 record["state"] = "interrupted"
                 self.store.put_record("task", record["task_id"], record)
 
     async def emit(self, event_type, **payload):
+        if event_type in {"subtitle.ready", "subtitle.translated"} and (record := self.utterances.get(payload.get("utterance_id"))):
+            record.update({key: payload[key] for key in ("display_zh", "display_en") if isinstance(payload.get(key), str)})
         self.seq += 1
         event = {"protocol_version": PROTOCOL_VERSION, "type": event_type, "session_id": self.session_id,
                  "conversation_id": self.conversations.current_id,
@@ -406,10 +411,15 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                                         "conversation_id": self.conversations.current_id, **speech}
                 await self.emit("task.state", state="thinking")
                 await self.emit("utterance.ready", utterance_id=uid, presentation="costume-change", **speech)
-                await self.emit("subtitle.ready", utterance_id=uid, display_zh="我要换上新衣服啦。嘿嘿，怎么样？")
+                await self.emit("subtitle.ready", utterance_id=uid, display_zh="我要换上新衣服啦。嘿嘿，怎么样？", display_en="I'm changing into my new outfit. Hehe, how do I look?")
                 self.task = asyncio.create_task(self._costume_voice(uid, speech["speech_ja"], self.generation))
         elif kind == "history.get":
             await self._history_snapshot(cmd.get("conversation_id"), cmd.get("before"))
+        elif kind == "subtitles.translate":
+            ids = cmd.get("utterance_ids")
+            if cmd.get("language") != "en" or not isinstance(ids, list) or not 1 <= len(ids) <= 30 or any(not isinstance(uid, str) or len(uid) > 100 for uid in ids):
+                raise ValueError("Invalid subtitle translation request")
+            self._queue_subtitle_translation(self.conversations.current_id, ids)
         else:
             raise ValueError(f"Unknown command: {kind}")
 
@@ -582,7 +592,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 bundle = self.prompts.build(full_access=self.full_access,
                                             costume=self.settings.values.get("avatar_costume", "校服"),
                                             tools=self._tool_prompt())
-                system = bundle.system
+                system = bundle.system + subtitle_language_instruction(self.settings.values)
                 self.prompt_history.select(system, self.settings.values, conversation_id=self.conversations.current_id)
                 # Keep one copy of repository evidence ahead of dialogue history.
                 evidence_prefix = repository_message(self.repository)
@@ -654,7 +664,8 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                         self.utterances[uid] = {"generation_id": gen, "conversation_id": self.conversations.current_id, **speech}
                         await self.emit("utterance.ready", utterance_id=uid, **speech)
                         if event.get("display_zh"):
-                            await self.emit("subtitle.ready", utterance_id=uid, display_zh=str(event["display_zh"])[:1200])
+                            await self.emit("subtitle.ready", utterance_id=uid, display_zh=str(event["display_zh"])[:1200],
+                                            **({"display_en": event["display_en"][:1200]} if isinstance(event.get("display_en"), str) else {}))
                         if speech["audio_enabled"] and not speaker.done():
                             putting = asyncio.create_task(queue.put((uid, speech["speech_ja"])))
                             done, _ = await asyncio.wait({putting, speaker}, return_when=asyncio.FIRST_COMPLETED)
@@ -672,7 +683,8 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                         uid = round_keys.get(key) or keys.get(key)
                         if not uid:
                             raise ValueError("Translation references an uncommitted sentence")
-                        await self.emit("subtitle.ready", utterance_id=uid, display_zh=str(event.get("display_zh", ""))[:1200])
+                        await self.emit("subtitle.ready", utterance_id=uid, display_zh=str(event.get("display_zh", ""))[:1200],
+                                        **({"display_en": event["display_en"][:1200]} if isinstance(event.get("display_en"), str) else {}))
                     elif kind == "evidence":
                         # Only show excerpts verified against the selected repository.
                         if self.repository and event.get("path"):
@@ -892,6 +904,49 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             if raise_errors:
                 raise ToolError(getattr(e, "code", "desktop_incomplete"), str(e)[:500]) from None
 
+    def _queue_subtitle_translation(self, conversation_id, ids):
+        fresh = [uid for uid in dict.fromkeys(ids) if (conversation_id, uid) not in self.subtitle_pending]
+        if not fresh or self.closed:
+            return
+        self.subtitle_pending.update((conversation_id, uid) for uid in fresh)
+        task = asyncio.create_task(self._translate_subtitles(conversation_id, fresh))
+        self.subtitle_jobs.add(task)
+        task.add_done_callback(self.subtitle_jobs.discard)
+
+    async def _translate_subtitles(self, conversation_id, ids):
+        try:
+            async with self.subtitle_lock:
+                stored = await asyncio.to_thread(self.store.subtitle_sources, conversation_id, ids)
+                records = {r["utterance_id"]: r for r in stored}
+                for uid in ids:
+                    record = self.utterances.get(uid)
+                    if record and record.get("conversation_id") == conversation_id:
+                        records[uid] = {"utterance_id": uid, **record}
+                missing = [r for r in records.values() if not r.get("display_en")]
+                if missing:
+                    if self.settings.values["provider"] == "local":
+                        translations = {r["utterance_id"]: LocalProvider.english(r["speech_ja"], r.get("display_zh", "")) for r in missing}
+                        if any(not value for value in translations.values()):
+                            raise ValueError("Local mode cannot translate arbitrary historical sentences")
+                    else:
+                        if self.model_client is None:
+                            self.model_client = httpx.AsyncClient(timeout=httpx.Timeout(75, connect=12), trust_env=False)
+                        provider = OpenAIProvider(self.settings, self.model_client)
+                        provider.request_observer = self._record_prompt
+                        translations = await provider.translate_subtitles(missing)
+                    for uid, text in translations.items():
+                        records[uid]["display_en"] = text
+                for uid, record in records.items():
+                    await self.emit("subtitle.translated", utterance_id=uid, display_en=record["display_en"],
+                                    conversation_id=conversation_id, generation_id=record.get("generation_id", self.generation))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            await self.emit("subtitle.translation-failed", utterance_ids=ids, conversation_id=conversation_id,
+                            message="英文字幕暂不可用，请稍后重试。")
+        finally:
+            self.subtitle_pending.difference_update((conversation_id, uid) for uid in ids)
+
     async def close(self):
         async with self.close_lock:
             await self._close()
@@ -900,6 +955,9 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
         if self.closed:
             return
         await self.cancel("shutdown")
+        for job in tuple(self.subtitle_jobs):
+            job.cancel()
+        await asyncio.gather(*tuple(self.subtitle_jobs), return_exceptions=True)
         if self.deadline_task:
             self.deadline_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

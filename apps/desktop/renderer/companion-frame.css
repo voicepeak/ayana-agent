@@ -153,3 +153,19 @@
 .design-size-presets { display: flex; gap: 10px; }
 .design-size-presets button { flex: 1; padding: 9px; border: 1px solid #524b44; border-radius: 6px; background: #29292e; color: #e1d4c0; font: inherit; cursor: pointer; }
 .design-window-hint { margin: 0; padding: 12px; border: 1px solid #524b44; border-radius: 6px; color: #c8b391; line-height: 1.8; }
+
+/* Stable sentence nodes; the visual center controls emphasis without reflow. */
+.cinematic-memory-track { position: relative; justify-content: flex-start; padding: calc(var(--scene-height, 300px) * .5) 0; }
+.cinematic-memory-row.is-current, .cinematic-memory-row.is-memory { opacity: 1; transform: none; }
+.cinematic-memory-row > .cinematic-dialogue { opacity: var(--caption-opacity, .25); transform: scale(var(--caption-scale, .78)); transform-origin: center center; transition: opacity 160ms ease-out, transform 160ms ease-out; }
+.cinematic-memory-row.is-memory .cinematic-glyph.is-shown { animation: none; }
+.companion-shell .companion-workspace .cinematic-shot { min-height: 0; }
+.companion-workspace .cinematic-shot p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.companion-workspace .cinematic-glyph { display: inline; transform: none; filter: none; transition: opacity 140ms ease-out; }
+.companion-workspace .cinematic-glyph.is-shown { animation: none; }
+.cinematic-translation-glyph { opacity: 0; transition: opacity 140ms ease-out; }
+.cinematic-translation-glyph.is-shown { opacity: 1; }
+.cinematic-translation-pending { display: block; font: 11px/1.6 'DengXian', sans-serif; color: #aba2a0; }
+@media (prefers-reduced-motion: reduce) { .cinematic-memory-row > .cinematic-dialogue { transition: none; } }
+
+.cinematic-memory[data-reading=true] .cinematic-memory-row.is-memory { opacity: 1; }

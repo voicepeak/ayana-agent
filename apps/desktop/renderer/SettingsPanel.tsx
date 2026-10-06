@@ -68,7 +68,7 @@ export function Settings({ state, section }: { state: ModelState; section: Setti
       <fieldset disabled={saving || !state.settingsLoaded} className="settings-fields" key={section}>
       {section === 'appearance' && <>
         <div className="form-section"><h3>形象</h3><label>服装<select aria-label="服装" value={draft.avatar_costume} onChange={event => update('avatar_costume', event.target.value)}>{costumes.map(item => <option key={item}>{item}</option>)}</select></label>
-          <Toggle checked={draft.subtitles} onChange={value => update('subtitles', value)}>显示中文字幕</Toggle>
+          <p className="form-hint">字幕语言在彩名窗口的「外观 → 对白」中调整，可选择主语言与翻译语言。</p>
           <Toggle checked={draft.sentence_motion} onChange={value => update('sentence_motion', value)}>表情切换动效</Toggle>
         </div>
         <div className="form-section"><h3>声音</h3><label>语音引擎<select aria-label="语音引擎" value={draft.voice.voice_mode} onChange={event => update('voice', { voice_mode: event.target.value })}><option value="auto">自动选择</option><option value="sovits">Ayana 本地音色</option><option value="system">Windows 日语语音</option><option value="silent">仅显示文字</option></select></label>

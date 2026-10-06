@@ -128,10 +128,10 @@ const [outfitAsset, outfit] = Object.entries(catalog.assets).find(([, item]) => 
 let wardrobe = reduceEvent(initialState, event('settings.ready', { settings: { avatar_costume: '校服' } }));
 assert.equal(wardrobe.expression, schoolAsset);
 wardrobe = reduceEvent(wardrobe, event('settings.ready', { settings: { avatar_costume: outfit.costume } }));
-assert.equal(wardrobe.expression, schoolAsset); // hold the old outfit until the acknowledgment starts
+assert.equal(wardrobe.expression, schoolAsset); // wait for the outfit acknowledgment, independent of audio
 wardrobe = reduceEvent(wardrobe, event('utterance.ready', { utterance_id: 'wardrobe', speech_ja: '着替えるね。', asset_id: outfitAsset, presentation: 'costume-change' }));
 assert.equal(wardrobe.pendingCostume.assetId, outfitAsset);
-assert.equal(wardrobe.expression, outfitAsset); // Voice may still be loading.
+assert.equal(wardrobe.expression, outfitAsset); // voice may still be loading
 wardrobe = reduceEvent(wardrobe, event('playback.started', { utterance_id: 'wardrobe', total_samples: 100 }));
 assert.equal(wardrobe.expression, outfitAsset);
 assert.equal(wardrobe.pendingCostume, undefined);
@@ -185,3 +185,11 @@ assert.equal(topics.history.length, 2);
 assert.equal(topics.history[0].text, '更早');
 assert.equal(topics.historyHasMore, false);
 console.log('PASS: topic switching clears old output and tasks; late events and history cannot cross topics; transcript pagination deduplicates.');
+
+let bilingual = { ...initialState, generation: 3, cancelledGeneration: 2, speeches: [{ id: 'caption', ja: 'こんにちは。', zh: '你好。', generation: 1, state: 'played', played: 10, total: 10 }], history: [{ role: 'assistant', utterance_id: 'caption', display_zh: '你好。' }] };
+bilingual = reduceEvent(bilingual, event('subtitle.translated', { generation_id: 500, utterance_id: 'caption', display_en: 'Hello.' }));
+assert.equal(bilingual.generation, 3, 'Translating an older run must never change the current generation.');
+assert.equal(bilingual.speeches[0].zh, '你好。');
+assert.equal(bilingual.speeches[0].en, 'Hello.');
+assert.equal(bilingual.history[0].display_en, 'Hello.');
+console.log('PASS: historical English translations preserve Chinese, update history and never advance or revive a generation.');

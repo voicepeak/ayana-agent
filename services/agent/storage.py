@@ -42,6 +42,10 @@ class ConversationStore:
           CREATE TABLE IF NOT EXISTS context_summaries(scope TEXT PRIMARY KEY, summary TEXT);
           CREATE TABLE IF NOT EXISTS capability_records(kind TEXT, key TEXT, payload TEXT, updated REAL, PRIMARY KEY(kind,key));
         """)
+        columns = {row[1] for row in self.db.execute("PRAGMA table_info(utterances)")}
+        if "display_en" not in columns:
+            self.db.execute("ALTER TABLE utterances ADD COLUMN display_en TEXT DEFAULT ''")
+            self.db.commit()
 
     @locked
     def commit(self, event: dict):
@@ -57,8 +61,10 @@ class ConversationStore:
         if kind == "utterance.ready":
             self.db.execute("INSERT INTO utterances(utterance_id,session_id,turn_id,generation_id,speech_ja) VALUES(?,?,?,?,?)",
                             (uid, event["session_id"], event["turn_id"], event["generation_id"], event["speech_ja"]))
-        elif kind == "subtitle.ready":
-            self.db.execute("UPDATE utterances SET display_zh=? WHERE utterance_id=?", (event["display_zh"], uid))
+        elif kind in {"subtitle.ready", "subtitle.translated"}:
+            for field in ("display_zh", "display_en"):
+                if isinstance(event.get(field), str):
+                    self.db.execute(f"UPDATE utterances SET {field}=? WHERE utterance_id=?", (event[field], uid))
         elif kind in {"playback.started", "playback.progress", "playback.ended", "playback.cancelled"}:
             status = {"playback.started": "playing", "playback.progress": "playing", "playback.ended": "played", "playback.cancelled": "partial"}[kind]
             self.db.execute("UPDATE utterances SET status=?,played_samples=?,total_samples=?,sample_rate=?,displayed=1 WHERE utterance_id=?",
@@ -174,7 +180,7 @@ class ConversationStore:
     def conversation_history(self, conversation_id, before=None, limit=100):
         rows = self.db.execute("""
             SELECT e.id,e.created,e.type,e.payload,u.speech_ja,u.display_zh,u.status,
-                   u.displayed,u.played_samples,u.total_samples,u.sample_rate
+                   u.displayed,u.played_samples,u.total_samples,u.sample_rate,u.display_en
             FROM events e LEFT JOIN utterances u ON e.type='utterance.ready'
               AND u.utterance_id=json_extract(e.payload,'$.utterance_id')
             WHERE e.type IN ('user.message','utterance.ready')
@@ -191,10 +197,21 @@ class ConversationStore:
             else:
                 item.update(utterance_id=event["utterance_id"], speech_ja=row[4], display_zh=row[5],
                             status=row[6], displayed=bool(row[7]), played_samples=row[8],
-                            total_samples=row[9], sample_rate=row[10])
+                            total_samples=row[9], sample_rate=row[10], display_en=row[11])
             items.append(item)
         return {"items": items, "has_more": len(rows) > limit,
                 "before": items[0]["id"] if items else None}
+
+    @locked
+    def subtitle_sources(self, conversation_id, utterance_ids):
+        if not utterance_ids:
+            return []
+        placeholders = ",".join("?" for _ in utterance_ids)
+        cursor = self.db.execute(f"""SELECT u.utterance_id,u.speech_ja,u.display_zh,u.display_en,u.generation_id
+            FROM utterances u JOIN events e ON e.type='utterance.ready' AND u.utterance_id=json_extract(e.payload,'$.utterance_id')
+            WHERE json_extract(e.payload,'$.conversation_id')=? AND u.utterance_id IN ({placeholders})""", [conversation_id, *utterance_ids])
+        names = [column[0] for column in cursor.description]
+        return [dict(zip(names, row)) for row in cursor.fetchall()]
 
     @locked
     def reception(self, turn_id, keys):

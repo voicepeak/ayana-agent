@@ -38,7 +38,7 @@ try{
  report.retirement={before,after,style:retiredStyle,animation};assert(after.y<before.y,'The completed caption moves upward.');assert(retiredStyle.opacity<.95);
  await emit(reply('memory-two','下一句保持清晰，上一句留在后面。'));
  assert.equal(await row('memory-two').evaluate(n=>getComputedStyle(n).opacity),'1');
- assert.equal(await row('memory-two').evaluate(n=>getComputedStyle(n).zIndex),'2');
+ await page.waitForTimeout(750);assert(Number(await row('memory-two').evaluate(n=>getComputedStyle(n).zIndex))>Number(retiredStyle.z));
  await page.waitForTimeout(750);
  await page.screenshot({path:path.join(directory,'two-layers.png'),omitBackground:true});
  assert.equal(await page.locator('.cinematic-memory .cinematic-question').count(),0);
@@ -84,7 +84,7 @@ s.db.close()`,path.join(data,'.runtime/history.sqlite3'),cid],{cwd:root,windowsH
  await page.emulateMedia({reducedMotion:'reduce'});
  await page.locator('.cinematic-memory').evaluate(n=>{n.scrollTop=n.scrollHeight;n.dispatchEvent(new Event('scroll'));});
  await emit([{type:'playback.ended',generation_id:100,utterance_id:'memory-three',played_samples:1000,total_samples:1000}]);
- await page.waitForFunction(()=>document.querySelector('[data-caption-id="memory-three"]')?.classList.contains('is-memory'));
+ await emit(reply('reduced-next','减少动态时也保留前一句。'));await page.waitForFunction(()=>document.querySelector('[data-caption-id="memory-three"]')?.classList.contains('is-memory'));
  assert.equal(await row('memory-three').evaluate(n=>n.getAnimations().length),0);
  report.checks.push('Queued speech is not exposed early and reduced-motion preferences disable movement');
  assert.deepEqual(report.errors,[]);assert.deepEqual(await app.evaluate(({app})=>app.__memoryErrors),[]);report.passed=true;

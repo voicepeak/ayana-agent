@@ -69,7 +69,7 @@ class Settings:
         if "companion_ui" in patch:
             design = patch["companion_ui"]
             bounds = {"portrait_size": (160, 640), "frame_width": (380, 900), "frame_height": (320, 720), "font_size": (18, 26), "opacity": (0, 100), "portrait_x": (-4096, 4096), "portrait_y": (-4096, 4096)}
-            if not isinstance(design, dict) or set(design) - {*bounds, "portrait_range", "show_subtitles", "show_japanese", "background_mode", "background_color", "portrait_side"}:
+            if not isinstance(design, dict) or set(design) - {*bounds, "portrait_range", "show_subtitles", "show_japanese", "background_mode", "background_color", "portrait_side", "primary_language", "translation_language"}:
                 raise ValueError("Invalid companion design")
             for key, (low, high) in bounds.items():
                 if key in design and (type(design[key]) is not int or not low <= design[key] <= high):
@@ -84,6 +84,9 @@ class Settings:
                     raise ValueError("Invalid background color")
             if "portrait_side" in design and design["portrait_side"] not in ("left", "right"):
                 raise ValueError("Invalid portrait side")
+            for key, choices in (("primary_language", {"ja", "zh", "en"}), ("translation_language", {"none", "ja", "zh", "en"})):
+                if key in design and (not isinstance(design[key], str) or design[key] not in choices):
+                    raise ValueError(f"Invalid {key}")
             for key in ("show_subtitles", "show_japanese"):
                 if key in design and type(design[key]) is not bool:
                     raise ValueError(f"{key} must be boolean")

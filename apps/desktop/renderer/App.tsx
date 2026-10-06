@@ -289,7 +289,7 @@ export default function App() {
     <CompanionPortrait design={design} expression={state.expression} motion={state.settings.sentence_motion !== false}
       connected={state.connected} onChange={changeDesign} onClick={openComposer}
       onCommit={patch => { void savePreferences({ companion_ui: patch }).catch(error => setLocalError(`立绘位置未保存：${String(error)}`)); }}/>
-    <CompanionWorkspace state={state} speech={presented} textOnly={textOnly} show={design.show_subtitles} showJapanese={design.show_japanese} onVisibilityChange={setCaptionVisible}/>
+    <CompanionWorkspace state={state} speech={presented} textOnly={textOnly} show={design.show_subtitles} primaryLanguage={design.primary_language} translationLanguage={design.translation_language} onVisibilityChange={setCaptionVisible}/>
     <form className="floating-input" data-companion-interactive onSubmit={event => { event.preventDefault(); void ask(); }} onBlur={event => {
       if (!companion.current?.contains(event.relatedTarget as Node | null) && !recordRequested.current && state.inputState !== 'transcribing') setComposerOpen(false);
     }}>

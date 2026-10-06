@@ -21,7 +21,7 @@ const commands = new Set([
   'capabilities.get', 'directory.grant', 'directory.revoke', 'task.pause', 'task.resume', 'task.cancel',
   'approval.resolve', 'artifact.get', 'artifact.open', 'artifact.restore', 'source.open',
   'computer.start',
-  'conversations.get', 'conversation.create', 'conversation.select', 'conversation.rename', 'conversation.materials.clear',
+  'conversations.get', 'conversation.create', 'conversation.select', 'conversation.rename', 'conversation.materials.clear', 'subtitles.translate',
 ]);
 app.setName('Ayana');
 const playbackTypes = new Set(['playback.started', 'playback.progress', 'playback.ended', 'playback.cancelled', 'playback.error']);
@@ -65,7 +65,10 @@ let designPreview = { ...defaults.companion_ui };
 let companionDrag: { origin: Bounds; cursor: Point; moved: boolean; timer: ReturnType<typeof setInterval> } | undefined;
 
 function storedDesign(settings: Record<string, unknown>) {
-  return { ...defaults.companion_ui, ...(settings.companion_ui as Partial<typeof designPreview> || {}) };
+  const stored = settings.companion_ui as Partial<typeof designPreview> || {};
+  const primary = stored.primary_language || (settings.subtitles === false ? 'ja' : defaults.companion_ui.primary_language);
+  const translation = stored.translation_language || (stored.show_japanese && primary !== 'ja' ? 'ja' : 'none');
+  return { ...defaults.companion_ui, ...stored, primary_language: primary, translation_language: translation === primary ? 'none' : translation };
 }
 
 function persistCompanionPosition() {
@@ -581,6 +584,8 @@ function registerIpc() {
     if ('background_mode' in next && !['transparent', 'frosted', 'image', 'minimal', 'solid'].includes(String(next.background_mode))) return;
     if ('background_color' in next && (typeof next.background_color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(next.background_color))) return;
     if ('portrait_side' in next && !['left', 'right'].includes(String(next.portrait_side))) return;
+    if ('primary_language' in next && !['ja', 'zh', 'en'].includes(String(next.primary_language))) return;
+    if ('translation_language' in next && !['none', 'ja', 'zh', 'en'].includes(String(next.translation_language))) return;
     designPreview = { ...designPreview, ...next };
     placeCompanion();
     if ('portrait_side' in next) positionDesignWindow();

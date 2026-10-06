@@ -4,7 +4,7 @@ import type { AyanaBridge, RuntimeEvent } from './types';
 import avatarCatalog from '../../../characters/ayana/avatar-map.json';
 
 export interface Speech {
-  id: string; order?: number; ja: string; zh: string; intent: string; generation: number;
+  id: string; order?: number; ja: string; zh: string; en?: string; enError?: string; intent: string; generation: number;
   intensity: number; affect: string;
   assetId: string;
   audioEnabled?: boolean;
@@ -51,7 +51,7 @@ export const initialState: ModelState = {
 };
 
 export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState {
-  const generation = Number(event.generation_id ?? state.generation);
+  const generation = ['subtitle.translated', 'subtitle.translation-failed'].includes(event.type) ? state.generation : Number(event.generation_id ?? state.generation);
   if (event.protocol_version !== 1) return state;
   // Late receipts belong to the original topic. They may update its stored record,
   // but must never replace the active topic's visible reply or task.
@@ -208,7 +208,17 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
       }
       break;
     case 'subtitle.ready':
-      next.speeches = state.speeches.map(s => s.id === event.utterance_id ? { ...s, zh: String(event.display_zh) } : s); break;
+    case 'subtitle.translated': {
+      const patch = { ...(typeof event.display_zh === 'string' ? { zh: event.display_zh } : {}), ...(typeof event.display_en === 'string' ? { en: event.display_en, enError: undefined } : {}) };
+      next.speeches = state.speeches.map(s => s.id === event.utterance_id ? { ...s, ...patch } : s);
+      next.history = state.history.map(item => item.utterance_id === event.utterance_id ? { ...item,
+        ...(typeof event.display_zh === 'string' ? { display_zh: event.display_zh } : {}), ...(typeof event.display_en === 'string' ? { display_en: event.display_en } : {}) } : item);
+      break;
+    }
+    case 'subtitle.translation-failed':
+      next.speeches = state.speeches.map(s => (event.utterance_ids as string[] || []).includes(s.id) ? { ...s, enError: String(event.message) } : s);
+      next.history = state.history.map(item => (event.utterance_ids as string[] || []).includes(String(item.utterance_id)) ? { ...item, en_error: String(event.message) } : item);
+      break;
     case 'desktop.present':
     case 'playback.started': {
       const id = String(event.utterance_id);
