@@ -4,6 +4,7 @@ import os
 import threading
 from pathlib import Path
 
+import httpx
 import pytest
 
 from services.agent.tools.registry import ToolError
@@ -146,6 +147,60 @@ class Windows(Desktop):
         return {**self.window, 'target_id': 'bound-window'}
     def capture(self, target):
         return {'snapshot_id': 'new-window', 'png_base64': 'image-of-new-window', 'target': {'target_id': target}}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('native', [True, False])
+async def test_open_app_with_long_history_keeps_search_and_launch_results(tmp_path, system, native):
+    tools, launches = system
+    requests = []
+    description = '示例应用窗口可见'
+    plan = {'type': 'task', 'kind': 'action', 'goal': '打开示例应用', 'status': 'running',
+            'checks': [{'description': description, 'evidence': []}]}
+
+    def call(name, call_id, arguments, events=()):
+        if not native:
+            return sse_response([*events, {'type': 'tool', 'name': name,
+                                         'call_id': call_id, 'arguments': arguments}])
+        response = native_tool_sse(call_id, name.replace('.', '__'), json.dumps(arguments))
+        content = ''.join(json.dumps(event, ensure_ascii=False) + '\n' for event in events)
+        head = {'choices': [{'delta': {'content': content}, 'finish_reason': None}]}
+        return httpx.Response(200, text='data: ' + json.dumps(head) + '\n\n' + response.text)
+
+    def respond(request):
+        messages = json.loads(request.content)['messages']
+        requests.append(messages)
+        if len(requests) == 1:
+            return call('apps.search', 'find-app', {'query': '示例'}, [plan])
+        content = messages[-1]['content']
+        if not native:
+            from services.agent.prompts import TOOL_RESULT_PREFIX
+            content = content[len(TOOL_RESULT_PREFIX):]
+        previous = json.loads(content)
+        previous = previous if native else previous[0]
+        if len(requests) == 2:
+            app_id = previous['result'][0]['app_id']
+            return call('apps.open', 'open-app', {'app_id': app_id})
+        assert previous['result']['status'] == 'window_observed'
+        assert previous['result']['windows'][0]['title'] == '示例应用'
+        return sse_response([{'type': 'task', 'status': 'complete', 'checks': [{
+            'description': description, 'evidence': [{'call_id': 'open-app',
+            'pointer': '/windows/0/title', 'operator': 'equals', 'value': '示例应用'}]}]}, speech()])
+
+    agent = runtime(tmp_path, respond, Windows())
+    agent.settings.values.update(native_tools=native, send_screenshot=False)
+    agent.system = tools
+    agent.prompt_history.select('system', agent.settings.values,
+                                conversation_id=agent.conversations.current_id)
+    agent.prompt_history.append('long-history', [{'role': 'user', 'content': '历史材料' * 7000}], {}, persist=True)
+    try:
+        await agent.handle({'type': 'turn.start', 'text': '打开示例应用', 'mode': 'execute'})
+        await agent.task
+        assert agent.active_task.state == 'succeeded'
+        assert len(requests) == 3 and len(launches) == 1
+        assert max(len(json.dumps(messages, ensure_ascii=False)) for messages in requests) <= agent.prompt_history.max_chars
+    finally:
+        await agent.close()
 
 
 @pytest.mark.asyncio

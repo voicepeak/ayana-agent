@@ -42,6 +42,32 @@ async def test_cap_request_compresses_old_tool_evidence_within_a_turn(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("native", [True, False])
+async def test_cap_request_does_not_subtract_fixed_prefix_twice(tmp_path, native):
+    runtime = make_runtime(tmp_path, response)
+    try:
+        # A long retained conversation still fits the full request ceiling.
+        # The fixed prefix was already reserved when history was assembled.
+        result = {"name": "apps.search", "call_id": "find-steam", "result": [
+            {"app_id": "app-steam", "name": "Steam"}]}
+        tool_message = ({"role": "tool", "tool_call_id": "find-steam",
+                         "content": json.dumps(result)} if native
+                        else runtime._tool_message([result]))
+        messages = [{"role": "system", "content": "s" * 14000},
+                    {"role": "assistant", "content": "h" * 30000},
+                    {"role": "user", "content": "open Steam"},
+                    {"role": "assistant", "content": ""}, tool_message]
+        original = json.dumps(messages, ensure_ascii=False)
+        assert len(original) < runtime.prompt_history.max_chars
+        assert len(original) > runtime.prompt_history.max_chars - 23000
+        runtime._cap_request(messages, prefix_length=2, reserve_chars=23000)
+        assert json.dumps(messages, ensure_ascii=False) == original
+        assert "app-steam" in messages[-1]["content"]
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
 async def test_failed_turn_seals_already_read_tool_evidence(tmp_path):
     marker = "unique-proof-marker-9381"
     artifacts = tmp_path / "artifacts"
