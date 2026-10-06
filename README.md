@@ -4,9 +4,9 @@ Windows 个性化 Agent：立绘、细宋体电影对白和紧凑的文字输入
 
 ## 在本机运行
 
-最新整合版为 `apps/desktop/release/Ayana-0.3.15-win-x64.exe`（2026-10-07），下载见 [GitHub Releases](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.15)。本版改为柔和光影的卡片气泡，翻阅历史时有过渡动效，思考时保留上一条回答；茶白主题关闭气泡后使用无描边文字。字幕字号支持 14–40，立绘调整与自定义背景支持滚轮缩放。换装保留表情和正在播放的语句；上下文修复保留中断前的工具证据并限制请求大小。文字输入保留，语音输入入口暂时移除。个人配置和话题继续使用 `%APPDATA%/Ayana`；完整改动与验证见 [0.3.15 发布记录](docs/RELEASE_0.3.15.md)。
+最新整合版为 `apps/desktop/release/Ayana-0.3.16-win-x64.exe`（2026-10-07），下载见 [GitHub Releases](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.16)。呼出不再绑定窗口；`Ctrl+Alt+W` 注视当前窗口，再按一次解除。窗口无法截图时对话继续，并说明限制。人设不再附带可照搬的台词示例。个人配置和话题继续使用 `%APPDATA%/Ayana`；完整改动与验证见 [0.3.16 发布记录](docs/RELEASE_0.3.16.md)。
 
-本机交付版可直接双击 `apps/desktop/release/Ayana-0.3.15-win-x64.exe`。它包含独立 Python、桌面程序与立绘；个人模型配置保存在 `%APPDATA%/Ayana/config/local.json`。首次解包和加载音色需要等待；此前版本首次语音冷启动实测约 43 秒，期间文字输入与界面保持可用。启动新版前请退出旧版。
+本机交付版可直接双击 `apps/desktop/release/Ayana-0.3.16-win-x64.exe`。它包含独立 Python、桌面程序与立绘；个人模型配置保存在 `%APPDATA%/Ayana/config/local.json`。首次解包和加载音色需要等待；此前版本首次语音冷启动实测约 43 秒，期间文字输入与界面保持可用。启动新版前请退出旧版。
 
 开发目录也可双击 `启动 Ayana.cmd`，后续修改仍按下面的流程构建。
 
