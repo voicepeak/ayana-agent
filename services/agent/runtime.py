@@ -356,12 +356,18 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             await self._capabilities_snapshot()
         elif kind == "settings.update":
             patch = cmd.get("settings", {})
-            self.settings.validate(patch)
-            await self.cancel("settings_changed")
+            validated = self.settings.validate(patch)
+            # Presentation changes can be applied while a reply is playing.
+            # Persist first: a failed write must not stop a task or voice.
+            presentation = {"companion_ui", "volume", "subtitles", "sentence_motion", "hotkey", "cancel_hotkey"}
+            interrupt = any(key not in presentation and value != self.settings.values.get(key)
+                            for key, value in validated.items())
             previous_costume = self.settings.values.get("avatar_costume", "校服")
             previous_voice = self.settings.values.get("voice", {})
             previous_history = self.settings.values.get("save_history", True)
             self.settings.update(patch)
+            if interrupt:
+                await self.cancel("settings_changed")
             if self.settings.values.get("save_history", True) != previous_history:
                 self.conversations = Conversations(self.store, self.settings.values.get("save_history", True))
                 self.prompt_history = PromptHistory(self.store)

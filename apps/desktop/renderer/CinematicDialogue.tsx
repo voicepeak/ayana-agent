@@ -5,6 +5,7 @@ import { dialoguePages, dialoguePageAt, dialogueRevealCount, dialogueRevealDurat
 export function CinematicDialogue({ speech, translate, textOnly, show = true, showJapanese = false, onVisibilityChange }: { speech?: Speech; translate: boolean; textOnly: boolean; show?: boolean; showJapanese?: boolean; onVisibilityChange?: (visible: boolean) => void }) {
   const ref = useRef<HTMLElement>(null);
   const [columns, setColumns] = useState(14);
+  const [originalColumns, setOriginalColumns] = useState(26);
   const [elapsed, setElapsed] = useState(0);
   const [leaving, setLeaving] = useState(false);
   const [hidden, setHidden] = useState(false);
@@ -23,6 +24,7 @@ export function CinematicDialogue({ speech, translate, textOnly, show = true, sh
       const style = getComputedStyle(node);
       const width = node.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
       setColumns(Math.max(4, Math.min(26, Math.floor(width / (parseFloat(style.fontSize) * 1.06)))));
+      setOriginalColumns(Math.max(4, Math.floor(width / (12 * 1.04))));
     };
     const observer = new ResizeObserver(resize); observer.observe(node); resize();
     return () => observer.disconnect();
@@ -53,13 +55,14 @@ export function CinematicDialogue({ speech, translate, textOnly, show = true, sh
   useEffect(() => { onVisibilityChange?.(visible); }, [visible, onVisibilityChange]);
   const original = showJapanese && translate && speech?.zh ? speech.ja : '';
   const originalCount = dialogueRevealCount(original, timed ? elapsed / dialogueRevealDuration(text) : speech?.state === 'played' ? 1 : (speech?.total ? speech.played / speech.total : 0));
+  const originalPage = dialoguePageAt(dialoguePages(original, originalColumns), originalCount);
   return <section ref={ref} className={`cinematic-dialogue ${leaving ? 'is-leaving' : ''}`} aria-label="彩名的台词" lang={translate && speech?.zh ? 'zh-CN' : 'ja'}>
     {visible && page && <>
       <span className="cinematic-accessible" aria-live="polite">{page.lines.map(line => line.map(glyph => glyph.value).join('')).join('\n')}</span>
       <div key={`${speech!.id}:${text}:${page.start}`} className="cinematic-shot" aria-hidden="true">
         {page.lines.map((line, row) => <p key={row}>{line.map(glyph => <span key={glyph.index} className={`cinematic-glyph ${reduced || glyph.index < count ? 'is-shown' : ''}`}>{glyph.value}</span>)}</p>)}
       </div>
-      {original && <p className="cinematic-original" lang="ja">{[...new Intl.Segmenter('ja', { granularity: 'grapheme' }).segment(original)].slice(0, originalCount).map(part => part.segment).join('')}</p>}
+      {originalPage && <p className="cinematic-original" lang="ja">{originalPage.lines.map(line => line.filter(glyph => glyph.index < originalCount).map(glyph => glyph.value).join('')).join('\n')}</p>}
     </>}
   </section>;
 }

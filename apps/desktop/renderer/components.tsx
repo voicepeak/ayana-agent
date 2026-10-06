@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react';
 import {
   cn, kunVariantClasses, kunRoundedClasses, kunFocusRingClasses, kunControlSizeClasses,
   type KunUIColor, type KunUIVariant,
@@ -37,7 +37,7 @@ export function Icon({ name, size = 18 }: { name: string; size?: number }) {
 }
 
 export function Character({ expression = 'neutral', className = '', motion = true }: { expression?: string; className?: string; motion?: boolean }) {
-  const [loaded, setLoaded] = useState('neutral');
+  const [loaded, setLoaded] = useState('');
   const [missing, setMissing] = useState(false);
   const previous = useRef<string | null>(null);
   const frame = useRef<HTMLDivElement>(null);
@@ -46,20 +46,35 @@ export function Character({ expression = 'neutral', className = '', motion = tru
   const loadedRef = useRef(loaded);
   loadedRef.current = loaded;
   const changingCostume = useRef(false);
+  const transition = useRef<Animation[]>([]);
+  const revealPending = useRef(false);
+  useLayoutEffect(() => {
+    // React must commit the decoded image before fading it in.
+    if (!revealPending.current || !figure.current) return;
+    revealPending.current = false;
+    const reveal = figure.current.animate([
+      { opacity: 0, filter: 'brightness(1.5)' },
+      { opacity: 1, filter: 'brightness(1)' },
+    ], { duration: 540, easing: 'ease-out' });
+    transition.current.push(reveal);
+    transition.current.find(animation => animation.effect?.getTiming().fill === 'forwards')?.cancel();
+  }, [loaded]);
   useEffect(() => {
     let cancelled = false;
-    const animations: Animation[] = [];
+    const animations: Animation[] = transition.current = [];
+    revealPending.current = false;
     changingCostume.current = false;
     const next = new Image();
     next.crossOrigin = 'anonymous';
     next.onload = async () => {
+      try { await next.decode(); } catch { if (!cancelled) setMissing(true); return; }
       if (cancelled) return;
       const oldCostume = avatarAssets[loadedRef.current]?.costume;
       const newCostume = avatarAssets[expression]?.costume;
       const costumeChanged = oldCostume && newCostume && oldCostume !== newCostume;
       const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
       // Preload first, then hide the old portrait in the light before revealing the new one.
-      if (costumeChanged && !reduced && figure.current && shimmer.current) {
+      if (costumeChanged && motion && !reduced && figure.current && shimmer.current) {
         changingCostume.current = true;
         const glow = shimmer.current.animate([
           { opacity: 0, transform: 'scale(.88)' },
@@ -74,33 +89,31 @@ export function Character({ expression = 'neutral', className = '', motion = tru
         animations.push(glow, fade);
         try { await fade.finished; } catch { return; }
         if (cancelled) return;
+        revealPending.current = true;
+        loadedRef.current = expression;
         setLoaded(expression);
         setMissing(false);
-        const reveal = figure.current.animate([
-          { opacity: 0, filter: 'brightness(1.5)' },
-          { opacity: 1, filter: 'brightness(1)' },
-        ], { duration: 540, fill: 'backwards', easing: 'ease-out' });
-        animations.push(reveal);
-        fade.cancel();
       } else {
+        loadedRef.current = expression;
         setLoaded(expression);
         setMissing(false);
       }
     };
-    next.onerror = () => { if (!cancelled && expression === 'neutral') setMissing(true); };
+    next.onerror = () => { if (!cancelled) setMissing(true); };
     next.src = `ayana-asset://${expression}/`;
     return () => { cancelled = true; animations.forEach(animation => animation.cancel()); };
-  }, [expression]);
+  }, [expression, motion]);
   useEffect(() => {
     // Only dip when the visible face actually changes, not on every sentence.
-    const changed = previous.current !== null && previous.current !== loaded;
+    const changed = Boolean(previous.current) && previous.current !== loaded;
     previous.current = loaded;
     if (!changed || changingCostume.current || !motion || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const animation = frame.current?.animate([{ transform: 'translateY(0)' }, { transform: 'translateY(12px)', offset: .35 }, { transform: 'translateY(0)' }], { duration: 300, easing: 'ease-out' });
     return () => animation?.cancel();
   }, [loaded, motion]);
   return <div ref={frame} className={cn('character-frame', className)}>
-    <div ref={figure} className="character-figure">{missing ? <span className="asset-missing">立绘加载中，请在设置中检查素材</span> : <img className="character" crossOrigin="anonymous" src={`ayana-asset://${loaded}/`} alt="Ayana 半身立绘" draggable={false} />}</div>
+    <div ref={figure} className="character-figure">{loaded && <img className="character" crossOrigin="anonymous" src={`ayana-asset://${loaded}/`} alt="Ayana 立绘" draggable={false} />}</div>
+    {missing && <span className="asset-missing" role="status">新立绘加载失败，请检查素材后重试</span>}
     <div ref={shimmer} className="costume-shimmer" aria-hidden="true"><i/><i/><i/><i/><i/></div>
   </div>;
 }

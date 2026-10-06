@@ -86,6 +86,43 @@ async def test_second_outfit_cancels_pending_first_voice(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_design_save_does_not_cancel_pending_outfit_voice(tmp_path):
+    runtime = runtime_for(tmp_path, Tts(.08))
+    ws = Ws()
+    runtime.clients.add(ws)
+    try:
+        await runtime.handle({"type": "settings.update", "settings": {"avatar_costume": other_costume(runtime)}})
+        generation, task = runtime.generation, runtime.task
+        await runtime.handle({"type": "settings.update", "request_id": "design", "settings": {
+            "companion_ui": {"font_size": 26}, "volume": .4, "subtitles": False,
+        }})
+        assert runtime.generation == generation
+        assert runtime.task is task and not task.cancelled()
+        await task
+        assert any(e["type"] == "audio.ready" and e["generation_id"] == generation for e in ws.events)
+        assert any(e["type"] == "settings.ready" and e.get("request_id") == "design" for e in ws.events)
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_failed_outfit_save_keeps_current_generation(tmp_path, monkeypatch):
+    runtime = runtime_for(tmp_path, Tts(.08))
+    try:
+        await runtime.handle({"type": "settings.update", "settings": {"avatar_costume": other_costume(runtime)}})
+        generation, task = runtime.generation, runtime.task
+        def fail_write(patch):
+            raise OSError("disk unavailable")
+        monkeypatch.setattr(runtime.settings, "update", fail_write)
+        with pytest.raises(OSError, match="disk unavailable"):
+            await runtime.handle({"type": "settings.update", "settings": {"avatar_costume": "校服"}})
+        assert runtime.generation == generation and runtime.task is task
+        await task
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("silent", [True, False])
 async def test_silent_or_failed_voice_keeps_committed_outfit_and_text(tmp_path, silent):
     class NoVoice(Tts):

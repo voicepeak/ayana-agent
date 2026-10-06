@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import defaults from '../../../config/default.json';
 import { Icon } from './components';
 
@@ -11,8 +11,23 @@ export const defaultDesign = defaults.companion_ui as CompanionDesign;
 export function companionDesign(settings: Record<string, unknown>): CompanionDesign {
   return { ...defaultDesign, ...(settings.companion_ui as Partial<CompanionDesign> || {}) };
 }
+export function designPatch(saved: CompanionDesign, draft: CompanionDesign): Partial<CompanionDesign> {
+  return Object.fromEntries(Object.entries(draft).filter(([key, value]) => value !== saved[key as keyof CompanionDesign]));
+}
+export function useCompanionDesign(settings: Record<string, unknown>) {
+  const saved = companionDesign(settings);
+  const [draft, setDraft] = useState(saved);
+  const baseline = useRef(saved);
+  useEffect(() => {
+    const previous = baseline.current;
+    const next = companionDesign(settings);
+    setDraft(current => ({ ...next, ...designPatch(previous, current) }));
+    baseline.current = next;
+  }, [settings.companion_ui]);
+  return { draft, setDraft, patch: designPatch(saved, draft) };
+}
 export function designStyle(value: CompanionDesign): CSSProperties {
-  return { '--portrait-size': `${value.portrait_size}px`, '--frame-width': `${value.frame_width}px`,
+  return { '--portrait-size': `${value.portrait_size}px`, '--portrait-scale': value.portrait_size / 380, '--frame-width': `${value.frame_width}px`,
     '--dialogue-font': `${value.font_size}px`, '--frame-opacity': value.opacity / 100 } as CSSProperties;
 }
 
@@ -25,7 +40,7 @@ export function DesignControls({ value, onChange, onSave, onClose, onBackground,
     <label className="design-range"><span>{label}<output>{value[key]}{unit}</output></span><input aria-label={label} type="range" min={min} max={max} step={1} value={value[key]} onChange={event => onChange({ [key]: Number(event.target.value) })}/></label>;
   return <aside className="design-controls" aria-label="设计控件" data-companion-interactive>
     <header><div><span>APPEARANCE</span><h2>设计控件</h2></div><div>
-      <button type="button" aria-label="重置设计" title="恢复默认设计" onClick={() => onChange(defaultDesign)}><Icon name="refresh" size={15}/></button>
+      <button type="button" disabled={saving} aria-label="重置设计" title="恢复默认设计" onClick={() => onChange(defaultDesign)}><Icon name="refresh" size={15}/></button>
       <button type="button" aria-label="收起设计控件" onClick={onClose}><Icon name="close" size={15}/></button>
     </div></header>
     <fieldset disabled={saving}>

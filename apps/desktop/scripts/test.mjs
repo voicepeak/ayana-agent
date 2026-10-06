@@ -129,6 +129,7 @@ wardrobe = reduceEvent(wardrobe, event('settings.ready', { settings: { avatar_co
 assert.equal(wardrobe.expression, schoolAsset); // hold the old outfit until the acknowledgment starts
 wardrobe = reduceEvent(wardrobe, event('utterance.ready', { utterance_id: 'wardrobe', speech_ja: '着替えるね。', asset_id: outfitAsset, presentation: 'costume-change' }));
 assert.equal(wardrobe.pendingCostume.assetId, outfitAsset);
+assert.equal(wardrobe.expression, outfitAsset); // Voice may still be loading.
 wardrobe = reduceEvent(wardrobe, event('playback.started', { utterance_id: 'wardrobe', total_samples: 100 }));
 assert.equal(wardrobe.expression, outfitAsset);
 assert.equal(wardrobe.pendingCostume, undefined);

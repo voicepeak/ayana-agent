@@ -183,8 +183,15 @@ function requestComposer() {
 }
 
 function openManagement(tab?: 'tasks' | 'history') {
+  // The transparent companion must not cover the management window's controls.
+  chat?.setAlwaysOnTop(false);
   settingsWindow?.show(); settingsWindow?.focus();
-  if (tab) desktopEvent('desktop.navigate', { tab });
+  broadcast({ protocol_version: 1, type: 'desktop.navigate', tab: tab || 'settings' }, false);
+}
+
+function hideManagement() {
+  settingsWindow?.hide();
+  chat?.setAlwaysOnTop(true, 'screen-saver');
 }
 
 function companionMenuItems(): Electron.MenuItemConstructorOptions[] {
@@ -508,7 +515,7 @@ function registerIpc() {
     } catch { return { ok: false, error: '背景图片未保存，请重试。' }; }
   });
   ipcMain.handle('ayana:hide-settings', event => {
-    if (event.sender.id === settingsWindow?.webContents.id) settingsWindow?.hide();
+    if (event.sender.id === settingsWindow?.webContents.id) hideManagement();
   });
   ipcMain.handle('ayana:choose-repository', async (event) => {
     if (event.sender.id !== settingsWindow?.webContents.id) return null;
@@ -560,7 +567,7 @@ function createWindow(kind: 'chat' | 'settings' | 'highlight') {
   if (kind === 'chat') {
     window.on('close', event => { if (!quitting) { event.preventDefault(); hide(); } });
   }
-  if (kind === 'settings') window.on('close', event => { if (!quitting) { event.preventDefault(); window.hide(); } });
+  if (kind === 'settings') window.on('close', event => { if (!quitting) { event.preventDefault(); hideManagement(); } });
   return window;
 }
 

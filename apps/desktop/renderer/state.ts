@@ -199,6 +199,9 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
     case 'utterance.ready':
       if (event.presentation === 'costume-change' && event.asset_id) {
         next.pendingCostume = { assetId: String(event.asset_id), generation };
+        // The saved outfit is visible even while voice is loading or unavailable.
+        next.expression = String(event.asset_id);
+        next.expressionAt = Date.now();
       }
       if (!state.speeches.some(s => s.id === event.utterance_id)) {
         next.speeches = [...state.speeches, { id: String(event.utterance_id), ja: String(event.speech_ja), zh: '', intent: String(event.intent || 'explain'), assetId: String(event.asset_id || ''), audioEnabled: event.audio_enabled !== false, generation, intensity: Number(event.intensity || 0), affect: String(event.affect || 'neutral'), state: 'generated' as const, played: 0, total: 0 }].slice(-80);

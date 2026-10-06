@@ -8,7 +8,7 @@ import { CinematicDialogue } from './CinematicDialogue';
 import { dialogueReadTime } from './cinematic';
 import { useCompanionPointer } from './companionPointer';
 import desktopPackage from '../package.json';
-import { companionDesign, designStyle, DesignControls, type CompanionDesign } from './CompanionDesign';
+import { useCompanionDesign, designStyle, DesignControls, type CompanionDesign } from './CompanionDesign';
 import { savePreferences } from './preferences';
 
 const taskLabels: Record<string, string> = { idle: '空闲', observing: '正在观察目标', thinking: '正在整理思路', acting: '正在执行这一步', failed: '需要留意', speaking: 'Ayana 正在说话' };
@@ -31,12 +31,12 @@ export default function App() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [inputToolsOpen, setInputToolsOpen] = useState(false);
   const [designOpen, setDesignOpen] = useState(false);
-  const [design, setDesign] = useState(() => companionDesign(state.settings));
+  const { draft: design, setDraft: setDesign, patch: designPatch } = useCompanionDesign(state.settings);
   const [designSaving, setDesignSaving] = useState(false);
   const [designMessage, setDesignMessage] = useState('');
   const [captionVisible, setCaptionVisible] = useState(false);
   const [backgroundRevision, setBackgroundRevision] = useState(0);
-  const designDirty = useRef(false);
+  const designDirty = Object.keys(designPatch).length > 0;
   const companion = useRef<HTMLElement>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const microphone = useRef<MediaStream | null>(null);
@@ -52,21 +52,22 @@ export default function App() {
   useCompanionPointer(companion, kind === 'chat');
 
   function openComposer() { setComposerOpen(true); textarea.current?.focus({ preventScroll: true }); }
-  useEffect(() => { if (!designDirty.current) setDesign(companionDesign(state.settings)); }, [state.settings.companion_ui]);
   function changeDesign(patch: Partial<CompanionDesign>) {
-    designDirty.current = true; setDesign(value => ({ ...value, ...patch })); setDesignMessage('');
+    setDesign(value => ({ ...value, ...patch })); setDesignMessage('');
   }
   async function saveDesign() {
-    if (designSaving) return;
+    if (designSaving || !designDirty) return;
     setDesignSaving(true); setDesignMessage('');
-    try { await savePreferences({ companion_ui: design }); designDirty.current = false; setDesignMessage('设计已保存'); }
+    try { await savePreferences({ companion_ui: designPatch }); setDesignMessage('设计已保存'); }
     catch (error) { setDesignMessage(error instanceof Error ? error.message : '未保存，请重试'); }
     finally { setDesignSaving(false); }
   }
   async function chooseBackground() {
-    const result = await bridge.chooseNoteBackground();
-    if (result.ok) { setBackgroundRevision(Date.now()); changeDesign({ background_mode: 'image' }); }
-    else if (result.error) setDesignMessage(result.error);
+    try {
+      const result = await bridge.chooseNoteBackground();
+      if (result.ok) { setBackgroundRevision(Date.now()); changeDesign({ background_mode: 'image' }); }
+      else if (result.error) setDesignMessage(result.error);
+    } catch (error) { setDesignMessage(error instanceof Error ? error.message : '背景图片未保存，请重试。'); }
   }
   useEffect(() => {
     if (!composerOpen) return;
@@ -103,7 +104,7 @@ export default function App() {
     const onWindowFocus = () => { if (pendingFocus) focusInput(); };
     const off = bridge.onEvent(event => {
       if (event.type === 'desktop.focus-input') focusInput();
-      if (event.type === 'desktop.hidden') { pendingFocus = false; setComposerOpen(false); setDesignOpen(false); }
+      if (event.type === 'desktop.hidden') { pendingFocus = false; discardRecording.current = true; endMicrophone(); setComposerOpen(false); setDesignOpen(false); }
       if (event.type === 'desktop.new-topic') { setComposerOpen(true); void send({ type: 'conversation.create', keep_materials: false }); }
     });
     window.addEventListener('focus', onWindowFocus);
@@ -134,6 +135,7 @@ export default function App() {
   useEffect(() => bridge.onEvent(event => {
     if (event.type === 'desktop.navigate' && event.tab === 'tasks') { setTab('tasks'); void send({ type: 'capabilities.get' }); }
     if (event.type === 'desktop.navigate' && event.tab === 'history') { setTab('history'); void send({ type: 'history.get' }); void send({ type: 'conversations.get' }); }
+    if (event.type === 'desktop.navigate' && event.tab === 'settings') { setTab('chat'); setSettingsSection('appearance'); }
     if (event.type === 'input.transcribed') {
       setText(String(event.text || ''));
       setTab('chat');
@@ -254,8 +256,8 @@ export default function App() {
   if (kind === 'highlight') return state.targetCue?.variant === 'summon'
     ? <div key={String(state.targetCue.cue_id)} className="target-aura" aria-label="Ayana 正在观察这个窗口"><i/><b/><em/><span/></div>
     : <div className="highlight-frame"><span>Ayana · 看这里</span></div>;
-  if (kind === 'chat') return <main ref={companion} className="companion-shell companion-framed" style={designStyle(design)} onContextMenu={event => { event.preventDefault(); void bridge.openCompanionMenu(); }}>
-    {designOpen && <DesignControls value={design} onChange={changeDesign} onSave={() => void saveDesign()} onClose={() => setDesignOpen(false)} onBackground={() => void chooseBackground()} saving={designSaving} dirty={designDirty.current} message={designMessage}/>}
+  if (kind === 'chat') return <main ref={companion} className="companion-shell companion-framed" data-design-open={designOpen} style={designStyle(design)} onContextMenu={event => { event.preventDefault(); void bridge.openCompanionMenu(); }}>
+    {designOpen && <DesignControls value={design} onChange={changeDesign} onSave={() => void saveDesign()} onClose={() => setDesignOpen(false)} onBackground={() => void chooseBackground()} saving={designSaving} dirty={designDirty} message={designMessage}/>}
     <section className="companion-frame companion-note is-visible" data-background={design.background_mode} data-speaking={captionVisible} aria-label="彩名便签" data-companion-interactive>
     {design.background_mode === 'image' && <div className="note-background-image" style={{ backgroundImage: `url("ayana-background://custom/?v=${backgroundRevision}")` }} aria-hidden="true"/>}
     <header className="companion-frame-heading"><div className="companion-signature"><i/><strong>彩名</strong><span>AYANA</span></div><div className="companion-frame-actions">
@@ -264,7 +266,7 @@ export default function App() {
       <button type="button" aria-label="更多操作" title="话题、任务与设置" onClick={() => void bridge.openCompanionMenu()}>···</button>
       <button type="button" aria-label="隐藏彩名" title="隐藏彩名" onClick={() => void bridge.hide()}><Icon name="close" size={14}/></button>
     </div></header>
-    <button className="portrait-stage" data-range={design.portrait_range} type="button" aria-label="彩名：点击输入，拖动移动，右键操作" onClick={() => { if (!portraitDrag.current?.moved) openComposer(); }} onPointerDown={event => {
+    <button className="portrait-stage" data-range={design.portrait_range} type="button" aria-label="彩名：点击输入，拖动移动，右键操作" onClick={() => { const moved = portraitDrag.current?.moved; portraitDrag.current = null; if (!moved) openComposer(); }} onPointerDown={event => {
       if (event.button !== 0) return;
       portraitDrag.current = { x: event.screenX, y: event.screenY, moved: false };
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -275,7 +277,9 @@ export default function App() {
       if (!drag.moved && Math.hypot(dx, dy) < 5) return;
       drag.moved = true; drag.x = event.screenX; drag.y = event.screenY;
       bridge.moveCompanion(dx, dy);
-    }}>
+    }} onPointerUp={event => {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    }} onPointerCancel={() => { portraitDrag.current = null; }}>
       <div className="portrait-reveal" ref={portraitReveal}>
       <Character key={String(state.connected)} expression={state.expression} motion={state.settings.sentence_motion !== false} />
       </div>
