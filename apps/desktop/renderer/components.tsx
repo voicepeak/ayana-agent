@@ -51,6 +51,7 @@ export function Character({ expression = 'neutral', className = '', motion = tru
     const animations: Animation[] = [];
     changingCostume.current = false;
     const next = new Image();
+    next.crossOrigin = 'anonymous';
     next.onload = async () => {
       if (cancelled) return;
       const oldCostume = avatarAssets[loadedRef.current]?.costume;
@@ -99,7 +100,7 @@ export function Character({ expression = 'neutral', className = '', motion = tru
     return () => animation?.cancel();
   }, [loaded, motion]);
   return <div ref={frame} className={cn('character-frame', className)}>
-    <div ref={figure} className="character-figure">{missing ? <span className="asset-missing">立绘加载中，请在设置中检查素材</span> : <img className="character" src={`ayana-asset://${loaded}/`} alt="Ayana 半身立绘" draggable={false} />}</div>
+    <div ref={figure} className="character-figure">{missing ? <span className="asset-missing">立绘加载中，请在设置中检查素材</span> : <img className="character" crossOrigin="anonymous" src={`ayana-asset://${loaded}/`} alt="Ayana 半身立绘" draggable={false} />}</div>
     <div ref={shimmer} className="costume-shimmer" aria-hidden="true"><i/><i/><i/><i/><i/></div>
   </div>;
 }

@@ -5,7 +5,7 @@ import {
 } from 'electron';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, appendFileSync, mkdirSync } from 'node:fs';
+import { existsSync, appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -24,7 +24,8 @@ const commands = new Set([
 app.setName('Ayana');
 const playbackTypes = new Set(['playback.started', 'playback.progress', 'playback.ended', 'playback.cancelled', 'playback.error']);
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'ayana-asset', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+  { scheme: 'ayana-asset', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
+  { scheme: 'ayana-background', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
 ]);
 
 let chat: BrowserWindow | undefined;
@@ -51,6 +52,12 @@ let recentEvents: Event[] = [];
 let repositoryRoot = '';
 let summonShortcut = 'Control+Alt+A';
 let cancelShortcut = 'Control+Alt+Space';
+let inputAfterCapture = true;
+let composerRequested = false;
+let companionMenuOpen = false;
+let companionPositionTimer: ReturnType<typeof setTimeout> | undefined;
+let companionSettings: Record<string, unknown> = {};
+let companionMode = 'teach';
 
 function backendRoot(): string {
   return process.env.AYANA_REPOSITORY_ROOT
@@ -113,6 +120,7 @@ function cancel() {
 }
 
 function hide() {
+  composerRequested = false;
   focusAfterCapture = false;
   summonPending = false;
   companionShown = false;
@@ -125,7 +133,7 @@ function hide() {
   desktopEvent('desktop.hidden');
 }
 
-async function summon() {
+async function summon(openInput = true) {
   // Already waiting on the runtime: the portrait is on screen; keep it still.
   if (summonPending) return;
   // A repeat summon still re-captures the foreground window (so the user can switch
@@ -133,6 +141,7 @@ async function summon() {
   const refresh = companionShown;
   // Runtime records the foreground HWND before either assistant window gains focus.
   cancel();
+  inputAfterCapture = openInput;
   focusAfterCapture = true;
   refreshSummon = refresh;
   if (!runtimeSend({ type: 'session.start' })) {
@@ -152,7 +161,7 @@ function focusChat() {
   if (!focusAfterCapture) return;
   focusAfterCapture = false;
   if (focusTimer) clearTimeout(focusTimer);
-  chat?.show();
+  if (inputAfterCapture) chat?.show(); else chat?.showInactive();
   const refresh = refreshSummon;
   refreshSummon = false;
   companionShown = true;
@@ -160,10 +169,40 @@ function focusChat() {
   // Deferred so the runtime's session.started target reaches the renderer first.
   if (refresh) setTimeout(() => desktopEvent('desktop.workspace-hint'), 0);
   else desktopEvent('desktop.summoned');
-  chat?.focus();
+  if (inputAfterCapture) chat?.focus();
   // Request composer focus on every summon, including an already-focused chat.
   // This is transient UI intent and must not be replayed with runtime history.
+  if (inputAfterCapture) requestComposer();
+}
+
+function requestComposer() {
+  composerRequested = true;
+  chat?.setIgnoreMouseEvents(false);
+  chat?.show(); chat?.focus();
   broadcast({ protocol_version: 1, type: 'desktop.focus-input', generation_id: currentGeneration }, false);
+}
+
+function openManagement(tab?: 'tasks' | 'history') {
+  settingsWindow?.show(); settingsWindow?.focus();
+  if (tab) desktopEvent('desktop.navigate', { tab });
+}
+
+function companionMenuItems(): Electron.MenuItemConstructorOptions[] {
+  return [
+    { label: '输入一句', click: requestComposer },
+    { label: '开始新话题', click: () => { requestComposer(); broadcast({ protocol_version: 1, type: 'desktop.new-topic' }, false); } },
+    { label: `立即打断 · ${cancelShortcut}`, click: cancel },
+    { type: 'separator' },
+    { label: '允许本次任务执行', type: 'checkbox', checked: companionSettings.full_access === true || companionMode === 'execute', enabled: companionSettings.full_access !== true,
+      click: item => { runtimeSend({ type: 'mode.set', mode: item.checked ? 'execute' : 'teach' }); } },
+    { label: '显示中文字幕', type: 'checkbox', checked: companionSettings.subtitles !== false,
+      click: item => { runtimeSend({ type: 'settings.update', settings: { subtitles: item.checked } }); } },
+    { label: '话题与记录', click: () => openManagement('history') },
+    { label: '任务与结果', click: () => openManagement('tasks') },
+    { label: '设置', click: () => openManagement() },
+    { type: 'separator' },
+    { label: '收起彩名', click: hide },
+  ];
 }
 
 function windowHandle(window: BrowserWindow): number {
@@ -194,7 +233,9 @@ function updateShortcuts(settings: Record<string, unknown>) {
     { label: `呼出 Ayana · ${summonShortcut}`, click: () => { void summon(); } },
     { label: `停止当前回复 · ${cancelShortcut}`, click: cancel },
     { label: '收起会话', click: hide },
-    { label: '设置与管理', click: () => { settingsWindow?.show(); settingsWindow?.focus(); } },
+    { label: '话题与记录', click: () => openManagement('history') },
+    { label: '任务与结果', click: () => openManagement('tasks') },
+    { label: '设置与管理', click: () => openManagement() },
     { type: 'separator' },
     { label: '重新启动本地服务', click: () => { void restartRuntime(); } },
     { label: '退出 Ayana', click: () => { quitting = true; app.quit(); } },
@@ -252,8 +293,10 @@ function receive(event: Event) {
   }
   if (event.type === 'settings.ready') {
     const settings = (event.settings ?? {}) as Record<string, unknown>;
+    companionSettings = settings;
     updateShortcuts(settings);
   }
+  if (event.type === 'mode.ready') companionMode = event.mode === 'execute' ? 'execute' : 'teach';
   if (event.type === 'conversation.changed') highlight?.hide();
   if (event.type === 'utterance.ready' && event.presentation === 'costume-change') {
     // Show the saved outfit's acknowledgment without summoning/cancelling its generation.
@@ -299,9 +342,10 @@ function connectRuntime(attempt = 0) {
     runtimeSend({ type: 'history.get' });
     runtimeSend({ type: 'capabilities.get' });
     if (summonPending || !startupSummonDone) {
+      const openInput = summonPending ? inputAfterCapture : false;
       summonPending = false;
       startupSummonDone = true;
-      void summon();
+      void summon(openInput);
     }
   });
   ws.on('message', (raw) => {
@@ -421,10 +465,47 @@ function registerIpc() {
   });
   ipcMain.handle('ayana:summon', (event) => trustedSender(event.sender.id) ? summon() : undefined);
   ipcMain.handle('ayana:hide', (event) => trustedSender(event.sender.id) ? hide() : undefined);
+  ipcMain.on('ayana:companion-interactive', (event, interactive: unknown) => {
+    if (event.sender.id !== chat?.webContents.id || typeof interactive !== 'boolean' || companionMenuOpen) return;
+    chat.setIgnoreMouseEvents(!interactive, { forward: true });
+  });
+  ipcMain.on('ayana:companion-move', (event, dx: unknown, dy: unknown) => {
+    if (event.sender.id !== chat?.webContents.id || typeof dx !== 'number' || typeof dy !== 'number'
+      || !Number.isFinite(dx) || !Number.isFinite(dy) || Math.abs(dx) > 2000 || Math.abs(dy) > 2000) return;
+    const bounds = chat.getBounds();
+    const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    const x = Math.round(Math.max(workArea.x, Math.min(workArea.x + workArea.width - bounds.width, bounds.x + dx)));
+    const y = Math.round(Math.max(workArea.y, Math.min(workArea.y + workArea.height - bounds.height, bounds.y + dy)));
+    chat.setPosition(x, y);
+    if (companionPositionTimer) clearTimeout(companionPositionTimer);
+    companionPositionTimer = setTimeout(() => {
+      try { writeFileSync(path.join(app.getPath('userData'), 'companion-position.json'), JSON.stringify({ x, y })); } catch { /* Position is cosmetic. */ }
+    }, 300);
+  });
+  ipcMain.handle('ayana:companion-menu', event => {
+    if (event.sender.id !== chat?.webContents.id || companionMenuOpen) return;
+    companionMenuOpen = true; chat.setIgnoreMouseEvents(false);
+    Menu.buildFromTemplate(companionMenuItems()).popup({ window: chat, callback: () => { companionMenuOpen = false; } });
+  });
   ipcMain.handle('ayana:settings', (event, tab?: unknown) => {
     if (!trustedSender(event.sender.id)) return;
-    settingsWindow?.show(); settingsWindow?.focus();
-    if (tab === 'tasks' || tab === 'history') desktopEvent('desktop.navigate', { tab });
+    openManagement(tab === 'tasks' || tab === 'history' ? tab : undefined);
+  });
+  ipcMain.handle('ayana:note-background', async event => {
+    if (event.sender.id !== chat?.webContents.id) return { ok: false };
+    const result = await dialog.showOpenDialog(chat!, { title: '选择便签背景', properties: ['openFile'], filters: [{ name: '背景图片', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
+    if (result.canceled || !result.filePaths[0]) return { ok: false };
+    try {
+      const bytes = readFileSync(result.filePaths[0]);
+      if (bytes.length > 8_000_000) return { ok: false, error: '请选用小于 8MB 的图片。' };
+      let image = nativeImage.createFromBuffer(bytes);
+      if (image.isEmpty()) return { ok: false, error: '图片无法读取，请换一张。' };
+      const { width, height } = image.getSize();
+      const scale = Math.min(1, 1280 / Math.max(width, height));
+      if (scale < 1) image = image.resize({ width: Math.round(width * scale), height: Math.round(height * scale) });
+      writeFileSync(path.join(app.getPath('userData'), 'companion-background.png'), image.toPNG());
+      return { ok: true };
+    } catch { return { ok: false, error: '背景图片未保存，请重试。' }; }
   });
   ipcMain.handle('ayana:hide-settings', event => {
     if (event.sender.id === settingsWindow?.webContents.id) settingsWindow?.hide();
@@ -442,7 +523,7 @@ function registerIpc() {
   ipcMain.handle('ayana:restart', (event) => event.sender.id === settingsWindow?.webContents.id ? restartRuntime() : undefined);
   ipcMain.handle('ayana:state', (event) => {
     if (!trustedSender(event.sender.id)) return null;
-    return { connected: socket?.readyState === WebSocket.OPEN, service, version: app.getVersion(), repositoryRoot, events: recentEvents };
+    return { connected: socket?.readyState === WebSocket.OPEN, service, version: app.getVersion(), repositoryRoot, events: recentEvents, composerRequested };
   });
 }
 
@@ -450,13 +531,13 @@ function createWindow(kind: 'chat' | 'settings' | 'highlight') {
   const overlay = kind !== 'settings';
   const { workArea } = screen.getPrimaryDisplay();
   const window = new BrowserWindow({
-    width: kind === 'settings' ? Math.min(1160, workArea.width - 40) : kind === 'chat' ? Math.min(680, workArea.width) : 300,
-    height: kind === 'settings' ? Math.min(830, workArea.height - 40) : kind === 'chat' ? Math.min(760, workArea.height) : 140,
-    minWidth: kind === 'settings' ? 820 : kind === 'chat' ? 420 : 40,
+    width: kind === 'settings' ? Math.min(1160, workArea.width - 40) : kind === 'chat' ? Math.min(1040, workArea.width) : 300,
+    height: kind === 'settings' ? Math.min(830, workArea.height - 40) : kind === 'chat' ? Math.min(720, workArea.height) : 140,
+    minWidth: kind === 'settings' ? 820 : kind === 'chat' ? 320 : 40,
     minHeight: kind === 'settings' ? 480 : undefined,
     show: false, frame: !overlay, transparent: overlay, backgroundColor: overlay ? '#00000000' : '#f5f7fb',
     alwaysOnTop: overlay, focusable: kind !== 'highlight', skipTaskbar: overlay,
-    title: kind === 'settings' ? 'Ayana · 设置与管理' : 'Ayana', autoHideMenuBar: true,
+    title: kind === 'settings' ? 'Ayana · 设置与管理' : 'Ayana', autoHideMenuBar: true, hasShadow: !overlay,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   if (overlay) {
@@ -484,10 +565,14 @@ function createWindow(kind: 'chat' | 'settings' | 'highlight') {
 }
 
 function placeCompanion() {
-  const { workArea } = screen.getPrimaryDisplay();
-  const height = Math.min(760, workArea.height);
-  const width = Math.min(680, workArea.width);
-  chat?.setBounds({ x: workArea.x + workArea.width - width, y: workArea.y + workArea.height - height, width, height });
+  let saved: { x: number; y: number } | undefined;
+  try { const value = JSON.parse(readFileSync(path.join(app.getPath('userData'), 'companion-position.json'), 'utf8')); if (Number.isFinite(value.x) && Number.isFinite(value.y)) saved = value; } catch { /* First launch. */ }
+  const { workArea } = saved ? screen.getDisplayNearestPoint(saved) : screen.getPrimaryDisplay();
+  const height = Math.min(720, workArea.height);
+  const width = Math.min(1040, workArea.width);
+  const x = Math.max(workArea.x, Math.min(workArea.x + workArea.width - width, saved?.x ?? workArea.x + workArea.width - width));
+  const y = Math.max(workArea.y, Math.min(workArea.y + workArea.height - height, saved?.y ?? workArea.y + workArea.height - height));
+  chat?.setBounds({ x, y, width, height });
 }
 
 async function ready() {
@@ -503,8 +588,13 @@ async function ready() {
     if (!/^[a-z0-9_-]{1,80}$/i.test(id) || !port || !token) return new Response(null, { status: 404 });
     try {
       const response = await fetch(`http://127.0.0.1:${port}/assets/${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${token}` } });
-      return new Response(await response.arrayBuffer(), { status: response.status, headers: { 'Content-Type': response.headers.get('Content-Type') || 'image/png', 'Cache-Control': response.ok ? 'private, max-age=3600' : 'no-store' } });
+      return new Response(await response.arrayBuffer(), { status: response.status, headers: { 'Content-Type': response.headers.get('Content-Type') || 'image/png', 'Cache-Control': response.ok ? 'private, max-age=3600' : 'no-store', 'Access-Control-Allow-Origin': '*' } });
     } catch { return new Response(null, { status: 503 }); }
+  });
+  protocol.handle('ayana-background', request => {
+    if (new URL(request.url).hostname !== 'custom') return new Response(null, { status: 404 });
+    const file = path.join(app.getPath('userData'), 'companion-background.png');
+    return existsSync(file) ? new Response(readFileSync(file), { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' } }) : new Response(null, { status: 404 });
   });
   chat = createWindow('chat');
   settingsWindow = createWindow('settings');

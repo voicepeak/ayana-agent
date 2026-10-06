@@ -15,12 +15,26 @@ const require = createRequire(import.meta.url);
 const { _electron } = require(require.resolve('playwright', { paths: [moduleRoot || root] }));
 const directory = path.join(root, '.runtime', 'benchmarks', packaged ? 'packaged-desktop' : actionsOnly ? 'desktop-actions' : 'desktop');
 mkdirSync(directory, { recursive: true });
+const configFile = path.join(directory, 'data', 'config', 'local.json');
+mkdirSync(path.dirname(configFile), { recursive: true });
+const testConfig = existsSync(configFile) ? JSON.parse(readFileSync(configFile, 'utf8')) : {};
+Object.assign(testConfig, { hotkey: 'Control+Alt+F6', cancel_hotkey: 'Control+Alt+F7', full_access: false });
+if (actionsOnly) Object.assign(testConfig, { provider: 'local', voice: { voice_mode: 'silent' }, stt: { provider: 'disabled' } });
+writeFileSync(configFile, JSON.stringify(testConfig));
 const statePath = path.join(directory, 'target.json');
 if (existsSync(statePath)) unlinkSync(statePath);
 const basePython = spawnSync(path.join(root, '.venv', 'Scripts', 'python.exe'), ['-X', 'utf8', '-c', 'import sys; print(sys._base_executable)'], { cwd: root, windowsHide: true, encoding: 'utf8' }).stdout.trim();
 // Start the actual interpreter so closing the test cannot orphan a venv child.
 const target = spawn(basePython, ['-X', 'utf8', '-m', 'native.windows.demo_target', '--state', statePath, '--auto-close', '300'], { cwd: root, windowsHide: true, stdio: 'ignore' });
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function targetSnapshot() {
+  let failure;
+  for (let attempt = 0; attempt < 30; attempt++) {
+    try { return JSON.parse(readFileSync(statePath, 'utf8')); }
+    catch (error) { failure = error; await wait(50); }
+  }
+  throw failure;
+}
 async function targetEventually(field, expected) {
   for (let i = 0; i < 30; i++) {
     try { if (JSON.parse(readFileSync(statePath, 'utf8'))[field] === expected) return true; } catch { /* state publication tick */ }
@@ -31,7 +45,7 @@ async function targetEventually(field, expected) {
 for (let i=0; i<30 && !existsSync(statePath); i++) await wait(200);
 let application;
 let page;
-const report = { errors: [], checks: {}, playback: [], scope: 'Electron app, actual WebAudio sample-consumption receipts; no acoustic judgment' };
+const report = { errors: [], checks: {}, playback: [], scope: actionsOnly ? 'Isolated Electron and owned demo window; real highlight, input and click; no model calls or voice' : 'Electron app, actual WebAudio sample-consumption receipts; no acoustic judgment' };
 try {
   application = await _electron.launch({
     executablePath: packaged || path.join(root, 'apps/desktop/node_modules/electron/dist/electron.exe'),
@@ -51,19 +65,20 @@ try {
     window.__qaEvents = [];
     window.ayana.onEvent(event => window.__qaEvents.push({ ...event, received_performance_ms: performance.now(), pcm_base64: undefined, png_base64: undefined }));
   });
-  const targetState = JSON.parse(readFileSync(statePath, 'utf8'));
-  const summon = spawnSync(path.join(root, '.venv', 'Scripts', 'python.exe'), ['-c', 'from native.windows.win32 import Win32; import sys,time; a=Win32(); assert a.focus(int(sys.argv[1])); time.sleep(.15); a.send([a.key(17),a.key(18),a.key(65),a.key(65,flags=2),a.key(18,flags=2),a.key(17,flags=2)])', String(targetState.hwnd)], { cwd: root, windowsHide: true, encoding: 'utf8' });
+  const targetState = await targetSnapshot();
+  const summon = spawnSync(path.join(root, '.venv', 'Scripts', 'python.exe'), ['-c', 'from native.windows.win32 import Win32; import sys,time; a=Win32(); assert a.focus(int(sys.argv[1])); time.sleep(.15); a.send([a.key(17),a.key(18),a.key(117),a.key(117,flags=2),a.key(18,flags=2),a.key(17,flags=2)])', String(targetState.hwnd)], { cwd: root, windowsHide: true, encoding: 'utf8' });
   if (summon.status !== 0) throw new Error(`Could not summon from owned target: ${summon.stderr}`);
   await page.waitForFunction(hwnd => window.__qaEvents.some(e => e.type === 'target.bound' && e.target.hwnd === hwnd), targetState.hwnd, { timeout: 10000 });
   report.checks.hotkey_captured_original_target = true;
   await conversation.evaluate(() => window.ayana.openSettings());
   page = controls;
+  await page.getByRole('button', { name: '任务与结果', exact: true }).click();
+  await page.getByText('窗口操作', { exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.snapshot')?.naturalWidth > 0, null, { timeout: 10000 });
   await conversation.waitForFunction(() => document.querySelector('.character')?.naturalWidth > 0, null, { timeout: 10000 });
   report.checks.avatar_loaded = true;
-  await page.locator('#repository-root').fill(root);
-  await page.getByRole('button', { name: '读取仓库', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('.repository-card strong')?.textContent === 'ayana-agent', null, { timeout: 10000 });
+  await page.evaluate(root => window.ayana.send({ type: 'repository.inspect', root }), root);
+  await page.waitForFunction(() => window.__qaEvents.some(event => event.type === 'repository.inspected'), null, { timeout: 10000 });
   await page.screenshot({ path: path.join(directory, 'welcome.png') });
   if (!actionsOnly) {
   await controls.evaluate(() => window.ayana.hideSettings());
@@ -86,14 +101,16 @@ try {
   }
   await conversation.evaluate(() => window.ayana.openSettings());
   page = controls;
-  await page.getByRole('button', { name: '单步执行', exact: true }).click();
+  await page.getByRole('button', { name: '任务与结果', exact: true }).click();
+  await page.locator('.task-controls').evaluate(node => { node.open = true; });
+  await page.getByRole('button', { name: '执行任务', exact: true }).click();
   async function selectPoint(widgetName) {
     await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.isFocusable()).focus());
     const baseline = await page.evaluate(() => window.__qaEvents.filter(e => e.type === 'snapshot.ready').length);
     await page.getByRole('button', { name: '刷新', exact: true }).click();
     await page.waitForFunction(n => window.__qaEvents.filter(e => e.type === 'snapshot.ready').length > n, baseline);
     const snap = await page.evaluate(() => window.__qaEvents.filter(e => e.type === 'snapshot.ready').at(-1));
-    const actual = JSON.parse(readFileSync(statePath, 'utf8')).widgets[widgetName];
+    const actual = (await targetSnapshot()).widgets[widgetName];
     const x = (actual.x + actual.width / 2 - snap.transform.origin_x) / snap.transform.scale_x;
     const y = (actual.y + actual.height / 2 - snap.transform.origin_y) / snap.transform.scale_y;
     const bounds = await page.locator('.snapshot').boundingBox();
@@ -138,18 +155,17 @@ try {
   }
   await conversation.evaluate(() => window.ayana.openSettings());
   page = controls;
-  await page.getByRole('button', { name: '对话设置', exact: true }).click();
+  await page.getByRole('button', { name: '外观与声音', exact: true }).click();
   await page.waitForSelector('.settings-form');
   await page.screenshot({ path: path.join(directory, 'settings.png') });
-  await page.getByRole('button', { name: '仓库文件', exact: false }).first().click();
-  await page.waitForSelector('.evidence-cards');
-  report.checks.repository_evidence_visible = (await page.locator('.evidence-cards article').count()) > 0;
-  await page.screenshot({ path: path.join(directory, 'files.png') });
+  await page.evaluate(root => window.ayana.send({ type: 'repository.read', root, path: 'README.md' }), root);
+  await page.waitForFunction(() => window.__qaEvents.some(event => event.type === 'evidence.ready'));
+  report.checks.repository_evidence_available = await page.evaluate(() => window.__qaEvents.some(event => event.type === 'evidence.ready' && event.evidence?.content));
   report.playback = await page.evaluate(() => window.__qaEvents.filter(e => e.type.startsWith('playback.') || e.type === 'generation.cancelled' || e.type === 'error'));
   report.errors.push(...await page.evaluate(() => window.__qaEvents.filter(e => e.type === 'error').map(e => `${e.source || 'runtime'}: ${e.message}`)));
   report.windows = await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(w => ({ title: w.getTitle(), focusable: w.isFocusable(), always_on_top: w.isAlwaysOnTop(), bounds: w.getBounds() })));
   report.runtime = await application.evaluate(({ app }) => ({ packaged: app.isPackaged, resources: process.resourcesPath, data: app.getPath('userData') }));
-  report.passed = report.errors.length === 0 && (actionsOnly || report.checks.real_audio_consumed) && report.checks.repository_evidence_visible && report.checks.single_step_type && report.checks.single_step_observed && (actionsOnly || report.checks.cancel_receipt_ms < 1000) && (!microphoneWav || (report.checks.microphone_webm_transcribed && report.checks.microphone_text_reviewable));
+  report.passed = report.errors.length === 0 && (actionsOnly || report.checks.real_audio_consumed) && report.checks.repository_evidence_available && report.checks.single_step_type && report.checks.single_step_observed && (actionsOnly || report.checks.cancel_receipt_ms < 1000) && (!microphoneWav || (report.checks.microphone_webm_transcribed && report.checks.microphone_text_reviewable));
   report.actions_only = actionsOnly;
 } catch (error) {
   report.errors.push(String(error));

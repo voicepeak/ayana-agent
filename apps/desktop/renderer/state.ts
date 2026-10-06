@@ -24,6 +24,7 @@ export interface ModelState {
   snapshot?: RuntimeEvent; speeches: Speech[]; current?: string; expression: string;
   expressionAt: number; inputState: string;
   settingsLoaded: boolean;
+  apiKeyConfigured?: boolean;
   presented?: string; sentenceVersion: number;
   pendingCostume?: { assetId: string; generation: number };
   summonVersion: number; workspaceHintAt: number; targetCue?: RuntimeEvent;
@@ -169,6 +170,7 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
     }
     case 'settings.ready': {
       next.settings = (event.settings ?? {}) as Record<string, unknown>;
+      next.apiKeyConfigured = typeof event.api_key_configured === 'boolean' ? event.api_key_configured : state.apiKeyConfigured;
       if (!state.settingsLoaded) {
         const costume = String(next.settings.avatar_costume || '校服');
         next.expression = Object.entries(avatarCatalog.assets).find(([, item]) =>
@@ -239,7 +241,11 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
     case 'tool.completed':
     case 'tool.failed':
       next.tools = [...state.tools, event].slice(-30); break;
-    case 'error': next.error = String(event.message || event.error || '发生了未知错误。'); next.task = 'failed'; break;
+    case 'error':
+      // Correlated command errors are shown by the initiating form. They must
+      // neither duplicate its feedback nor mark an unrelated live task failed.
+      if (event.request_id) break;
+      next.error = String(event.message || event.error || '发生了未知错误。'); next.task = 'failed'; break;
   }
   return next;
 }
@@ -248,6 +254,8 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
 const previewBridge: AyanaBridge = {
   send: async () => ({ ok: false, error: '此页面仅用于界面预览。请通过桌面应用启动本地服务。' }),
   onEvent: () => () => {}, playback: () => {}, summon: async () => {}, hide: async () => {}, openSettings: async () => {}, hideSettings: async () => {},
+  setCompanionInteractive: () => {}, moveCompanion: () => {}, openCompanionMenu: async () => {},
+  chooseNoteBackground: async () => ({ ok: false, error: '请在桌面应用中选择图片。' }),
   chooseRepository: async () => null, chooseDirectory: async () => null, restart: async () => {},
   getState: async () => ({ connected: false, service: 'preview', version: '0.3.3', repositoryRoot: '', events: [] }),
 };

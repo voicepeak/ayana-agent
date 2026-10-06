@@ -53,11 +53,10 @@ export function ConversationControls({ state, send, disabled, children, onHistor
 export function ConversationHistory({ state, send }: { state: ModelState; send: Send }) {
   const [filter, setFilter] = useState('');
   const [title, setTitle] = useState(state.conversation?.title || '');
-  const [keep, setKeep] = useState(false);
   const [pending, setPending] = useState(false);
   const [loading, setLoading] = useState(false);
   const cid = state.conversation?.conversation_id;
-  useEffect(() => { setTitle(state.conversation?.title || ''); setPending(false); setKeep(false); }, [cid, state.conversation?.title]);
+  useEffect(() => { setTitle(state.conversation?.title || ''); setPending(false); }, [cid, state.conversation?.title]);
   useEffect(() => { setLoading(false); }, [state.history, state.error]);
   useEffect(() => { if (state.error) setPending(false); }, [state.error]);
   const blocked = pending || !state.connected || !cid;
@@ -66,10 +65,7 @@ export function ConversationHistory({ state, send }: { state: ModelState; send: 
     if (!await send(command)) setPending(false);
   }
   return <section className="conversation-workspace">
-    <div className="conversation-section-heading"><div><span className="eyebrow">OUR CONVERSATIONS</span><h2>每个话题，都能接着聊。</h2></div>
-      <Button color="primary" disabled={blocked} onClick={() => void change({ type: 'conversation.create', keep_materials: keep })}>＋ 新话题</Button></div>
-    <p className="conversation-note">{state.persistentHistory ? '话题与记录保存在本机，收起窗口后可以继续。' : '历史保存已关闭。这些话题仅在本次运行中保留，退出后不会恢复。'}</p>
-    <label className="conversation-keep"><input type="checkbox" checked={keep} onChange={event => setKeep(event.target.checked)}/>新话题沿用当前仓库和目标窗口</label>
+    <div className="conversation-section-heading"><span className="conversation-note">{state.persistentHistory ? '保存在本机' : '仅本次运行'}</span><Button color="primary" disabled={blocked} onClick={() => void change({ type: 'conversation.create', keep_materials: false })}>＋ 新话题</Button></div>
     <Input aria-label="搜索话题" placeholder="找一个之前的话题…" value={filter} onChange={event => setFilter(event.target.value)}/>
     <div className="conversation-list" aria-label="全部话题">
       {state.conversations.filter(item => `${item.title} ${item.preview}`.toLowerCase().includes(filter.toLowerCase())).map(item =>
@@ -84,15 +80,10 @@ export function ConversationHistory({ state, send }: { state: ModelState; send: 
       <Input value={title} maxLength={60} aria-label="当前话题名称" onChange={event => setTitle(event.target.value)}/>
       <Button type="submit" disabled={blocked || !title.trim() || title.trim() === state.conversation?.title}>保存名称</Button>
     </form>
-    <div className="conversation-context">
-      <div className="conversation-context-heading"><h3>本次使用的材料</h3><Button variant="light" disabled={blocked || (!state.repository && !state.target)} onClick={() => void send({ type: 'conversation.materials.clear' })}>解除绑定</Button></div>
-      <p>{state.repository ? `仓库：${state.repository.root}` : '未绑定仓库'}<br/>{state.target ? `窗口：${state.target.title}` : '未绑定目标窗口'}</p>
-      <small>解除绑定会停止当前任务。此前的讨论仍保留在本话题中。</small>
-      <details className="conversation-summary" open={Boolean(state.contextSummary)}><summary>当前话题摘要{state.contextSummary ? '' : ' · 尚未需要整理'}</summary>
-        <p>{state.contextSummary || '短对话直接保留原文；较早的对话接近容量上限时，会自动整理成摘要。'}</p>
-        {state.contextSummary && <small>摘要与近期完整轮次一起用于接续对话。原始记录保留在下方。</small>}
-      </details>
-    </div>
+    {(state.target || state.repository || state.contextSummary) && <details className="conversation-context"><summary>话题上下文</summary>
+      {(state.target || state.repository) && <div className="conversation-context-heading"><span>{state.target?.title || '有已绑定材料'}</span><Button variant="light" disabled={blocked} onClick={() => void send({ type: 'conversation.materials.clear' })}>解除绑定</Button></div>}
+      {state.contextSummary && <p>{state.contextSummary}</p>}
+    </details>}
     <div className="conversation-transcript-heading"><h3>完整对话记录</h3><Button variant="light" disabled={blocked || loading} onClick={() => { setLoading(true); void send({ type: 'history.get' }).then(ok => { if (!ok) setLoading(false); }); }}>刷新</Button></div>
     {state.historyHasMore && <Button className="conversation-load" disabled={blocked || loading} onClick={() => { setLoading(true); void send({ type: 'history.get', before: state.historyBefore }).then(ok => { if (!ok) setLoading(false); }); }}>{loading ? '正在读取…' : '加载更早的记录'}</Button>}
     {!state.history.length && <p className="conversation-empty">这个话题还没有对话。呼出 Ayana，开始聊吧。</p>}

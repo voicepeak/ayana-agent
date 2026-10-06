@@ -20,6 +20,7 @@ export interface DesktopState {
   version: string;
   repositoryRoot: string;
   events: RuntimeEvent[];
+  composerRequested?: boolean;
 }
 
 export interface AyanaBridge {
@@ -28,6 +29,10 @@ export interface AyanaBridge {
   playback(receipt: RuntimeEvent): void;
   summon(): Promise<void>;
   hide(): Promise<void>;
+  setCompanionInteractive(interactive: boolean): void;
+  moveCompanion(dx: number, dy: number): void;
+  openCompanionMenu(): Promise<void>;
+  chooseNoteBackground(): Promise<{ ok: boolean; error?: string }>;
   openSettings(tab?: 'tasks' | 'history'): Promise<void>;
   hideSettings(): Promise<void>;
   chooseRepository(): Promise<string | null>;

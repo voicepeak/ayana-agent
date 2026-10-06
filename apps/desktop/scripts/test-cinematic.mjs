@@ -1,0 +1,26 @@
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import { build } from 'esbuild';
+
+const compiled = await build({ entryPoints: ['renderer/cinematic.ts'], bundle: true, platform: 'node', format: 'cjs', write: false });
+const module = { exports: {} };
+vm.runInContext(compiled.outputFiles[0].text, vm.createContext({ module, exports: module.exports, Intl }));
+const { dialogueGlyphs, dialoguePages, dialoguePageAt, dialogueRevealCount, dialogueReadTime } = module.exports;
+const long = '慢慢来。先看这里，我们把很长很长的一句话拆开，所有内容都应该能读到，而不是被两行限制截掉。';
+const pages = dialoguePages(long, 12);
+assert(pages.length > 1);
+assert(pages.every(page => page.lines.length <= 2 && page.lines.every(line => line.length <= 12)));
+assert.equal(pages.flatMap(page => page.lines.flatMap(line => line.map(glyph => glyph.value))).join(''), long);
+assert.equal(dialoguePageAt(pages, pages[0].end).start, 0);
+assert.equal(dialoguePageAt(pages, pages[0].end + 1).start, pages[1].start);
+assert.equal(dialogueGlyphs('好👩‍💻é').length, 3, 'Emoji and combining marks stay intact.');
+const paragraphPages = dialoguePages('第一行\n第二行\n第三行', 12);
+assert.equal(paragraphPages.length, 2);
+assert.equal(paragraphPages[1].lines[0].map(glyph => glyph.value).join(''), '第三行');
+assert.equal(dialogueRevealCount(long, 1), dialogueGlyphs(long).length);
+assert.equal(dialogueRevealCount('甲，乙', .5), 2, 'The comma takes time before the following glyph.');
+assert.equal(dialogueRevealCount('甲，乙', .8), 3);
+assert(dialogueRevealCount(long, .6) > dialogueRevealCount(long, .3));
+assert.equal(dialogueRevealCount(long, NaN), 1);
+assert(dialogueReadTime(long) > dialogueReadTime('好的。'));
+console.log('PASS: cinematic pagination preserves full replies, graphemes, punctuation pauses and consumed-progress reveal.');

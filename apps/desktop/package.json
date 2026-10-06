@@ -1,6 +1,6 @@
 {
   "name": "ayana-desktop",
-  "version": "0.3.3",
+  "version": "0.3.5",
   "private": true,
   "type": "module",
   "description": "Ayana desktop companion and repository workshop",
@@ -38,13 +38,41 @@
     "appId": "dev.ayana.agent",
     "electronDist": "node_modules/electron/dist",
     "productName": "Ayana",
-    "directories": { "output": "release" },
-    "files": ["dist/**", "dist-electron/**", "package.json", "THIRD_PARTY_NOTICES.md"],
-    "extraResources": [
-      { "from": "../../.runtime/backend", "to": "backend", "filter": ["**/*", "!**/__pycache__/**"] },
-      { "from": "../../.runtime/python", "to": "python", "filter": ["**/*", "!**/__pycache__/**"] }
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "package.json",
+      "THIRD_PARTY_NOTICES.md"
     ],
-    "win": { "target": "portable", "icon": "public/icon.ico", "signAndEditExecutable": false },
-    "portable": { "artifactName": "Ayana-${version}-win-${arch}.exe", "unpackDirName": true }
+    "extraResources": [
+      {
+        "from": "../../.runtime/backend",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**"
+        ]
+      },
+      {
+        "from": "../../.runtime/python",
+        "to": "python",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**"
+        ]
+      }
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "public/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "Ayana-${version}-win-${arch}.exe",
+      "unpackDirName": true
+    }
   }
 }

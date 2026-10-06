@@ -4,6 +4,8 @@ import vm from 'node:vm';
 import { build } from 'esbuild';
 import { verifyPortableIsolation } from './verify-portable.mjs';
 import './test-lifecycle.mjs';
+import './test-preferences.mjs';
+import './test-cinematic.mjs';
 
 await verifyPortableIsolation();
 
@@ -45,6 +47,8 @@ const stateContext = vm.createContext({ window: {}, module: stateModule, exports
 vm.runInContext(compiled.outputFiles[0].text, stateContext);
 const { reduceEvent, initialState, nextTextSpeech } = stateModule.exports;
 assert.equal(initialState.settingsLoaded, false);
+assert.equal(reduceEvent({ ...initialState, task: 'thinking' }, { protocol_version: 1, type: 'error', request_id: 'settings-invalid', message: 'invalid settings' }).task, 'thinking');
+assert.equal(reduceEvent(initialState, { protocol_version: 1, type: 'error', request_id: 'settings-invalid', message: 'invalid settings' }).error, undefined);
 assert.equal(reduceEvent(initialState, { protocol_version: 1, type: 'settings.ready', settings: { voice: { voice_mode: 'sovits' } } }).settingsLoaded, true);
 const event = (type, payload = {}) => ({ type, protocol_version: 1, generation_id: 7, ...payload });
 let overflow = reduceEvent(initialState, event('utterance.ready', { utterance_id: 'voiced', speech_ja: '一緒に見よう。' }));
