@@ -1,0 +1,262 @@
+{
+  "date": "2026-10-06",
+  "timezone": "Asia/Shanghai",
+  "scope": "working-tree source snapshot; not a captured live request",
+  "configuration_projection": {
+    "provider": "openai",
+    "model": "deepseek-flash",
+    "native_tools": true,
+    "full_access": false,
+    "send_screenshot": true,
+    "save_history": true,
+    "avatar_costume": "校服",
+    "max_utterances": 8,
+    "detailed_max_utterances": 32,
+    "model_max_tokens": 6000,
+    "task_limits": {
+      "rounds": 12,
+      "calls": 24,
+      "seconds": 180
+    }
+  },
+  "sources": [
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/config/ufo/rag.yaml",
+      "sha256_utf8_text": "bc1ad8d256d5e14071bfb03125943db781e77e6021e06c6821e1925f18154ee0"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/config/ufo/system.yaml",
+      "sha256_utf8_text": "311ee199a21c6b69f02c31f69324b46592fb4c9815a6caa42a8daf0502db06a1"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/ufo/agents/agent/app_agent.py",
+      "sha256_utf8_text": "02ebe77367f67583770cbb3136afcf7cde0f45a73f16abf0344dcc80cf0aa3e7"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/ufo/agents/agent/host_agent.py",
+      "sha256_utf8_text": "b8196d37d75b042ffd406febee14c6960810c1409f6ec94065177ff8f86b73a0"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/ufo/llm/openai.py",
+      "sha256_utf8_text": "99a915c8837d5f342041d7a5acf5c7c305aa147a0894b424245071e84a6c811c"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/ufo/prompter/agent_prompter.py",
+      "sha256_utf8_text": "0c6584b3225a94f12ccaf7359a844f834980310c7bd86efde6508a837f8af93d"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/ufo/prompter/basic.py",
+      "sha256_utf8_text": "59d77df51f9a074e99dd6611bfd3f38125592699918fb1e1c341b28031fd5fb5"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/ufo/prompts/demonstration/demonstration_summary.yaml",
+      "sha256_utf8_text": "97bedb9a3c418fd05bb05e8afcd13bb1d31a379df7cb0a30e559cd4050accee0"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/ufo/prompts/evaluation/evaluate.yaml",
+      "sha256_utf8_text": "f39a788571d536688844c63c6b0f256fc6b1dda64fb108011f0b193a4a6562e4"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/ufo/prompts/examples/nonvisual/app_agent_example.yaml",
+      "sha256_utf8_text": "a4ba7df0216f0ff12367175f25aa7faa84d307a6cbb52e22a4dcae2ad3fbc2c8"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/ufo/prompts/examples/nonvisual/app_agent_example_as.yaml",
+      "sha256_utf8_text": "4bf3f0f64f61f92f55a2ad7b81f6c6137820b51409be7db48a94b0e3956d1c57"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/ufo/prompts/examples/nonvisual/host_agent_example.yaml",
+      "sha256_utf8_text": "4fe3ad81890c97dc1e14017ee493e72270de9ebb8d999303c11ec10f90c17195"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/ufo/prompts/examples/visual/app_agent_example.yaml",
+      "sha256_utf8_text": "1f50eae8a488091cb4f3f138568b356e2f6308f751e6c4926a25efba059c9ddb"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/ufo/prompts/examples/visual/app_agent_example_as.yaml",
+      "sha256_utf8_text": "7bff666414f656f6b9bca323fbb28c873c953e927f30ab2968348790b59d7fdf"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/ufo/prompts/examples/visual/host_agent_example.yaml",
+      "sha256_utf8_text": "57e4fe1c430002ab6c3261163d3e46ab2fb650f035a9a8d30fe6b8fe63cec1cd"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/ufo/prompts/experience/experience_summary.yaml",
+      "sha256_utf8_text": "7de21747869c9aabcd12fbcd9a369b98e5254af378900cd9fcb2fb4c71695535"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/ufo/prompts/share/base/api.yaml",
+      "sha256_utf8_text": "c9f0ca681d925a9191a4af08e960fc3bf6ff16b6bb1e22b63ecf68a1a036a54f"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/ufo/prompts/share/base/app_agent.yaml",
+      "sha256_utf8_text": "67a8341eb73ce9f3c503ecfa723ccc6d98b0eac8fdc20b2f3e85cdaea3eec024"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/ufo/prompts/share/base/host_agent.yaml",
+      "sha256_utf8_text": "9860e484b3b8362a60f1be7d71b7247119c0d1b5d769e850894e33123ab11625"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/ufo/prompts/third_party/linux_agent.yaml",
+      "sha256_utf8_text": "f1363962ee88c9c510a902839b2cd6d5430458e18056dd9d6433bad41eb2ea7c"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/ufo/prompts/third_party/linux_agent_example.yaml",
+      "sha256_utf8_text": "b8a1467f2cd4a67400b0b092f8d13c4f3f01d4cc444acff1aec2e5c6d846b889"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/ufo/prompts/third_party/mobile_agent.yaml",
+      "sha256_utf8_text": "25a8707b814dc73639b80def89bb95969bf76f0bd4d846b9107eff85028bc11b"
+    },
+    {
+      "path": ".runtime/computer-use/ufo2/upstream/ufo/prompts/third_party/mobile_agent_example.yaml",
+      "sha256_utf8_text": "bb929b4f576518223aebda04fdaccf59cce3f703c8e69b18ed29ef1376d7860c"
+    },
+    {
+      "path": "apps/desktop/electron/main.ts",
+      "sha256_utf8_text": "55f54e9abde723816f4d9d29acb22eca12c61baeac8b4ff7e8e533bce7774d27"
+    },
+    {
+      "path": "characters/ayana/agent-policy.md",
+      "sha256_utf8_text": "80cf5af27fd85339d66eee993fe752216bc03281051e3498e6331fef7db099df"
+    },
+    {
+      "path": "characters/ayana/avatar-map.json",
+      "sha256_utf8_text": "aa9204bebaf0b31e5fda4d184ca8a520d083e2d3e3083b3c549f297df46577f4"
+    },
+    {
+      "path": "characters/ayana/expression-guide.json",
+      "sha256_utf8_text": "2ff605514e52e11c8b57abd8928d0e4a686329f2c3064810fbfeadfb8a98de27"
+    },
+    {
+      "path": "characters/ayana/full-access-policy.md",
+      "sha256_utf8_text": "f8b46bd516f84da6f7131eb0cb7ac696c8c15b98739cfb11181e0e7f288579bd"
+    },
+    {
+      "path": "characters/ayana/persona.md",
+      "sha256_utf8_text": "70e7656b982ffc610a5606926f069f442e63d64afc53c1c15bbcda10769df9e6"
+    },
+    {
+      "path": "config/default.json",
+      "sha256_utf8_text": "9089056585ae5a0890bd909755d662154c21ac0b0ba6c1b844290663c444c5e7"
+    },
+    {
+      "path": "packages/protocol/events.py",
+      "sha256_utf8_text": "7333a1ea851b32c4e9b796fdb8f5caebaef8de758c5611c82a8f42236ab2d1f7"
+    },
+    {
+      "path": "packages/protocol/speech-events.schema.json",
+      "sha256_utf8_text": "b4ea68bf2b9e21e1b97a9e4810c9f8ff2cd22b16af6d193c83f27bc906227973"
+    },
+    {
+      "path": "scripts/benchmark_prompt_cache.py",
+      "sha256_utf8_text": "8ae716f15392b8e70ae804712d6249dd78bc0d037f9f32cd512e8e8e2b7ab5b6"
+    },
+    {
+      "path": "scripts/benchmark_translation.py",
+      "sha256_utf8_text": "1305d43dfef9c42a4c03cec5bf9ed42830255675b174ed5b2f0894b2a8ac3bba"
+    },
+    {
+      "path": "scripts/check_expressions.py",
+      "sha256_utf8_text": "a3a8726ff818d6416e72b11dcdc6fb19616e950ee8719808dddad727c7214d4d"
+    },
+    {
+      "path": "scripts/check_model.py",
+      "sha256_utf8_text": "a5beaef691d5b259e9787bbfb3e42a57dd60c912df4ece86b8b592b0b7f2ece4"
+    },
+    {
+      "path": "scripts/package_backend.py",
+      "sha256_utf8_text": "e39c06eb7dfd0be317e991e375726b5f88d1b057deb2780c3e3a5760946db75b"
+    },
+    {
+      "path": "services/agent/avatars.py",
+      "sha256_utf8_text": "91c4a81628d91c05faacf02ed8063d154f61c0b9b7dd44c807ae9baf35a42903"
+    },
+    {
+      "path": "services/agent/capabilities.py",
+      "sha256_utf8_text": "81b923f4fe4ff570f3a7a588f417757e96c569fb5176f8d6c7f814bd18a070fd"
+    },
+    {
+      "path": "services/agent/computer_use.py",
+      "sha256_utf8_text": "4faecca2ca2789f62b600df410eaf830c9c62025d5c6207e6bfa2c148dda4d2f"
+    },
+    {
+      "path": "services/agent/computer_worker.py",
+      "sha256_utf8_text": "e61858ceae0e23d65649878880aea56e21e188a0203e58454a9a3d0d6d5462d7"
+    },
+    {
+      "path": "services/agent/config.py",
+      "sha256_utf8_text": "d9e3720b3773b586f2b66054bafec69c7fa352092153ae42546cde69c8e0bf23"
+    },
+    {
+      "path": "services/agent/context.py",
+      "sha256_utf8_text": "6f5c5e2737afb793dfffd7fae1594133008715240e193c5a8bbd1687b47eda2b"
+    },
+    {
+      "path": "services/agent/conversation_runtime.py",
+      "sha256_utf8_text": "5daf024e25b4e957b47e59850d1c6bc8ff72137b838f0ad5195229c3ec2e6816"
+    },
+    {
+      "path": "services/agent/providers/model.py",
+      "sha256_utf8_text": "f90db1e9352d621d7a0ba9ce8230accb1ebcc3f2dc71cc65afdb24a9ad5dfd85"
+    },
+    {
+      "path": "services/agent/runtime.py",
+      "sha256_utf8_text": "e22b76faddbab632a4c6035548233eede5efdac96a78f0e442f8e33a40825155"
+    },
+    {
+      "path": "services/agent/tools/registry.py",
+      "sha256_utf8_text": "6fc6b8ad6577b964b8f8c7768865a4d341026dcd8602350d1761cecec62290ee"
+    },
+    {
+      "path": "services/agent/tools/repository.py",
+      "sha256_utf8_text": "33f522a97d4f33e3d77a84412529654f8d0392e54ca87b712d2515af195d862b"
+    },
+    {
+      "path": "services/agent/work.py",
+      "sha256_utf8_text": "73bdb4274fe95d55d908ce2bd3c1e7b15ba074eb73e76e4685a808f59d565b99"
+    }
+  ],
+  "outputs": [
+    {
+      "path": "docs\\PROMPT_ASSEMBLY_AUDIT_2026-10-06.md",
+      "sha256_bytes": "8d2e022793ec71f9facfccd2c94da4bf516e17b424c0243f7cde825c1f9908f2",
+      "bytes": 52305
+    },
+    {
+      "path": "docs\\prompt-audit\\2026-10-06\\all-native-tool-schemas.json",
+      "sha256_bytes": "1297e99d106ad547092e5ae548a752e80e2da10964b103d324b890c12f261808",
+      "bytes": 16075
+    },
+    {
+      "path": "docs\\prompt-audit\\2026-10-06\\all-registered-tools.json",
+      "sha256_bytes": "4fa12822ee2ab5dd345e568a14ff820184b6f9e127cbd1b96ad1d08a9bab96e9",
+      "bytes": 14531
+    },
+    {
+      "path": "docs\\prompt-audit\\2026-10-06\\auxiliary-prompts.md",
+      "sha256_bytes": "62f5a2ef10064215c6b375d0d761240e7037ac18172f4b3c012fb61c6d603ed3",
+      "bytes": 22343
+    },
+    {
+      "path": "docs\\prompt-audit\\2026-10-06\\benchmark-prompts.md",
+      "sha256_bytes": "7f1756f1a1f48a8b0d9c7b540d53912ae7e9df2908700d7a67b61e4390ab854b",
+      "bytes": 30771
+    },
+    {
+      "path": "docs\\prompt-audit\\2026-10-06\\desktop-ufo-prompts.md",
+      "sha256_bytes": "957e29545311e6459fd1fa5e8ea17f9caa7b8c61e856efe655aa95f903229939",
+      "bytes": 315428
+    },
+    {
+      "path": "docs\\prompt-audit\\2026-10-06\\system-full-access.txt",
+      "sha256_bytes": "ce914d788241bea4cf5d7f9f5273c60900efdb2f5f4c977be1cffde445ea3eb9",
+      "bytes": 25739
+    },
+    {
+      "path": "docs\\prompt-audit\\2026-10-06\\system-regular.txt",
+      "sha256_bytes": "49fcba43b3a927b1fb395f5ea1ca58b4ee2061508738b014acc1a80ec4f08f23",
+      "bytes": 26392
+    }
+  ]
+}

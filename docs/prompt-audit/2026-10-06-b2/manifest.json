@@ -1,0 +1,130 @@
+{
+  "format": "ayana.prompt-assembly-snapshot.v1",
+  "scenario": {
+    "live_request": false,
+    "window_bound": false,
+    "repository": null,
+    "history": [],
+    "native_tools": true,
+    "costume": "校服",
+    "search_provider": "auto",
+    "mode": "teach",
+    "settings": "repository defaults, no local overrides or credentials"
+  },
+  "variants": [
+    {
+      "name": "ordinary",
+      "full_access": false,
+      "system_characters": 15696,
+      "tool_count": 9,
+      "components": [
+        {
+          "name": "persona",
+          "source": "characters/ayana/persona.md"
+        },
+        {
+          "name": "speech",
+          "source": "characters/ayana/speech-style.md"
+        },
+        {
+          "name": "work",
+          "source": "services/agent/prompts/work-policy.md"
+        },
+        {
+          "name": "events",
+          "source": "services/agent/prompts/event-protocol.md"
+        },
+        {
+          "name": "tasks",
+          "source": "services/agent/prompts/task-protocol.md"
+        },
+        {
+          "name": "permissions",
+          "source": "characters/ayana/agent-policy.md"
+        },
+        {
+          "name": "tools",
+          "source": "runtime tool catalog"
+        },
+        {
+          "name": "expressions",
+          "source": "characters/ayana/expression-rules.md + expression-guide.json + expression-examples.ndjson"
+        }
+      ]
+    },
+    {
+      "name": "full-access",
+      "full_access": true,
+      "system_characters": 15413,
+      "tool_count": 18,
+      "components": [
+        {
+          "name": "persona",
+          "source": "characters/ayana/persona.md"
+        },
+        {
+          "name": "speech",
+          "source": "characters/ayana/speech-style.md"
+        },
+        {
+          "name": "work",
+          "source": "services/agent/prompts/work-policy.md"
+        },
+        {
+          "name": "events",
+          "source": "services/agent/prompts/event-protocol.md"
+        },
+        {
+          "name": "tasks",
+          "source": "services/agent/prompts/task-protocol.md"
+        },
+        {
+          "name": "permissions",
+          "source": "characters/ayana/full-access-policy.md"
+        },
+        {
+          "name": "tools",
+          "source": "runtime tool catalog"
+        },
+        {
+          "name": "expressions",
+          "source": "characters/ayana/expression-rules.md + expression-guide.json + expression-examples.ndjson"
+        }
+      ]
+    }
+  ],
+  "files": {
+    "auxiliary-prompts.json": {
+      "sha256": "8ab828f673981296b7ae83eef42d3ecd5fdb92d11703ddfe20973c34a48ef1e9",
+      "bytes": 4948
+    },
+    "full-access.components.json": {
+      "sha256": "4e6916794fbbd86c251abee6dd5d5ba6a2654bf4d57ce80110cc6f14f975eb2f",
+      "bytes": 25534
+    },
+    "full-access.system.md": {
+      "sha256": "caa7bd85f98f8cb6d2b5108563d5863b92091ae52847a133393ce479e988c27b",
+      "bytes": 24499
+    },
+    "full-access.tools.json": {
+      "sha256": "f358ddfe54b0a6d4ea5901939074a0895d7d499c8434cb3a02a2a6dd42e403bb",
+      "bytes": 15008
+    },
+    "ordinary.components.json": {
+      "sha256": "a8d6fbd3ce52dec818d806c1cde9974b7fbad33074d395f1098ec61f543ad759",
+      "bytes": 26071
+    },
+    "ordinary.system.md": {
+      "sha256": "b883b24abc70d2d2fb8811ddd67ea985161032cd3c2e4bb1c547d6ceedfa899d",
+      "bytes": 25006
+    },
+    "ordinary.tools.json": {
+      "sha256": "79e6000ced4991567b15930a1b28db304fb330b943e31e83b174f310c23fd606",
+      "bytes": 8222
+    },
+    "speech-events.schema.json": {
+      "sha256": "cc1ff36da953d487287f5228e70a8c40ccc1d0a9b2a19efa67e82ab061def7c4",
+      "bytes": 1289
+    }
+  }
+}

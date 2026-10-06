@@ -1,0 +1,542 @@
+[
+  {
+    "name": "capture_target",
+    "description": "重新截图；新图片随后交给模型",
+    "arguments": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "effect": "read"
+  },
+  {
+    "name": "observe_controls",
+    "description": "读取当前绑定窗口的控件",
+    "arguments": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "effect": "read"
+  },
+  {
+    "name": "computer.run",
+    "description": "执行模式：在用户绑定的当前窗口完成明确要求的桌面任务。自动观察、输入或点击、核实结果；不能启动应用、跨窗口操作或执行命令。只有用户要求操作桌面时使用。",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "goal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        }
+      },
+      "required": [
+        "goal"
+      ],
+      "additionalProperties": false
+    },
+    "effect": "write"
+  },
+  {
+    "name": "web.search",
+    "description": "公网搜索；重要结论继续 web.fetch 核对原文",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    },
+    "effect": "read"
+  },
+  {
+    "name": "web.fetch",
+    "description": "读取公网网页或 source_id 的正文",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 3000
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "additionalProperties": false
+    },
+    "effect": "read"
+  },
+  {
+    "name": "files.read",
+    "description": "读取文本；可按 start_line/max_lines 分段。普通模式 root_id 为 repository 或授权目录 ID；Full access 可用 root_id=filesystem 加任意绝对路径。省略 root_id 时优先仓库，否则 output。完整 UTF-8 文件返回 sha256；修改前必须完整读取",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "root_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "start_line": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        },
+        "max_lines": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    },
+    "effect": "read"
+  },
+  {
+    "name": "files.create",
+    "description": "执行模式：在授权目录创建新文本文件，绝不覆盖",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "root_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40000
+        }
+      },
+      "required": [
+        "root_id",
+        "path",
+        "content"
+      ],
+      "additionalProperties": false
+    },
+    "effect": "write"
+  },
+  {
+    "name": "files.propose_edit",
+    "description": "读取后，用 base_sha256 和完整新内容修改文件。Full access 直接应用并保存备份；普通模式提出差异等待用户确认",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "root_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "base_sha256": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 40000
+        }
+      },
+      "required": [
+        "root_id",
+        "path",
+        "base_sha256",
+        "content"
+      ],
+      "additionalProperties": false
+    },
+    "effect": "preview"
+  },
+  {
+    "name": "files.propose_restore",
+    "description": "恢复 artifact_id 的备份。Full access 直接恢复；普通模式生成差异等待确认",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "artifact_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        }
+      },
+      "required": [
+        "artifact_id"
+      ],
+      "additionalProperties": false
+    },
+    "effect": "preview"
+  },
+  {
+    "name": "apps.search",
+    "description": "按名称查找本机安装应用，返回可供 apps.open 使用的真实 app_id；支持中文名及常见 Windows 应用英文别名",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    },
+    "effect": "read"
+  },
+  {
+    "name": "apps.open",
+    "description": "执行模式：打开 apps.search 返回的应用 ID。不能传命令或启动参数。返回 Windows 请求回执及能观察到的窗口",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "app_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        }
+      },
+      "required": [
+        "app_id"
+      ],
+      "additionalProperties": false
+    },
+    "effect": "write"
+  },
+  {
+    "name": "files.list",
+    "description": "列举授权范围的文件和目录。root_id 省略时优先当前只读仓库 repository，否则 output；path 为空列举根。recursive 递归列举，text_only 仅列文本，遍历有上限",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "root_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "path": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 400
+        },
+        "recursive": {
+          "type": "boolean"
+        },
+        "text_only": {
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "effect": "read"
+  },
+  {
+    "name": "files.find",
+    "description": "按文件或目录名称片段查找，返回真实路径。root_id 省略时优先当前只读仓库，否则 output；遍历有上限。不搜索文件内容",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "root_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "path": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    },
+    "effect": "read"
+  },
+  {
+    "name": "files.search",
+    "description": "在授权范围的文本内容中搜索，返回路径、行号和原文。root_id 省略时优先当前只读仓库，否则 output；最多检查 400 文件，每文件 64 KiB。不按文件名匹配",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "root_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "path": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    },
+    "effect": "read"
+  },
+  {
+    "name": "files.open",
+    "description": "执行模式：打开授权目录内真实文件或目录；可选 app_id 为 apps.search 返回的应用 ID，用指定文档应用打开该文件。省略 app_id 时文本用记事本，其他文件用默认应用。不支持的指定应用返回原因，可用桌面工具继续。不能执行脚本或传任意参数；open_requested 仍需核实目标文件",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "root_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "path": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "app_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        }
+      },
+      "required": [
+        "root_id",
+        "path"
+      ],
+      "additionalProperties": false
+    },
+    "effect": "write"
+  },
+  {
+    "name": "web.open",
+    "description": "执行模式：用默认浏览器打开用户要求的 HTTP/HTTPS 网址，包括用户提供的本地开发网址。这不会读取页面，也不会提交表单",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 3000
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "additionalProperties": false
+    },
+    "effect": "write"
+  },
+  {
+    "name": "windows.list",
+    "description": "列出本机可见应用窗口，返回可信 window_id。打开应用后使用它查找窗口，不要猜测 ID",
+    "arguments": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "effect": "read"
+  },
+  {
+    "name": "windows.select",
+    "description": "执行模式：选定 windows.list 返回的窗口作为观察/桌面任务目标，同时返回新截图。不能用旧窗口 ID 操作已关闭或被替换的窗口",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "window_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        }
+      },
+      "required": [
+        "window_id"
+      ],
+      "additionalProperties": false
+    },
+    "effect": "write"
+  },
+  {
+    "name": "shell.run",
+    "description": "Full access：执行 PowerShell 命令（非 Windows 为 sh），可访问任意本机路径、操作文件、运行脚本和程序、读取本地服务。cwd 为现有绝对路径，省略时使用当前仓库或数据目录。返回真实退出码和输出；失败不代表成功。命令超时/取消会停止整棵进程树，不能用于启动持久后台服务",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16000
+        },
+        "cwd": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "additionalProperties": false
+    },
+    "effect": "write"
+  },
+  {
+    "name": "desktop.step",
+    "description": "Full access：根据当前截图直接执行一个桌面动作并返回观察结果；snapshot_id 必须与最新截图一致。click/scroll 需要截图坐标 point；type 使用 text；key 使用 key；不得猜测坐标",
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "snapshot_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "click",
+            "type",
+            "scroll",
+            "highlight",
+            "key"
+          ]
+        },
+        "point": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20000
+            },
+            "y": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20000
+            }
+          },
+          "required": [
+            "x",
+            "y"
+          ],
+          "additionalProperties": false
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "key": {
+          "type": "string",
+          "enum": [
+            "enter",
+            "tab",
+            "escape",
+            "backspace",
+            "left",
+            "up",
+            "right",
+            "down",
+            "home",
+            "end",
+            "pageup",
+            "pagedown"
+          ]
+        },
+        "delta": {
+          "type": "integer",
+          "minimum": -20,
+          "maximum": 20,
+          "description": "滚动刻度，必须非零；省略时为 -3"
+        },
+        "expected_result": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "expected_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "effect": "write"
+  }
+]

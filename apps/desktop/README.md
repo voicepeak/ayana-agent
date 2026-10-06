@@ -5,9 +5,30 @@ global shortcuts, tray, window lifecycle and controlled avatar asset proxy.
 The isolated React renderers receive a restricted preload bridge. Credentials
 and local-service tokens are never returned by that bridge.
 
-The summoned chat is a single frameless, transparent companion window: a half
-portrait above Japanese dialogue and Chinese translation. Settings and optional
-tool contexts live in a separate hidden window, opened through the gear or tray.
+Preferences use one sidebar: Appearance & voice, Model & connection, Access & privacy.
+Tasks and conversation history form a separate management group. Advanced parameters
+and diagnostics are collapsed under Advanced settings. Repository UI, repeated notes
+and empty result cards have been removed. Drafts survive navigation and refreshes;
+only edited fields are sent, and saving requires a backend persistence receipt.
+Access permissions share this save flow. Window controls are expandable on Tasks. See the
+[settings and project review](../../docs/SETTINGS_AND_PROJECT_REVIEW_2026-10-06.md)
+for the new controls and the isolated Electron regression script.
+
+The companion keeps portrait, dialogue and inline input inside a configurable note.
+Its 760px default width uses a roomy side-by-side layout; smaller widths stack the portrait above dialogue.
+Background choices are transparent, frosted and a privately stored custom image.
+Expandable design controls preview portrait range/size, note width, caption size,
+background opacity and subtitle options; Save design persists the draft.
+Replies appear in light Noto Serif SC (SimSun fallback), with per-glyph reveal driven by
+consumed audio samples, punctuation pauses, at most two lines per shot, and a
+brief hold/fade after completion. Silent replies use a matching timed fallback.
+Ctrl+Alt+A or clicking the portrait focuses the bare input line; voice/send actions
+are revealed with the ellipsis. Enter sends; Shift+Enter inserts a newline, with
+input height capped at about two lines. Sending clears the input; Escape
+removes focus while preserving unsent drafts. A second Escape hides the note. Right-click the portrait or use the tray
+for topics, execution mode, interruption, settings and tasks. Transparent pixels
+pass native mouse clicks through; dragging the portrait persists its position.
+Settings and optional tool contexts remain in a separate hidden management window.
 Only chat owns an AudioWorklet; settings and highlight never create a player.
 The catalog indexes all 234 original PNGs (26 expressions, 9 outfit/pose
 combinations). The model selects a semantic expression and pose per sentence;

@@ -1,0 +1,525 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "web__search",
+      "description": "公网搜索；重要结论继续 web.fetch 核对原文",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "web__fetch",
+      "description": "读取公网网页或 source_id 的正文",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 3000
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "files__read",
+      "description": "读取文本或 PDF/DOCX/XLSX/PPTX。文本用 start_line/max_lines；文档用 start_unit/max_units，单元为页、段落/表格行、单元格或幻灯片，返回真实出处。扫描 PDF 返回 requires_ocr；Excel 只读取已有值和公式，不重算。next_cursor 非空时保持路径用 cursor 续读。普通模式使用 repository 或本机目录；Full access 可用 filesystem 加绝对路径。省略 root_id 优先仓库，否则 output。修改文本前必须 complete=true",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "root_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "start_line": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "max_lines": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "start_unit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "max_units": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 12000
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "files__create",
+      "description": "Full access：在本机目录创建新文本文件，绝不覆盖",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "root_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40000
+          }
+        },
+        "required": [
+          "root_id",
+          "path",
+          "content"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "files__propose_edit",
+      "description": "读取后，用 base_sha256 和完整新内容修改文件。Full access 直接应用并保存备份；普通模式提出差异等待用户确认",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "root_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "base_sha256": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 40000
+          }
+        },
+        "required": [
+          "root_id",
+          "path",
+          "base_sha256",
+          "content"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "apps__search",
+      "description": "按名称查找本机安装应用，返回可供 apps.open 使用的真实 app_id；支持中文名及常见 Windows 应用英文别名",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "apps__open",
+      "description": "Full access：打开 apps.search 返回的应用 ID。不能传命令或启动参数。返回 Windows 请求回执及能观察到的窗口",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "app_id"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "files__list",
+      "description": "列举可访问范围的文件和目录。省略 root_id 优先仓库，否则 output；path 为空列根。recursive 递归，text_only 仅文本。next_cursor 非空时保留原参数并传 cursor 继续扫描",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "root_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 400
+          },
+          "recursive": {
+            "type": "boolean"
+          },
+          "text_only": {
+            "type": "boolean"
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "files__find",
+      "description": "按文件或目录名称片段查找，返回真实路径。root_id 省略时优先当前只读仓库，否则 output；遍历有上限。不搜索文件内容",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "root_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "files__search",
+      "description": "搜索可访问范围内的文本内容，返回路径、真实行号和原文。省略 root_id 优先仓库，否则 output。扫描有时间和输出上限；next_cursor 非空时保留查询参数并传 cursor 继续，不能把一页当成全部结果。不按文件名匹配",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "root_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "files__open",
+      "description": "Full access：打开本机目录内真实文件或目录；可选 app_id 为 apps.search 返回的应用 ID，用指定文档应用打开该文件。省略 app_id 时文本用记事本，其他文件用默认应用。不支持的指定应用返回原因，可用桌面工具继续。不能执行脚本或传任意参数；open_requested 仍需核实目标文件",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "root_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "app_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "root_id",
+          "path"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "web__open",
+      "description": "Full access：用默认浏览器打开用户要求的 HTTP/HTTPS 网址，包括用户提供的本地开发网址。这不会读取页面，也不会提交表单",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 3000
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "windows__list",
+      "description": "列出本机可见应用窗口，返回可信 window_id。打开应用后使用它查找窗口，不要猜测 ID",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "windows__select",
+      "description": "Full access：选定 windows.list 返回的窗口作为观察/桌面任务目标，同时返回新截图。不能用旧窗口 ID 操作已关闭或被替换的窗口",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "window_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "window_id"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "shell__run",
+      "description": "Full access：执行 PowerShell 命令（非 Windows 为 sh），可访问任意本机路径、操作文件、运行脚本和程序、读取本地服务。cwd 为现有绝对路径，省略时使用当前仓库或数据目录。返回真实退出码和输出；失败不代表成功。命令超时/取消会停止整棵进程树，不能用于启动持久后台服务",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16000
+          },
+          "cwd": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 300
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "process__start",
+      "description": "Full access：启动受管理的后台命令，返回真实 process_id；用于开发服务等长任务。相同命令和 cwd 已运行时复用。运行不证明服务就绪，继续检查服务与日志",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16000
+          },
+          "cwd": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "process__status",
+      "description": "Full access：省略 process_id 列出受管理进程；指定 ID 返回状态和增量日志。log_cursor 使用上次 next_log_cursor；has_more_logs 为真时继续读取。不能把 running 当成服务就绪",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "process_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "log_cursor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000000
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "process__stop",
+      "description": "Full access：停止真实 process_id 对应的后台命令及其子进程，返回最终状态。只能操作本运行时管理的进程",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "process_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "process_id"
+        ],
+        "additionalProperties": false
+      }
+    }
+  }
+]
