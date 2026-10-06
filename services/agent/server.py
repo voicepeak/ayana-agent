@@ -47,6 +47,16 @@ def create_app(token: str, settings=None, runtime=None):
         asyncio.create_task(stop())
         return {"stopping": True}
 
+    @app.get("/debug/prompts/export")
+    async def prompt_export(request: Request):
+        if not authenticated(request.headers.get("authorization")):
+            raise HTTPException(401)
+        import json
+        return Response(json.dumps(runtime.prompt_trace.export(), ensure_ascii=False, indent=2),
+                        media_type="application/json",
+                        headers={"Content-Disposition": 'attachment; filename="ayana-prompts.json"',
+                                 "Cache-Control": "no-store"})
+
     @app.get("/assets/{asset_id}")
     async def asset(asset_id: str, request: Request):
         if not authenticated(request.headers.get("authorization")):

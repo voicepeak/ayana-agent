@@ -27,6 +27,28 @@ def speech(key="s1"):
     return {"type": "speech", "key": key, "speech_ja": "結果を確かめたよ。"}
 
 
+@pytest.mark.asyncio
+async def test_new_topic_code_explanation_recovers_from_metadata_then_malformed_output(tmp_path):
+    calls = []
+    def respond(request):
+        calls.append(json.loads(request.content))
+        if len(calls) == 1:
+            return sse_response([plan(), {"type": "unknown"}])
+        return sse_response([plan("answer", ()), speech(), {"type": "task", "status": "complete"}])
+    runtime = make_runtime(tmp_path, respond)
+    try:
+        await runtime.handle({"type": "conversation.create"})
+        await ask(runtime, "解释一下高亮代码")
+        assert len(calls) == 2 and runtime.active_task.state == "succeeded"
+        assert runtime.active_task.kind == "answer" and runtime.active_task.checks == []
+        events = next(iter(runtime.clients)).events
+        assert not any(event["type"] == "error" for event in events)
+        assert len([event for event in events if event["type"] == "utterance.ready"]) == 1
+        assert len(runtime.prompt_history.turns) == 1
+    finally:
+        await runtime.close()
+
+
 @pytest.mark.parametrize("result,pointer,value", [
     ({"status": "open_requested"}, "/status", "open_requested"),
     ({"status": "input_sent", "expected_result_verified": None}, "/status", "input_sent"),

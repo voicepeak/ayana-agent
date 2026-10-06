@@ -8,6 +8,27 @@ import re
 PROTOCOL_VERSION = 1
 INTENTS = {"acknowledge", "explain", "encourage", "caution", "playful"}
 AFFECTS = {"neutral", "pleased", "concerned", "surprised"}
+MAX_SPEECH_CHARS = 48
+
+
+def speech_sentences(text):
+    """Find sentence boundaries without cutting words or quoted Japanese phrases."""
+    parts, current, quotes = [], [], []
+    boundary = False
+    for char in text.strip():
+        if boundary and char not in '。！？!?」』”"）) \t\r\n':
+            parts.append("".join(current).strip())
+            current, boundary = [], False
+        current.append(char)
+        if char in "「『":
+            quotes.append("」" if char == "「" else "』")
+        elif quotes and char == quotes[-1]:
+            quotes.pop()
+        elif char in "。！？!?" and not quotes:
+            boundary = True
+    if current:
+        parts.append("".join(current).strip())
+    return parts
 
 
 def validate_tool_request(value):
@@ -25,8 +46,8 @@ def validate_tool_request(value):
 
 def validate_speech(value: dict) -> dict:
     text = value.get("speech_ja")
-    if not isinstance(text, str) or not text.strip() or len(text) > 240:
-        raise ValueError("speech_ja must be a complete short Japanese sentence (1–240 characters)")
+    if not isinstance(text, str) or not text.strip() or len(text) > MAX_SPEECH_CHARS:
+        raise ValueError(f"speech_ja must be a complete short Japanese sentence (1–{MAX_SPEECH_CHARS} characters)")
     text = text.strip()
     if not re.search(r"[\u3040-\u30ff]", text):
         raise ValueError("speech_ja must contain Japanese speech")
@@ -34,6 +55,8 @@ def validate_speech(value: dict) -> dict:
         raise ValueError("Code, paths, URLs and tags belong in evidence, not speech")
     if text[-1] not in "。！？!?…」』":
         raise ValueError("Only complete sentences may be committed")
+    if len(speech_sentences(text)) != 1:
+        raise ValueError("Each speech event must contain exactly one complete sentence")
     intensity = value.get("intensity", 0.25)
     if isinstance(intensity, bool) or not isinstance(intensity, (int, float)) or not math.isfinite(intensity):
         intensity = 0.25

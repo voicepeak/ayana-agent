@@ -337,7 +337,9 @@ async def test_tool_rounds_and_interrupted_output_keep_factual_context(tmp_path)
     await runtime.handle({"type": "utterance.displayed", "utterance_id": uid, "generation_id": runtime.generation})
     await runtime.handle({"type": "turn.start", "text": "continue"})
     await runtime.task
-    assert calls[2][:len(calls[1])] == calls[1]  # tool result and complete tool round retained
+    from services.agent.context import text_messages
+    retained = text_messages(calls[1])
+    assert calls[2][:len(retained)] == retained  # factual tool exchange retained, old control hints omitted
     tail = json.loads(calls[3][-1]["content"][0]["text"])
     assert tail["previous_interrupted_reply"][0]["speech_ja"] == "一緒に見よう。"
     assert tail["previous_interrupted_reply"][0]["displayed"] is True

@@ -18,7 +18,9 @@ sys.path.insert(0, str(ROOT))
 from packages.protocol import validate_speech
 from services.agent.avatars import AvatarCatalog
 from services.agent.config import Settings
-from services.agent.providers.model import CONTRACT, OpenAIProvider
+from services.agent.providers.model import OpenAIProvider
+from services.agent.prompts import PromptAssembler, tool_prompt
+from services.agent.tools.registry import ToolRegistry
 
 
 SCENES = [
@@ -55,8 +57,10 @@ SCENES = [
 async def main():
     cfg = Settings()
     catalog = AvatarCatalog(ROOT)
-    system = "\n".join([(ROOT / "characters/ayana/persona.md").read_text(encoding="utf-8"), CONTRACT,
-                         catalog.prompt(cfg.values.get("avatar_costume", "校服"))])
+    system = PromptAssembler(ROOT, catalog).build(
+        full_access=cfg.values.get("full_access", False), costume=cfg.values.get("avatar_costume", "校服"),
+        tools=tool_prompt(ToolRegistry(), native_tools=cfg.values.get("native_tools", True),
+                          full_access=cfg.values.get("full_access", False))).system
     semaphore = asyncio.Semaphore(2)
     async with httpx.AsyncClient(timeout=httpx.Timeout(75, connect=12), trust_env=False) as client:
         async def check(name, scene, allowed):

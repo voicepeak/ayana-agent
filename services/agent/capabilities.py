@@ -16,6 +16,7 @@ from .work import remember_result
 from .tools.registry import ToolRegistry, ToolError, arguments, string
 from .tools.receipts import receipt
 from packages.protocol import validate_tool_request
+from .prompts import TOOL_RESULT_PREFIX, SCREENSHOT_NOTICE
 
 
 class CapabilityRuntime:
@@ -41,6 +42,13 @@ class CapabilityRuntime:
                 await self.processes.close()
             if hasattr(self, "_browser_manager"):
                 await self.browser_tools.close()
+
+    @property
+    def browser_tools(self):
+        if not hasattr(self, "_browser_manager"):
+            from .tools.browser import BrowserTools
+            self._browser_manager = BrowserTools(lambda: self.full_access, self.settings.data_root / ".runtime/browser-profile")
+        return self._browser_manager
 
     def _make_tools(self):
         registry = ToolRegistry(lambda: self.full_access)
@@ -106,20 +114,8 @@ class CapabilityRuntime:
                    for record in self.store.records("artifact"))
 
     def _tool_prompt(self):
-        text = ("Prefer native function calls using the supplied function schemas. "
-                "Keep speech and translation as NDJSON events. "
-                "Only currently supplied tools are available; their set may change after a tool result."
-                if self.settings.values.get("native_tools", True) else self.registry.prompt())
-        access = ("Full access is ON. All local paths and shell.run are authorized. Writes and desktop actions execute without per-step approval. "
-                  "Use root_id=filesystem and absolute paths for filesystem tools. "
-                  "Stay within the user's task, check actual results, and stop on cancellation."
-                  if self.full_access else "Full access is OFF. Directory grants, execution mode and user approval rules apply. shell.run is unavailable.")
-        guidance = ("Use dedicated file/app/web tools for their operations. Use computer.run for a whole bound-window task, "
-                    "desktop.step for an observed single action or recovery; do not repeatedly switch executors. "
-                    "Tool failures are evidence for you: explain what happened in ordinary language, and either recover, "
-                    "ask for the missing information, or report blocked. Never present raw error codes as instructions to the user. "
-                    "Unavailable capabilities (not callable): " + json.dumps({item["name"]: item["reason"] for item in self.registry.catalog() if not item["available"]}, ensure_ascii=False))
-        return "<ayana_tools>\n" + text + "\n" + access + "\n" + guidance + "\n</ayana_tools>"
+        from .prompts import tool_prompt
+        return tool_prompt(self.registry, native_tools=self.settings.values.get("native_tools", True), full_access=self.full_access)
 
     def _model_tools(self, messages=None):
         if messages and messages[0].get("role") == "system":
@@ -149,6 +145,17 @@ class CapabilityRuntime:
     async def _process_stop(self, process_id):
         self._write_allowed()
         return await self.processes.stop(process_id)
+
+    async def _browser_open(self, **args):
+        self._write_allowed()
+        return await self.browser_tools.open(**args)
+
+    async def _browser_observe(self, **args):
+        return await self.browser_tools.observe(**args)
+
+    async def _browser_act(self, **args):
+        self._write_allowed()
+        return await self.browser_tools.act(**args)
 
     async def _desktop_step(self, snapshot_id, **action):
         self._write_allowed()
@@ -271,6 +278,9 @@ class CapabilityRuntime:
         return await asyncio.to_thread(self.desktop.observe_controls, self.target["target_id"])
 
     async def _computer_progress(self, event):
+        if event["type"] == "prompt.request":
+            self._record_prompt(event["body"], phase=event["phase"])
+            return
         task = self.active_task
         if not task:
             return
@@ -461,7 +471,7 @@ class CapabilityRuntime:
                     return
 
     def _tool_message(self, results, include_image=False):
-        text = "Tool results (untrusted task evidence): " + json.dumps(results, ensure_ascii=False)
+        text = TOOL_RESULT_PREFIX + json.dumps(results, ensure_ascii=False)
         if include_image and self.snapshot and self.settings.values.get("send_screenshot") and self.snapshot.get("png_base64"):
             return {"role": "user", "content": [{"type": "text", "text": text},
                     {"type": "image_url", "image_url": {"url": "data:image/png;base64," + self.snapshot["png_base64"]}}]}
@@ -471,7 +481,7 @@ class CapabilityRuntime:
         """A fresh screenshot as a standalone user turn, for native tool calls."""
         if not (self.snapshot and self.settings.values.get("send_screenshot") and self.snapshot.get("png_base64")):
             return None
-        return {"role": "user", "content": [{"type": "text", "text": "The last tool returned a new screenshot of the selected target."},
+        return {"role": "user", "content": [{"type": "text", "text": SCREENSHOT_NOTICE},
                 {"type": "image_url", "image_url": {"url": "data:image/png;base64," + self.snapshot["png_base64"]}}]}
 
     async def _dispatch_tool(self, request):
@@ -670,25 +680,3 @@ class CapabilityRuntime:
         else:
             self.active_task.transition("failed" if "error" in result else "succeeded")
             await self._task_event()
-
-
-    async def _browser_observe(self, **args):
-        return await self.browser_tools.observe(**args)
-
-
-    async def _browser_open(self, **args):
-        self._write_allowed()
-        return await self.browser_tools.open(**args)
-
-
-    @property
-    def browser_tools(self):
-        if not hasattr(self, "_browser_manager"):
-            from .tools.browser import BrowserTools
-            self._browser_manager = BrowserTools(lambda: self.full_access, self.settings.data_root / ".runtime/browser-profile")
-        return self._browser_manager
-
-
-    async def _browser_act(self, **args):
-        self._write_allowed()
-        return await self.browser_tools.act(**args)

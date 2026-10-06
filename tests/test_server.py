@@ -27,3 +27,16 @@ def test_unauthorized_socket_receives_no_session(tmp_path):
         with pytest.raises(Exception):
             with client.websocket_connect('/ws'):
                 pass
+
+
+def test_prompt_export_requires_launch_token_and_uses_no_store(tmp_path):
+    cfg = settings(tmp_path)
+    runtime = AgentRuntime(cfg, desktop=Desktop(), tts=Tts())
+    runtime.prompt_trace.record({"model": "fixture", "messages": [{"role": "user", "content": "actual question"}]}, phase="main")
+    token = "c" * 32
+    with TestClient(create_app(token, cfg, runtime)) as client:
+        assert client.get('/debug/prompts/export').status_code == 401
+        response = client.get('/debug/prompts/export', headers={'Authorization': 'Bearer ' + token})
+        assert response.status_code == 200
+        assert response.headers['cache-control'] == 'no-store'
+        assert response.json()['requests'][0]['body']['messages'][0]['content'] == 'actual question'

@@ -11,7 +11,9 @@ from collections import OrderedDict
 import httpx
 
 from packages.protocol import PROTOCOL_VERSION, validate_speech
-from .providers.model import CONTRACT, LocalProvider, OpenAIProvider
+from .providers.model import LocalProvider, OpenAIProvider
+from .prompts import PromptAssembler, update_budget, completion_feedback
+from .prompts.trace import PromptTrace
 from .storage import ConversationStore
 from .context import PromptHistory, repository_message
 from .tools.repository import RepositoryReader
@@ -38,6 +40,8 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
         self.settings = settings
         from .avatars import AvatarCatalog
         self.avatars = AvatarCatalog(settings.root)
+        self.prompts = PromptAssembler(settings.root, self.avatars)
+        self.prompt_trace = PromptTrace()
         if desktop is None:
             from native.windows.desktop import WindowsDesktop
             desktop = WindowsDesktop()
@@ -384,7 +388,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             if costume != previous_costume:
                 # Commit a reply immediately; no model request or next user turn is needed.
                 self.turn_id = identifier("appearance")
-                speech = validate_speech({"speech_ja": "着替えるね。ふふ、どうかな？", "intent": "playful",
+                speech = validate_speech({"speech_ja": "ふふ、着替えてみたけど、どうかな？", "intent": "playful",
                                           "affect": "pleased", "intensity": .4,
                                           "expression": "得意", "pose": "crossed"})
                 speech.update(self.avatars.resolve(speech, costume))
@@ -535,6 +539,10 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
         limit = detailed if self.active_task and self.active_task.detail == "detailed" else normal
         return {"normal": normal, "detailed": detailed, "used": used, "remaining": max(0, limit - used)}
 
+    def _record_prompt(self, body, *, phase):
+        self.prompt_trace.record(body, phase=phase, turn_id=self.turn_id,
+                                 conversation_id=self.conversations.current_id)
+
     async def _turn(self, text, root, gen, continuation=None):
         queue = asyncio.Queue(maxsize=3)
         speaker = asyncio.create_task(self._speech_worker(queue, gen))
@@ -553,18 +561,19 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 tool_schemas, tool_names = self._model_tools(messages)
                 prefix_length = continuation["prefix_length"]
                 provider = OpenAIProvider(self.settings, self.model_client)
+                provider.request_observer = self._record_prompt
                 streams = [provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names)]
             elif self.settings.values["provider"] == "local":
                 await self.emit("service.state", service="model", state="ready", engine="local-evidence", message="本地文件教学模式，无视觉模型")
                 streams = [LocalProvider().stream_reply(text, self.repository, self.target)]
                 messages = None
             else:
-                persona = (self.settings.root / "characters/ayana/persona.md").read_text(encoding="utf-8")
                 if self.snapshot and self.target and time.monotonic() * 1000 - self.snapshot.get("captured_at_monotonic_ms", time.monotonic() * 1000) > 30000:
                     await self.capture()
-                policy_file = "full-access-policy.md" if self.full_access else "agent-policy.md"
-                policy = (self.settings.root / "characters/ayana" / policy_file).read_text(encoding="utf-8")
-                system = persona + "\n" + policy + "\n" + CONTRACT + "\n" + self._tool_prompt() + "\n" + self.avatars.prompt(self.settings.values.get("avatar_costume", "校服"))
+                bundle = self.prompts.build(full_access=self.full_access,
+                                            costume=self.settings.values.get("avatar_costume", "校服"),
+                                            tools=self._tool_prompt())
+                system = bundle.system
                 self.prompt_history.select(system, self.settings.values, conversation_id=self.conversations.current_id)
                 # Keep one copy of repository evidence ahead of dialogue history.
                 evidence_prefix = repository_message(self.repository)
@@ -587,6 +596,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 if self.model_client is None:
                     self.model_client = httpx.AsyncClient(timeout=httpx.Timeout(75, connect=12), trust_env=False)
                 provider = OpenAIProvider(self.settings, self.model_client)
+                provider.request_observer = self._record_prompt
                 streams = [provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names)]
             for tool_round in range(self.settings.values.get("task_limits", {}).get("rounds", 12)):
                 await self._checkpoint()
@@ -605,6 +615,16 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                         # translations. Overflow sentences remain readable.
                         speech["audio_enabled"] = self._speech_budget(audio_count)["remaining"] > 0
                         speech.update(self.avatars.resolve(speech, self.settings.values.get("avatar_costume", "校服")))
+                        issues = []
+                        if speech["expression_source"].startswith("fallback_"):
+                            issues.append("expression:" + speech["expression_source"])
+                        if event.get("pose") not in {"crossed", "open"}:
+                            issues.append("pose:missing_or_invalid")
+                        if issues and messages is not None:
+                            await self.emit("model.validation", issues=issues,
+                                            key=str(event.get("key", count)),
+                                            resolved_expression=speech["resolved_expression"],
+                                            resolved_pose=speech["resolved_pose"])
                         key = str(event.get("key", count))
                         if key in round_keys:
                             raise ValueError("Model repeated a committed utterance key")
@@ -685,15 +705,8 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                             and not task.repair_requested and not self.approvals
                             and tool_round + 1 < self.settings.values.get("task_limits", {}).get("rounds", 12)):
                         task.repair_requested = True
-                        messages.append({"role": "system", "content": (
-                            "The current action goal has not been verified. Continue from actual existing tool results; "
-                            "do not repeat successful writes, launches or submissions. Complete the missing outcomes "
-                            "or verify the requested target with read/observation tools, then emit a task report with "
-                            "real result evidence. If you cannot proceed, report blocked or needs_input with a precise reason. "
-                            "Already spoken sentences do not prove completion. Check exact fields and escaped newlines. "
-                            "Compare the actual values against the user's request; fix unmet outcomes rather than weakening "
-                            "the planned conditions. Unverified conditions: " + json.dumps(task.completion_feedback(), ensure_ascii=False)
-                            + ". Remaining speech sentences: " + str(self._speech_budget(audio_count)["remaining"]))})
+                        messages.append({"role": "system", "content": completion_feedback(
+                            task.completion_feedback(), self._speech_budget(audio_count)["remaining"])})
                         tool_schemas, tool_names = self._model_tools(messages)
                         streams.append(provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names))
                         continue
@@ -703,11 +716,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 for request in requests:
                     results.append(await self._read_tool(request))
                 # Keep native assistant tool calls adjacent to their results.
-                messages.insert(len(messages) - 1, {"role": "system", "content": (
-                    "Current speech_budget: " + json.dumps(self._speech_budget(audio_count))
-                    + ". This budget applies across all tool rounds and approvals in this task. "
-                    "Keep narration brief; continue required tools and task reports even when remaining is zero. "
-                    "Additional speech will be displayed as text without audio.")})
+                update_budget(messages, self._speech_budget(audio_count))
                 include_image = any(r.get("name") in {"capture_target", "windows.select", "desktop.step"} and "error" not in r for r in results)
                 if provider.used_native_tools:
                     native_ids = {call["call_id"] for call in provider.tool_calls}

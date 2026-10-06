@@ -22,7 +22,9 @@ from packages.protocol import validate_speech
 from services.agent.avatars import AvatarCatalog
 from services.agent.config import Settings
 from services.agent.context import PromptHistory, repository_message
-from services.agent.providers.model import CONTRACT, OpenAIProvider
+from services.agent.providers.model import OpenAIProvider
+from services.agent.prompts import PromptAssembler, tool_prompt
+from services.agent.tools.registry import ToolRegistry
 from services.agent.storage import ConversationStore
 from services.agent.tools.repository import RepositoryReader
 
@@ -32,9 +34,10 @@ QUESTIONS = ["从 README 怎么开始理解这个项目？只说一句简短日�
 
 
 async def run(cfg, rounds):
-    system = "\n".join([(ROOT / "characters/ayana/persona.md").read_text(encoding="utf-8"),
-                         (ROOT / "characters/ayana/agent-policy.md").read_text(encoding="utf-8"),
-                         CONTRACT, AvatarCatalog(ROOT).prompt(cfg.values.get("avatar_costume", "校服"))])
+    system = PromptAssembler(ROOT, AvatarCatalog(ROOT)).build(
+        full_access=cfg.values.get("full_access", False), costume=cfg.values.get("avatar_costume", "校服"),
+        tools=tool_prompt(ToolRegistry(), native_tools=cfg.values.get("native_tools", True),
+                          full_access=cfg.values.get("full_access", False))).system
     repo = RepositoryReader(str(ROOT)).inspect()
     report = {"model": cfg.values["model"], "rounds": rounds, "screenshots": False,
               "notes": "Small sequential sample; provider cache is asynchronous/best-effort. Shared system prefixes may already be warm.",

@@ -1,0 +1,8 @@
+{"type":"speech","key":"s1","speech_ja":"うん、ここにいるよ。","intent":"acknowledge","affect":"neutral","intensity":0.15,"expression":"休闲","pose":"crossed"}
+{"type":"speech","key":"s1","speech_ja":"まず、原因を一緒に確かめよう。","intent":"explain","affect":"neutral","intensity":0.3,"expression":"正经","pose":"crossed"}
+{"type":"speech","key":"s1","speech_ja":"そんなに無理してない？","intent":"caution","affect":"concerned","intensity":0.4,"expression":"担忧","pose":"crossed"}
+{"type":"speech","key":"s1","speech_ja":"もう、また夜更かししたの？","intent":"playful","affect":"concerned","intensity":0.3,"expression":"嘟哝","pose":"crossed"}
+{"type":"speech","key":"s1","speech_ja":"ふふ、うまくできたでしょ？","intent":"playful","affect":"pleased","intensity":0.4,"expression":"得意","pose":"crossed"}
+{"type":"speech","key":"s1","speech_ja":"そんなに褒められると、照れちゃうよ。","intent":"acknowledge","affect":"pleased","intensity":0.4,"expression":"脸红卖萌","pose":"crossed"}
+{"type":"speech","key":"s1","speech_ja":"べ、別に寂しかったわけじゃないよ。","intent":"playful","affect":"neutral","intensity":0.35,"expression":"掩饰","pose":"crossed"}
+{"type":"speech","key":"s1","speech_ja":"その案には賛成できないよ。","intent":"caution","affect":"neutral","intensity":0.4,"expression":"不同意","pose":"crossed"}

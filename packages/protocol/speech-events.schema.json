@@ -2,10 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Ayana model speech event",
   "type": "object",
-  "required": ["type", "speech_ja", "expression", "pose"],
+  "required": ["type", "key", "speech_ja", "expression", "pose"],
   "properties": {
     "type": {"const": "speech"},
-    "speech_ja": {"type": "string", "minLength": 1, "maxLength": 240},
+    "key": {"type": "string", "minLength": 1, "maxLength": 100},
+    "speech_ja": {"type": "string", "minLength": 1, "maxLength": 48},
     "display_zh": {"type": "string", "maxLength": 1200},
     "intent": {"enum": ["acknowledge", "explain", "encourage", "caution", "playful"]},
     "affect": {"enum": ["neutral", "pleased", "concerned", "surprised"]},

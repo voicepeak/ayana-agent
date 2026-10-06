@@ -31,7 +31,8 @@ async def test_failed_read_returns_to_model_and_ayana_explains_without_error_ban
             return sse_response([{"type": "tool", "name": "files.read", "arguments": {"path": "missing.txt"}}])
         result_message = next(message for message in payload["messages"] if "file_missing" in str(message.get("content")))
         assert '"audience": "assistant"' in result_message["content"]
-        return sse_response([{"type": "speech", "key": "s1", "speech_ja": "ファイルが見つからなかったよ。場所を確認してね。", "display_zh": "没有找到这个文件，需要确认一下它的位置。"},
+        return sse_response([{"type": "speech", "key": "s1", "speech_ja": "ファイルが見つからなかったよ。", "display_zh": "没有找到这个文件。"},
+                             {"type": "speech", "key": "s2", "speech_ja": "場所を確認してね。", "display_zh": "需要确认一下它的位置。"},
                              {"type": "task", "kind": "answer", "status": "blocked", "reason": "没有找到指定文件，需要确认路径"}])
     runtime = make_runtime(tmp_path, respond)
     try:
