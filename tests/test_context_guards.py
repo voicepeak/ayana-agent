@@ -30,6 +30,7 @@ async def test_cap_request_compresses_old_tool_evidence_within_a_turn(tmp_path):
                     {"role": "tool", "tool_call_id": "call-1", "content": "a" * 40000},
                     {"role": "tool", "tool_call_id": "call-2", "content": "b" * 40000}]
         before = len(json.dumps(messages, ensure_ascii=False))
+        runtime.prompt_history.max_chars = 20000
         runtime._cap_request(messages, prefix_length=1, reserve_chars=1000)
         after = len(json.dumps(messages, ensure_ascii=False))
         assert after < before

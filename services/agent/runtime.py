@@ -891,9 +891,11 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
         Only current-turn evidence after the latest user message is compressed;
         the fixed prefix and the live question are left untouched.
         """
-        if messages is None or not reserve_chars:
+        if messages is None:
             return messages
-        budget = self.prompt_history.max_chars - reserve_chars
+        # History assembly already reserved the fixed prefix. Subtracting it
+        # again compresses tool results that still fit the request ceiling.
+        budget = self.prompt_history.max_chars
         if budget <= 0:
             return messages
         def size():
