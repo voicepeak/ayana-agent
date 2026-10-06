@@ -6,6 +6,7 @@ import { verifyPortableIsolation } from './verify-portable.mjs';
 import './test-lifecycle.mjs';
 import './test-preferences.mjs';
 import './test-cinematic.mjs';
+import './test-companion-geometry.mjs';
 
 await verifyPortableIsolation();
 

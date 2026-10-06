@@ -10,8 +10,11 @@ import { build } from 'esbuild';
 const require = createRequire(import.meta.url);
 const main = await readFile(new URL('../electron/main.ts', import.meta.url), 'utf8');
 const compiled = await build({
-  stdin: { contents: main + '\nexport const lifecycleProbe = { restart: restartRuntime };', loader: 'ts',
-    resolveDir: fileURLToPath(new URL('..', import.meta.url)) },
+  stdin: { contents: main + `\nexport const lifecycleProbe = { restart: restartRuntime, deadWindows: () => {
+    const dead = { isDestroyed: () => true, get webContents() { throw new Error('Object has been destroyed'); } } as unknown as BrowserWindow;
+    chat = dead; settingsWindow = dead; designWindow = dead; highlight = dead; registerIpc();
+  } };`, loader: 'ts',
+    resolveDir: fileURLToPath(new URL('../electron', import.meta.url)) },
   bundle: true, platform: 'node', format: 'cjs', write: false, external: ['electron', 'ws'],
 });
 let connections = 0;
@@ -24,6 +27,7 @@ const electron = {
   app: { setName() {}, requestSingleInstanceLock: () => false, quit() {}, on() {},
     getPath: () => '/test-only', isPackaged: false },
   protocol: { registerSchemesAsPrivileged() {} },
+  ipcMain: Object.assign(new EventEmitter(), { handlers: new Map(), handle(name, handler) { this.handlers.set(name, handler); } }),
 };
 const fakeFs = { existsSync: () => false, mkdirSync() {}, appendFileSync() {} };
 const fakeNet = { createServer: () => ({ once() {},
@@ -49,3 +53,8 @@ assert.equal(connections, 1, 'Restart must initiate a connection to the new back
 await mod.exports.lifecycleProbe.restart();
 assert.equal(connections, 2, 'A second restart must also connect.');
 console.log('PASS: Backend restart creates a new authenticated connection on every restart.');
+mod.exports.lifecycleProbe.deadWindows();
+const event = { sender: { id: 19, isDestroyed: () => false } };
+for (const name of electron.ipcMain.eventNames()) assert.doesNotThrow(() => electron.ipcMain.emit(name, event, true));
+for (const handler of electron.ipcMain.handlers.values()) await handler(event);
+console.log('PASS: delayed IPC messages after all windows are destroyed never access dead native objects.');

@@ -68,7 +68,7 @@ class Settings:
             raise ValueError("volume must be between 0 and 1")
         if "companion_ui" in patch:
             design = patch["companion_ui"]
-            bounds = {"portrait_size": (220, 380), "frame_width": (380, 900), "font_size": (18, 26), "opacity": (0, 96)}
+            bounds = {"portrait_size": (220, 380), "frame_width": (380, 900), "frame_height": (320, 720), "font_size": (18, 26), "opacity": (0, 96)}
             if not isinstance(design, dict) or set(design) - {*bounds, "portrait_range", "show_subtitles", "show_japanese", "background_mode"}:
                 raise ValueError("Invalid companion design")
             for key, (low, high) in bounds.items():

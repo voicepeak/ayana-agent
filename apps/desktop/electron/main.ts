@@ -10,6 +10,8 @@ import { createServer } from 'node:net';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
+import defaults from '../../../config/default.json';
+import { clampCompanion, companionSize, companionDragBounds, inspectorBounds, type Bounds, type Point } from './companionGeometry';
 
 type Event = Record<string, unknown> & { type: string; protocol_version: number };
 const commands = new Set([
@@ -30,6 +32,7 @@ protocol.registerSchemesAsPrivileged([
 
 let chat: BrowserWindow | undefined;
 let settingsWindow: BrowserWindow | undefined;
+let designWindow: BrowserWindow | undefined;
 let highlight: BrowserWindow | undefined;
 let tray: Tray | undefined;
 let child: ChildProcess | undefined;
@@ -58,6 +61,67 @@ let companionMenuOpen = false;
 let companionPositionTimer: ReturnType<typeof setTimeout> | undefined;
 let companionSettings: Record<string, unknown> = {};
 let companionMode = 'teach';
+let designPreview = { ...defaults.companion_ui };
+let companionDrag: { origin: Bounds; cursor: Point; moved: boolean; timer: ReturnType<typeof setInterval> } | undefined;
+
+function storedDesign(settings: Record<string, unknown>) {
+  return { ...defaults.companion_ui, ...(settings.companion_ui as Partial<typeof designPreview> || {}) };
+}
+
+function persistCompanionPosition() {
+  if (!chat || chat.isDestroyed()) return;
+  if (companionPositionTimer) clearTimeout(companionPositionTimer);
+  try { writeFileSync(path.join(app.getPath('userData'), 'companion-position.json'), JSON.stringify({ version: 2, ...chat.getBounds() })); } catch { /* Position is cosmetic. */ }
+}
+
+function queueCompanionPosition() {
+  if (companionPositionTimer) clearTimeout(companionPositionTimer);
+  companionPositionTimer = setTimeout(persistCompanionPosition, 180);
+}
+
+function positionDesignWindow() {
+  if (!chat || chat.isDestroyed() || !designWindow || designWindow.isDestroyed() || !designWindow.isVisible()) return;
+  const card = chat.getBounds();
+  designWindow.setBounds(inspectorBounds(card, screen.getDisplayMatching(card).workArea));
+}
+
+function notifyDesignPreview() {
+  broadcast({ protocol_version: 1, type: 'desktop.design-preview', value: designPreview }, false);
+}
+
+function openDesign() {
+  if (!designWindow || !chat) return;
+  designWindow.setBounds(inspectorBounds(chat.getBounds(), screen.getDisplayMatching(chat.getBounds()).workArea));
+  designWindow.show(); designWindow.focus();
+  notifyDesignPreview();
+  broadcast({ protocol_version: 1, type: 'desktop.design-visibility', open: true }, false);
+}
+
+function closeDesign() {
+  designWindow?.hide();
+  broadcast({ protocol_version: 1, type: 'desktop.design-visibility', open: false }, false);
+}
+
+function stepCompanionDrag() {
+  if (!chat || chat.isDestroyed() || !companionDrag) return;
+  const cursor = screen.getCursorScreenPoint();
+  if (!companionDrag.moved && Math.hypot(cursor.x - companionDrag.cursor.x, cursor.y - companionDrag.cursor.y) < 4) return;
+  companionDrag.moved = true;
+  const bounds = companionDragBounds(companionDrag.origin, companionDrag.cursor, cursor, screen.getDisplayNearestPoint(cursor).workArea);
+  const current = chat.getBounds();
+  // setPosition round-trips the size through DIP on Windows and grows it at 175% DPI.
+  // Every step uses the same requested dimensions instead of the previous rounded size.
+  if (current.x !== bounds.x || current.y !== bounds.y) chat.setBounds(bounds);
+}
+
+function endCompanionDrag() {
+  if (!companionDrag) return;
+  stepCompanionDrag();
+  clearInterval(companionDrag.timer);
+  const moved = companionDrag.moved;
+  companionDrag = undefined;
+  if (moved) persistCompanionPosition();
+}
 
 function backendRoot(): string {
   return process.env.AYANA_REPOSITORY_ROOT
@@ -94,7 +158,7 @@ function broadcast(event: Event, remember = true) {
     const snapshots = new Set(['snapshot.ready', 'repository.inspected', 'settings.ready', 'history.ready', 'conversations.ready', 'conversation.changed', 'context.state']);
     recentEvents = recentEvents.filter((previous, index) => snapshots.has(previous.type) || index >= recentEvents.length - 160);
   }
-  for (const window of [chat, settingsWindow, highlight]) {
+  for (const window of [chat, settingsWindow, designWindow, highlight]) {
     if (window !== chat && event.type.startsWith('audio.')) continue;
     if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) {
       window.webContents.send('ayana:event', event);
@@ -120,6 +184,7 @@ function cancel() {
 }
 
 function hide() {
+  endCompanionDrag(); closeDesign();
   composerRequested = false;
   focusAfterCapture = false;
   summonPending = false;
@@ -183,6 +248,7 @@ function requestComposer() {
 }
 
 function openManagement(tab?: 'tasks' | 'history') {
+  closeDesign();
   // The transparent companion must not cover the management window's controls.
   chat?.setAlwaysOnTop(false);
   settingsWindow?.show(); settingsWindow?.focus();
@@ -197,6 +263,7 @@ function hideManagement() {
 function companionMenuItems(): Electron.MenuItemConstructorOptions[] {
   return [
     { label: '输入一句', click: requestComposer },
+    { label: '调整外观', click: openDesign },
     { label: '开始新话题', click: () => { requestComposer(); broadcast({ protocol_version: 1, type: 'desktop.new-topic' }, false); } },
     { label: `立即打断 · ${cancelShortcut}`, click: cancel },
     { type: 'separator' },
@@ -220,7 +287,7 @@ function windowHandle(window: BrowserWindow): number {
 function registerWindows() {
   runtimeSend({
     type: 'assistant.register',
-    hwnds: [chat, settingsWindow, highlight].filter((win): win is BrowserWindow => !!win && !win.isDestroyed()).map(windowHandle),
+    hwnds: [chat, settingsWindow, designWindow, highlight].filter((win): win is BrowserWindow => !!win && !win.isDestroyed()).map(windowHandle),
   });
 }
 
@@ -300,7 +367,11 @@ function receive(event: Event) {
   }
   if (event.type === 'settings.ready') {
     const settings = (event.settings ?? {}) as Record<string, unknown>;
+    const before = storedDesign(companionSettings);
+    const edits = Object.fromEntries(Object.entries(designPreview).filter(([key, value]) => value !== before[key as keyof typeof before]));
+    designPreview = { ...storedDesign(settings), ...edits };
     companionSettings = settings;
+    placeCompanion(); notifyDesignPreview();
     updateShortcuts(settings);
   }
   if (event.type === 'mode.ready') companionMode = event.mode === 'execute' ? 'execute' : 'teach';
@@ -446,13 +517,17 @@ async function stopRuntime(previous = child) {
   });
 }
 
+function windowId(window: BrowserWindow | undefined) {
+  return !quitting && window && !window.isDestroyed() && !window.webContents.isDestroyed() ? window.webContents.id : undefined;
+}
+
 function trustedSender(id: number) {
-  return [chat, settingsWindow, highlight].some(win => win && !win.isDestroyed() && win.webContents.id === id);
+  return [chat, settingsWindow, designWindow, highlight].some(win => windowId(win) === id);
 }
 
 function registerIpc() {
   ipcMain.handle('ayana:command', (event, value: unknown) => {
-    if (![chat?.webContents.id, settingsWindow?.webContents.id].includes(event.sender.id)) return { ok: false, error: '不允许此窗口发送控制命令。' };
+    if (![windowId(chat), windowId(settingsWindow), windowId(designWindow)].includes(event.sender.id)) return { ok: false, error: '不允许此窗口发送控制命令。' };
     if (!value || typeof value !== 'object' || Array.isArray(value)) return { ok: false, error: '命令格式无效。' };
     const command = value as Record<string, unknown>;
     if (!commands.has(String(command.type)) || JSON.stringify(command).length > 2_000_000) return { ok: false, error: '命令不在允许范围内。' };
@@ -463,7 +538,7 @@ function registerIpc() {
     return runtimeSend(command) ? { ok: true } : { ok: false, error: '本地服务未连接，请稍后重试。' };
   });
   ipcMain.on('ayana:playback', (event, value: unknown) => {
-    if (event.sender.id !== chat?.webContents.id || !value || typeof value !== 'object') return;
+    if (event.sender.id !== windowId(chat) || !value || typeof value !== 'object') return;
     const receipt = value as Event;
     if (receipt.protocol_version !== 1 || !playbackTypes.has(receipt.type)) return;
     if (typeof receipt.utterance_id !== 'string' || typeof receipt.played_samples !== 'number') return;
@@ -473,24 +548,41 @@ function registerIpc() {
   ipcMain.handle('ayana:summon', (event) => trustedSender(event.sender.id) ? summon() : undefined);
   ipcMain.handle('ayana:hide', (event) => trustedSender(event.sender.id) ? hide() : undefined);
   ipcMain.on('ayana:companion-interactive', (event, interactive: unknown) => {
-    if (event.sender.id !== chat?.webContents.id || typeof interactive !== 'boolean' || companionMenuOpen) return;
+    if (!chat || event.sender.id !== windowId(chat) || typeof interactive !== 'boolean' || companionMenuOpen || companionDrag) return;
     chat.setIgnoreMouseEvents(!interactive, { forward: true });
   });
   ipcMain.on('ayana:companion-move', (event, dx: unknown, dy: unknown) => {
-    if (event.sender.id !== chat?.webContents.id || typeof dx !== 'number' || typeof dy !== 'number'
+    if (!chat || event.sender.id !== windowId(chat) || typeof dx !== 'number' || typeof dy !== 'number'
       || !Number.isFinite(dx) || !Number.isFinite(dy) || Math.abs(dx) > 2000 || Math.abs(dy) > 2000) return;
     const bounds = chat.getBounds();
-    const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
-    const x = Math.round(Math.max(workArea.x, Math.min(workArea.x + workArea.width - bounds.width, bounds.x + dx)));
-    const y = Math.round(Math.max(workArea.y, Math.min(workArea.y + workArea.height - bounds.height, bounds.y + dy)));
-    chat.setPosition(x, y);
-    if (companionPositionTimer) clearTimeout(companionPositionTimer);
-    companionPositionTimer = setTimeout(() => {
-      try { writeFileSync(path.join(app.getPath('userData'), 'companion-position.json'), JSON.stringify({ x, y })); } catch { /* Position is cosmetic. */ }
-    }, 300);
+    const next = { ...bounds, x: bounds.x + dx, y: bounds.y + dy };
+    const placed = clampCompanion(next, screen.getDisplayMatching(next).workArea);
+    chat.setBounds({ ...placed, ...companionSize(designPreview, screen.getDisplayMatching(placed).workArea) });
+    queueCompanionPosition();
+  });
+  ipcMain.on('ayana:companion-drag-start', event => {
+    if (event.sender.id !== windowId(chat) || !chat || companionDrag) return;
+    chat.setIgnoreMouseEvents(false);
+    const origin = chat.getBounds();
+    companionDrag = { origin: { ...origin, ...companionSize(designPreview, screen.getDisplayMatching(origin).workArea) }, cursor: screen.getCursorScreenPoint(), moved: false, timer: setInterval(stepCompanionDrag, 16) };
+  });
+  ipcMain.on('ayana:companion-drag-end', event => { if (event.sender.id === windowId(chat)) endCompanionDrag(); });
+  ipcMain.handle('ayana:design-open', event => { if (event.sender.id === windowId(chat)) openDesign(); });
+  ipcMain.handle('ayana:design-close', event => { if ([windowId(chat), windowId(designWindow)].includes(event.sender.id)) closeDesign(); });
+  ipcMain.on('ayana:design-preview', (event, value: unknown) => {
+    if (event.sender.id !== windowId(designWindow) || !value || typeof value !== 'object' || Array.isArray(value)) return;
+    const next = value as Record<string, unknown>;
+    const bounds = { portrait_size: [220, 380], frame_width: [380, 900], frame_height: [320, 720], font_size: [18, 26], opacity: [0, 96] };
+    if (Object.keys(next).some(key => !(key in defaults.companion_ui))) return;
+    if (Object.entries(bounds).some(([key, [low, high]]) => key in next && (!Number.isInteger(next[key]) || Number(next[key]) < low || Number(next[key]) > high))) return;
+    if (['show_subtitles', 'show_japanese'].some(key => key in next && typeof next[key] !== 'boolean')) return;
+    if ('portrait_range' in next && !['half', 'full'].includes(String(next.portrait_range))) return;
+    if ('background_mode' in next && !['transparent', 'frosted', 'image'].includes(String(next.background_mode))) return;
+    designPreview = { ...designPreview, ...next };
+    placeCompanion(); notifyDesignPreview();
   });
   ipcMain.handle('ayana:companion-menu', event => {
-    if (event.sender.id !== chat?.webContents.id || companionMenuOpen) return;
+    if (!chat || event.sender.id !== windowId(chat) || companionMenuOpen) return;
     companionMenuOpen = true; chat.setIgnoreMouseEvents(false);
     Menu.buildFromTemplate(companionMenuItems()).popup({ window: chat, callback: () => { companionMenuOpen = false; } });
   });
@@ -499,8 +591,8 @@ function registerIpc() {
     openManagement(tab === 'tasks' || tab === 'history' ? tab : undefined);
   });
   ipcMain.handle('ayana:note-background', async event => {
-    if (event.sender.id !== chat?.webContents.id) return { ok: false };
-    const result = await dialog.showOpenDialog(chat!, { title: '选择便签背景', properties: ['openFile'], filters: [{ name: '背景图片', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
+    if (![windowId(chat), windowId(designWindow)].includes(event.sender.id)) return { ok: false };
+    const result = await dialog.showOpenDialog(event.sender.id === windowId(designWindow) ? designWindow! : chat!, { title: '选择便签背景', properties: ['openFile'], filters: [{ name: '背景图片', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
     if (result.canceled || !result.filePaths[0]) return { ok: false };
     try {
       const bytes = readFileSync(result.filePaths[0]);
@@ -511,40 +603,42 @@ function registerIpc() {
       const scale = Math.min(1, 1280 / Math.max(width, height));
       if (scale < 1) image = image.resize({ width: Math.round(width * scale), height: Math.round(height * scale) });
       writeFileSync(path.join(app.getPath('userData'), 'companion-background.png'), image.toPNG());
+      broadcast({ protocol_version: 1, type: 'desktop.background-changed', revision: Date.now() }, false);
       return { ok: true };
     } catch { return { ok: false, error: '背景图片未保存，请重试。' }; }
   });
   ipcMain.handle('ayana:hide-settings', event => {
-    if (event.sender.id === settingsWindow?.webContents.id) hideManagement();
+    if (event.sender.id === windowId(settingsWindow)) hideManagement();
   });
   ipcMain.handle('ayana:choose-repository', async (event) => {
-    if (event.sender.id !== settingsWindow?.webContents.id) return null;
+    if (event.sender.id !== windowId(settingsWindow)) return null;
     const result = await dialog.showOpenDialog(settingsWindow!, { title: '选择仓库上下文', properties: ['openDirectory'] });
     return result.canceled ? null : result.filePaths[0] ?? null;
   });
   ipcMain.handle('ayana:choose-directory', async (event) => {
-    if (event.sender.id !== settingsWindow?.webContents.id) return null;
+    if (event.sender.id !== windowId(settingsWindow)) return null;
     const result = await dialog.showOpenDialog(settingsWindow!, { title: '选择 Ayana 可访问的文本目录', properties: ['openDirectory'] });
     return result.canceled ? null : result.filePaths[0] ?? null;
   });
-  ipcMain.handle('ayana:restart', (event) => event.sender.id === settingsWindow?.webContents.id ? restartRuntime() : undefined);
+  ipcMain.handle('ayana:restart', (event) => event.sender.id === windowId(settingsWindow) ? restartRuntime() : undefined);
   ipcMain.handle('ayana:state', (event) => {
     if (!trustedSender(event.sender.id)) return null;
-    return { connected: socket?.readyState === WebSocket.OPEN, service, version: app.getVersion(), repositoryRoot, events: recentEvents, composerRequested };
+    return { connected: socket?.readyState === WebSocket.OPEN, service, version: app.getVersion(), repositoryRoot, events: recentEvents, composerRequested, designPreview, designOpen: designWindow?.isVisible() === true };
   });
 }
 
-function createWindow(kind: 'chat' | 'settings' | 'highlight') {
+function createWindow(kind: 'chat' | 'settings' | 'design' | 'highlight') {
   const overlay = kind !== 'settings';
   const { workArea } = screen.getPrimaryDisplay();
   const window = new BrowserWindow({
-    width: kind === 'settings' ? Math.min(1160, workArea.width - 40) : kind === 'chat' ? Math.min(1040, workArea.width) : 300,
-    height: kind === 'settings' ? Math.min(830, workArea.height - 40) : kind === 'chat' ? Math.min(720, workArea.height) : 140,
-    minWidth: kind === 'settings' ? 820 : kind === 'chat' ? 320 : 40,
+    width: kind === 'settings' ? Math.min(1160, workArea.width - 40) : kind === 'chat' ? companionSize(designPreview, workArea).width : kind === 'design' ? 336 : 300,
+    height: kind === 'settings' ? Math.min(830, workArea.height - 40) : kind === 'chat' ? companionSize(designPreview, workArea).height : kind === 'design' ? Math.min(600, workArea.height - 32) : 140,
+    minWidth: kind === 'settings' ? 820 : kind === 'chat' ? 240 : 40,
     minHeight: kind === 'settings' ? 480 : undefined,
     show: false, frame: !overlay, transparent: overlay, backgroundColor: overlay ? '#00000000' : '#f5f7fb',
     alwaysOnTop: overlay, focusable: kind !== 'highlight', skipTaskbar: overlay,
-    title: kind === 'settings' ? 'Ayana · 设置与管理' : 'Ayana', autoHideMenuBar: true, hasShadow: !overlay,
+    title: kind === 'settings' ? 'Ayana · 设置与管理' : kind === 'design' ? '彩名 · 外观' : 'Ayana', autoHideMenuBar: true, hasShadow: !overlay,
+    resizable: kind === 'settings',
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   if (overlay) {
@@ -566,30 +660,47 @@ function createWindow(kind: 'chat' | 'settings' | 'highlight') {
   }
   if (kind === 'chat') {
     window.on('close', event => { if (!quitting) { event.preventDefault(); hide(); } });
+    window.on('move', () => { queueCompanionPosition(); positionDesignWindow(); });
   }
+  if (kind === 'design') window.on('close', event => { if (!quitting) { event.preventDefault(); closeDesign(); } });
   if (kind === 'settings') window.on('close', event => { if (!quitting) { event.preventDefault(); hideManagement(); } });
+  window.on('closed', () => {
+    if (window === chat) { endCompanionDrag(); chat = undefined; }
+    if (window === settingsWindow) settingsWindow = undefined;
+    if (window === designWindow) designWindow = undefined;
+    if (window === highlight) highlight = undefined;
+  });
   return window;
 }
 
-function placeCompanion() {
-  let saved: { x: number; y: number } | undefined;
-  try { const value = JSON.parse(readFileSync(path.join(app.getPath('userData'), 'companion-position.json'), 'utf8')); if (Number.isFinite(value.x) && Number.isFinite(value.y)) saved = value; } catch { /* First launch. */ }
-  const { workArea } = saved ? screen.getDisplayNearestPoint(saved) : screen.getPrimaryDisplay();
-  const height = Math.min(720, workArea.height);
-  const width = Math.min(1040, workArea.width);
-  const x = Math.max(workArea.x, Math.min(workArea.x + workArea.width - width, saved?.x ?? workArea.x + workArea.width - width));
-  const y = Math.max(workArea.y, Math.min(workArea.y + workArea.height - height, saved?.y ?? workArea.y + workArea.height - height));
-  chat?.setBounds({ x, y, width, height });
+function placeCompanion(initial = false) {
+  if (!chat || chat.isDestroyed() || companionDrag) return;
+  let current = initial ? undefined : chat.getBounds();
+  if (initial) {
+    try {
+      const saved = JSON.parse(readFileSync(path.join(app.getPath('userData'), 'companion-position.json'), 'utf8'));
+      // Old positions describe the large invisible canvas; migrate away from its bottom lock.
+      if (saved.version === 2 && Number.isFinite(saved.x) && Number.isFinite(saved.y)) current = { ...chat.getBounds(), x: saved.x, y: saved.y };
+    } catch { /* First launch. */ }
+  }
+  const { workArea } = current ? screen.getDisplayMatching(current) : screen.getPrimaryDisplay();
+  const size = companionSize(designPreview, workArea);
+  const next = clampCompanion({ ...size, x: current?.x ?? workArea.x + workArea.width - size.width - 24,
+    y: current?.y ?? workArea.y + (workArea.height - size.height) / 2 }, workArea);
+  if (initial || !current || Math.abs(current.width - next.width) > 2 || Math.abs(current.height - next.height) > 2 || current.x !== next.x || current.y !== next.y) {
+    chat.setBounds(next);
+    positionDesignWindow();
+  }
 }
 
 async function ready() {
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     const mediaTypes = (details as { mediaTypes?: string[] }).mediaTypes;
-    callback(webContents.id === chat?.webContents.id && permission === 'media'
+    callback(webContents.id === windowId(chat) && permission === 'media'
       && Array.isArray(mediaTypes) && mediaTypes.every(type => type === 'audio'));
   });
   session.defaultSession.setPermissionCheckHandler((webContents, permission) =>
-    webContents?.id === chat?.webContents.id && permission === 'media');
+    webContents?.id === windowId(chat) && permission === 'media');
   protocol.handle('ayana-asset', async request => {
     const id = new URL(request.url).hostname;
     if (!/^[a-z0-9_-]{1,80}$/i.test(id) || !port || !token) return new Response(null, { status: 404 });
@@ -605,9 +716,11 @@ async function ready() {
   });
   chat = createWindow('chat');
   settingsWindow = createWindow('settings');
+  designWindow = createWindow('design');
   highlight = createWindow('highlight');
-  placeCompanion();
-  screen.on('display-metrics-changed', placeCompanion);
+  placeCompanion(true);
+  screen.on('display-metrics-changed', () => placeCompanion());
+  screen.on('display-removed', () => placeCompanion());
   // A small bundled bitmap is used so the tray remains available while offline.
   const iconPath = path.join(__dirname, '../dist/tray.png');
   const icon = existsSync(iconPath) ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty();
@@ -628,6 +741,7 @@ app.on('window-all-closed', () => { if (quitting) app.quit(); });
 app.on('before-quit', event => {
   event.preventDefault();
   quitting = true;
+  endCompanionDrag(); persistCompanionPosition();
   globalShortcut.unregisterAll();
   if (reconnectTimer) clearTimeout(reconnectTimer);
   if (highlightTimer) clearTimeout(highlightTimer);

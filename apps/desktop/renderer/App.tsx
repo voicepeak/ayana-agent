@@ -8,8 +8,9 @@ import { CinematicDialogue } from './CinematicDialogue';
 import { dialogueReadTime } from './cinematic';
 import { useCompanionPointer } from './companionPointer';
 import desktopPackage from '../package.json';
-import { useCompanionDesign, designStyle, DesignControls, type CompanionDesign } from './CompanionDesign';
+import { companionDesign, useCompanionDesign, designStyle, DesignControls, type CompanionDesign } from './CompanionDesign';
 import { savePreferences } from './preferences';
+import { useCompanionDrag } from './companionDrag';
 
 const taskLabels: Record<string, string> = { idle: '空闲', observing: '正在观察目标', thinking: '正在整理思路', acting: '正在执行这一步', failed: '需要留意', speaking: 'Ayana 正在说话' };
 
@@ -33,6 +34,7 @@ export default function App() {
   const [designOpen, setDesignOpen] = useState(false);
   const { draft: design, setDraft: setDesign, patch: designPatch } = useCompanionDesign(state.settings);
   const [designSaving, setDesignSaving] = useState(false);
+  const [costumeSaving, setCostumeSaving] = useState(false);
   const [designMessage, setDesignMessage] = useState('');
   const [captionVisible, setCaptionVisible] = useState(false);
   const [backgroundRevision, setBackgroundRevision] = useState(0);
@@ -45,7 +47,7 @@ export default function App() {
   const recordingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const portraitReveal = useRef<HTMLDivElement>(null);
-  const portraitDrag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const drag = useCompanionDrag(kind === 'chat');
   const targetDialog = useRef<HTMLDialogElement>(null);
   const current = state.speeches.find(speech => speech.id === state.current);
   const busy = state.task === 'thinking' || state.task === 'observing' || state.inputState === 'transcribing' || Boolean(current);
@@ -54,7 +56,29 @@ export default function App() {
   function openComposer() { setComposerOpen(true); textarea.current?.focus({ preventScroll: true }); }
   function changeDesign(patch: Partial<CompanionDesign>) {
     setDesign(value => ({ ...value, ...patch })); setDesignMessage('');
+    if (kind === 'design') bridge.previewDesign(patch);
   }
+  async function changeCostume(costume: string) {
+    setCostumeSaving(true); setDesignMessage('');
+    try { await savePreferences({ avatar_costume: costume }); setDesignMessage('服装已更换'); }
+    catch (error) { setDesignMessage(error instanceof Error ? error.message : '换装未完成，请重试。'); }
+    finally { setCostumeSaving(false); }
+  }
+  useEffect(() => {
+    if (kind !== 'chat' && kind !== 'design') return;
+    const off = bridge.onEvent(event => {
+      if (event.type === 'desktop.design-preview') setDesign(event.value as CompanionDesign);
+      if (event.type === 'desktop.design-visibility') setDesignOpen(event.open === true);
+      if (event.type === 'desktop.background-changed') setBackgroundRevision(Number(event.revision));
+    });
+    let active = true;
+    void bridge.getState().then(snapshot => {
+      if (!active) return;
+      if (snapshot.designPreview) setDesign(snapshot.designPreview as unknown as CompanionDesign);
+      setDesignOpen(snapshot.designOpen === true);
+    });
+    return () => { active = false; off(); };
+  }, [kind]);
   async function saveDesign() {
     if (designSaving || !designDirty) return;
     setDesignSaving(true); setDesignMessage('');
@@ -84,7 +108,7 @@ export default function App() {
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       event.preventDefault();
-      if (designOpen) { setDesignOpen(false); textarea.current?.focus({ preventScroll: true }); }
+      if (designOpen) { void bridge.closeDesign(); textarea.current?.focus({ preventScroll: true }); }
       else if (composerOpen) {
         discardRecording.current = true; endMicrophone(); setComposerOpen(false);
         companion.current?.querySelector<HTMLButtonElement>('.portrait-stage')?.focus({ preventScroll: true });
@@ -256,30 +280,16 @@ export default function App() {
   if (kind === 'highlight') return state.targetCue?.variant === 'summon'
     ? <div key={String(state.targetCue.cue_id)} className="target-aura" aria-label="Ayana 正在观察这个窗口"><i/><b/><em/><span/></div>
     : <div className="highlight-frame"><span>Ayana · 看这里</span></div>;
+  if (kind === 'design') return <DesignControls value={design} onChange={changeDesign} onSave={() => void saveDesign()} onClose={() => void bridge.closeDesign()} onBackground={() => void chooseBackground()} onUndo={() => changeDesign(companionDesign(state.settings))} costume={String(state.settings.avatar_costume || '校服')} onCostume={value => void changeCostume(value)} saving={designSaving || costumeSaving} dirty={designDirty} message={designMessage}/>;
   if (kind === 'chat') return <main ref={companion} className="companion-shell companion-framed" data-design-open={designOpen} style={designStyle(design)} onContextMenu={event => { event.preventDefault(); void bridge.openCompanionMenu(); }}>
-    {designOpen && <DesignControls value={design} onChange={changeDesign} onSave={() => void saveDesign()} onClose={() => setDesignOpen(false)} onBackground={() => void chooseBackground()} saving={designSaving} dirty={designDirty} message={designMessage}/>}
     <section className="companion-frame companion-note is-visible" data-background={design.background_mode} data-speaking={captionVisible} aria-label="彩名便签" data-companion-interactive>
     {design.background_mode === 'image' && <div className="note-background-image" style={{ backgroundImage: `url("ayana-background://custom/?v=${backgroundRevision}")` }} aria-hidden="true"/>}
-    <header className="companion-frame-heading"><div className="companion-signature"><i/><strong>彩名</strong><span>AYANA</span></div><div className="companion-frame-actions">
+    <header className="companion-frame-heading" title="拖动标题栏移动彩名" {...drag.handlers}><div className="companion-heading-start"><div className="companion-signature"><i/><strong>彩名</strong><span>AYANA</span></div><button className="companion-appearance-button" type="button" aria-label="打开设计控件" aria-expanded={designOpen} title="调整外观" onClick={() => { if (designOpen) void bridge.closeDesign(); else void bridge.openDesign(); }}><Icon name="settings" size={14}/><span>外观</span></button></div><span className="companion-drag-grip" aria-hidden="true"/><div className="companion-frame-actions">
       <button type="button" aria-label="输入回复" title="输入回复" onMouseDown={event => event.preventDefault()} onClick={openComposer}><Icon name="message" size={15}/></button>
-      <button type="button" aria-label="打开设计控件" aria-expanded={designOpen} title="设计控件" onClick={() => setDesignOpen(open => !open)}><Icon name="settings" size={15}/></button>
       <button type="button" aria-label="更多操作" title="话题、任务与设置" onClick={() => void bridge.openCompanionMenu()}>···</button>
       <button type="button" aria-label="隐藏彩名" title="隐藏彩名" onClick={() => void bridge.hide()}><Icon name="close" size={14}/></button>
     </div></header>
-    <button className="portrait-stage" data-range={design.portrait_range} type="button" aria-label="彩名：点击输入，拖动移动，右键操作" onClick={() => { const moved = portraitDrag.current?.moved; portraitDrag.current = null; if (!moved) openComposer(); }} onPointerDown={event => {
-      if (event.button !== 0) return;
-      portraitDrag.current = { x: event.screenX, y: event.screenY, moved: false };
-      event.currentTarget.setPointerCapture(event.pointerId);
-    }} onPointerMove={event => {
-      const drag = portraitDrag.current;
-      if (!drag || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
-      const dx = event.screenX - drag.x, dy = event.screenY - drag.y;
-      if (!drag.moved && Math.hypot(dx, dy) < 5) return;
-      drag.moved = true; drag.x = event.screenX; drag.y = event.screenY;
-      bridge.moveCompanion(dx, dy);
-    }} onPointerUp={event => {
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    }} onPointerCancel={() => { portraitDrag.current = null; }}>
+    <button className="portrait-stage" data-range={design.portrait_range} type="button" aria-label="彩名：点击输入，拖动移动，右键操作" onClick={() => { if (!drag.consumeClick()) openComposer(); }} {...drag.handlers}>
       <div className="portrait-reveal" ref={portraitReveal}>
       <Character key={String(state.connected)} expression={state.expression} motion={state.settings.sentence_motion !== false} />
       </div>

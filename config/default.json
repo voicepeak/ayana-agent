@@ -22,6 +22,6 @@
   "sentence_motion": true,
   "volume": 1,
   "subtitles": true,
-  "companion_ui": {"portrait_range": "half", "portrait_size": 320, "frame_width": 760, "font_size": 24, "opacity": 48, "show_subtitles": true, "show_japanese": false, "background_mode": "frosted"},
+  "companion_ui": {"portrait_range": "half", "portrait_size": 320, "frame_width": 760, "frame_height": 480, "font_size": 24, "opacity": 48, "show_subtitles": true, "show_japanese": false, "background_mode": "frosted"},
   "save_history": true
 }

@@ -8,10 +8,11 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_design_partial_update_preserves_other_design_and_voice_settings(tmp_path):
     settings = Settings(root=ROOT, data_root=tmp_path)
     settings.update({'voice': {'voice_mode': 'sovits', 'model_gpt': 'my-model'},
-                     'companion_ui': {'frame_width': 420, 'show_japanese': True}})
+                     'companion_ui': {'frame_width': 420, 'frame_height': 400, 'show_japanese': True}})
     settings.update({'companion_ui': {'font_size': 24, 'show_subtitles': False}})
     loaded = Settings(root=ROOT, data_root=tmp_path)
     assert loaded.values['companion_ui']['frame_width'] == 420
+    assert loaded.values['companion_ui']['frame_height'] == 400
     assert loaded.values['companion_ui']['show_japanese'] is True
     assert loaded.values['companion_ui']['font_size'] == 24
     assert loaded.values['companion_ui']['show_subtitles'] is False
