@@ -24,16 +24,21 @@ class Settings:
     def public(self):
         def clean(value):
             if isinstance(value, dict):
-                return {k: clean(v) for k, v in value.items() if not any(s in k.lower() for s in ("secret", "token", "api_key"))}
+                return {k: clean(v) for k, v in value.items()
+                        if (k == "model_max_tokens" and type(v) is int)
+                        or not any(s in k.lower() for s in ("secret", "token", "api_key"))}
             if isinstance(value, list):
                 return [clean(v) for v in value]
             return value
         return clean(self.values)
 
-    def update(self, patch: dict):
-        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "detailed_max_utterances", "avatar_costume", "sentence_motion", "volume", "task_limits", "model_max_tokens", "native_tools", "full_access", "search_proxy", "search_provider"}
+    def validate(self, patch: dict):
+        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "detailed_max_utterances", "avatar_costume", "sentence_motion", "volume", "task_limits", "model_max_tokens", "native_tools", "full_access", "search_proxy", "search_provider", "companion_ui"}
         if not isinstance(patch, dict) or set(patch) - allowed:
             raise ValueError("Unsupported settings field")
+        for key in ("send_screenshot", "subtitles", "save_history"):
+            if key in patch and type(patch[key]) is not bool:
+                raise ValueError(f"{key} must be boolean")
         if "native_tools" in patch and type(patch["native_tools"]) is not bool:
             raise ValueError("native_tools must be boolean")
         if "full_access" in patch and type(patch["full_access"]) is not bool:
@@ -50,7 +55,7 @@ class Settings:
                 if (proxy.scheme not in {"http", "https"} or proxy.hostname not in {"127.0.0.1", "localhost", "::1"}
                         or proxy.username or proxy.password or proxy.path not in {"", "/"}
                         or proxy.query or proxy.fragment or not proxy.port):
-                    raise ValueError("search_proxy must be a local HTTP/HTTPS proxy with a port")
+                    raise ValueError("代理需使用带端口的本机 HTTP/HTTPS 地址，例如 http://127.0.0.1:7892。")
         if "provider" in patch and patch["provider"] not in {"local", "openai"}:
             raise ValueError("Provider must be local or openai")
         if "avatar_costume" in patch:
@@ -61,8 +66,26 @@ class Settings:
             raise ValueError("sentence_motion must be boolean")
         if "volume" in patch and (type(patch["volume"]) not in {int, float} or not 0 <= patch["volume"] <= 1):
             raise ValueError("volume must be between 0 and 1")
+        if "companion_ui" in patch:
+            design = patch["companion_ui"]
+            bounds = {"portrait_size": (220, 380), "frame_width": (380, 900), "font_size": (18, 26), "opacity": (0, 96)}
+            if not isinstance(design, dict) or set(design) - {*bounds, "portrait_range", "show_subtitles", "show_japanese", "background_mode"}:
+                raise ValueError("Invalid companion design")
+            for key, (low, high) in bounds.items():
+                if key in design and (type(design[key]) is not int or not low <= design[key] <= high):
+                    raise ValueError(f"{key} out of range")
+            if "portrait_range" in design and (not isinstance(design["portrait_range"], str) or design["portrait_range"] not in {"half", "full"}):
+                raise ValueError("Invalid portrait range")
+            if "background_mode" in design and (not isinstance(design["background_mode"], str) or design["background_mode"] not in {"transparent", "frosted", "image"}):
+                raise ValueError("Invalid note background")
+            for key in ("show_subtitles", "show_japanese"):
+                if key in design and type(design[key]) is not bool:
+                    raise ValueError(f"{key} must be boolean")
+            patch = {**patch, "companion_ui": {**self.values.get("companion_ui", {}), **design}}
         if "base_url" in patch:
             from urllib.parse import urlparse
+            if not isinstance(patch["base_url"], str):
+                raise ValueError("Invalid API base URL")
             url = urlparse(patch["base_url"])
             if url.scheme not in {"http", "https"} or not url.netloc or url.username or url.password:
                 raise ValueError("Invalid API base URL")
@@ -71,6 +94,14 @@ class Settings:
         for key in ("hotkey", "cancel_hotkey", "model", "base_url"):
             if key in patch and (not isinstance(patch[key], str) or len(patch[key]) > 500):
                 raise ValueError(f"Invalid {key}")
+        for key in ("hotkey", "cancel_hotkey"):
+            if key in patch and not patch[key].strip():
+                raise ValueError(f"{key} must not be empty")
+        candidate = {**self.values, **patch}
+        if candidate.get("provider") == "openai" and any(key in patch for key in ("provider", "model")) and not candidate.get("model", "").strip():
+            raise ValueError("在线模型需要填写模型名称")
+        if any(key in patch for key in ("hotkey", "cancel_hotkey")) and candidate.get("hotkey", "").strip().casefold() == candidate.get("cancel_hotkey", "").strip().casefold():
+            raise ValueError("呼出和打断快捷键不能相同")
         for key, low, high in (("max_utterances", 1, 12), ("detailed_max_utterances", 12, 64), ("max_audio_ahead_ms", 2000, 15000)):
             if key in patch and (type(patch[key]) is not int or not low <= patch[key] <= high):
                 raise ValueError(f"{key} out of range")
@@ -87,12 +118,25 @@ class Settings:
         if "voice" in patch:
             if not isinstance(patch["voice"], dict):
                 raise ValueError("voice must be an object")
+            if "voice_mode" in patch["voice"] and patch["voice"]["voice_mode"] not in ("auto", "sovits", "system", "silent"):
+                raise ValueError("Invalid voice mode")
             patch = {**patch, "voice": {**self.values.get("voice", {}), **patch["voice"]}}
-        self.values.update(patch)
+        if "stt" in patch:
+            if not isinstance(patch["stt"], dict):
+                raise ValueError("stt must be an object")
+            language = patch["stt"].get("language")
+            if "language" in patch["stt"] and (not isinstance(language, str) or not language or len(language) > 16):
+                raise ValueError("Invalid recognition language")
+            patch = {**patch, "stt": {**self.values.get("stt", {}), **patch["stt"]}}
+        return patch
+
+    def update(self, patch: dict):
+        candidate = {**self.values, **self.validate(patch)}
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temp = self.path.with_suffix(".tmp")
-        temp.write_text(json.dumps(self.values, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp.write_text(json.dumps(candidate, ensure_ascii=False, indent=2), encoding="utf-8")
         temp.replace(self.path)
+        self.values = candidate
         return self.public()
 
     def key(self):

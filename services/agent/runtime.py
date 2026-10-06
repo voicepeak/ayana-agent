@@ -352,8 +352,11 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             await self._receipt(cmd)
         elif kind == "settings.get":
             await self.emit("settings.ready", settings=self.settings.public(), api_key_configured=bool(self.settings.key()))
+            await self.emit("service.state", service="tts", **self.tts.status)
+            await self._capabilities_snapshot()
         elif kind == "settings.update":
             patch = cmd.get("settings", {})
+            self.settings.validate(patch)
             await self.cancel("settings_changed")
             previous_costume = self.settings.values.get("avatar_costume", "校服")
             previous_voice = self.settings.values.get("voice", {})
@@ -381,8 +384,8 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 from services.tts.service import TtsService
                 self.tts = TtsService(self.settings.values["voice"])
                 self.start_task = asyncio.create_task(self._prepare_voice())
-            await self.emit("settings.ready", settings=self.settings.public(), api_key_configured=bool(self.settings.key()))
-            if "full_access" in patch:
+            await self.emit("settings.ready", settings=self.settings.public(), api_key_configured=bool(self.settings.key()), request_id=cmd.get("request_id"))
+            if any(key in patch for key in ("full_access", "search_provider", "search_proxy")):
                 await self._capabilities_snapshot()
             costume = self.settings.values.get("avatar_costume", "校服")
             if costume != previous_costume:

@@ -93,11 +93,14 @@ def create_app(token: str, settings=None, runtime=None):
                 if len(raw) > 2 * 1024 * 1024:
                     await ws.close(code=1009)
                     break
+                command = None
                 try:
                     import json
-                    await runtime.handle(json.loads(raw))
+                    command = json.loads(raw)
+                    await runtime.handle(command)
                 except Exception as e:
-                    await runtime.emit("error", source="command", message=str(e)[:500])
+                    request_id = command.get("request_id") if isinstance(command, dict) else None
+                    await runtime.emit("error", source="command", message=str(e)[:500], request_id=request_id)
         except WebSocketDisconnect:
             pass
         finally:

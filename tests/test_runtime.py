@@ -212,6 +212,35 @@ async def test_display_settings_do_not_restart_unchanged_voice_engine(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_invalid_settings_do_not_cancel_running_generation(tmp_path):
+    runtime = AgentRuntime(settings(tmp_path), desktop=Desktop(), tts=Tts())
+    generation = runtime.generation
+    try:
+        with pytest.raises(ValueError):
+            await runtime.handle({"type": "settings.update", "settings": {"volume": 2}})
+        assert runtime.generation == generation
+        assert runtime.tts.cancelled == []
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_save_ack_is_correlated_and_search_capability_is_refreshed(tmp_path):
+    runtime = AgentRuntime(settings(tmp_path), desktop=Desktop(), tts=Tts())
+    ws = Ws()
+    runtime.clients.add(ws)
+    try:
+        await runtime.handle({"type": "settings.update", "request_id": "settings-test", "settings": {"search_provider": "bing"}})
+        await asyncio.sleep(.02)
+        ack = next(e for e in ws.events if e["type"] == "settings.ready")
+        assert ack["request_id"] == "settings-test"
+        assert ack["settings"]["search_provider"] == "bing"
+        assert any(e["type"] == "capabilities.ready" and e["search_configured"] for e in ws.events)
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
 async def test_proposed_highlight_allowed_in_teach_mode_but_click_rejected(tmp_path):
     class ActionDesktop(Desktop):
         def execute(self, action, snapshot):
