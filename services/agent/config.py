@@ -68,16 +68,22 @@ class Settings:
             raise ValueError("volume must be between 0 and 1")
         if "companion_ui" in patch:
             design = patch["companion_ui"]
-            bounds = {"portrait_size": (220, 380), "frame_width": (380, 900), "frame_height": (320, 720), "font_size": (18, 26), "opacity": (0, 96)}
-            if not isinstance(design, dict) or set(design) - {*bounds, "portrait_range", "show_subtitles", "show_japanese", "background_mode"}:
+            bounds = {"portrait_size": (220, 380), "frame_width": (380, 900), "frame_height": (320, 720), "font_size": (18, 26), "opacity": (0, 100), "portrait_x": (-60, 60), "portrait_y": (-60, 60)}
+            if not isinstance(design, dict) or set(design) - {*bounds, "portrait_range", "show_subtitles", "show_japanese", "background_mode", "background_color", "portrait_side"}:
                 raise ValueError("Invalid companion design")
             for key, (low, high) in bounds.items():
                 if key in design and (type(design[key]) is not int or not low <= design[key] <= high):
                     raise ValueError(f"{key} out of range")
             if "portrait_range" in design and (not isinstance(design["portrait_range"], str) or design["portrait_range"] not in {"half", "full"}):
                 raise ValueError("Invalid portrait range")
-            if "background_mode" in design and (not isinstance(design["background_mode"], str) or design["background_mode"] not in {"transparent", "frosted", "image"}):
+            if "background_mode" in design and (not isinstance(design["background_mode"], str) or design["background_mode"] not in {"transparent", "frosted", "image", "minimal", "solid"}):
                 raise ValueError("Invalid note background")
+            if "background_color" in design:
+                import re
+                if not isinstance(design["background_color"], str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", design["background_color"]):
+                    raise ValueError("Invalid background color")
+            if "portrait_side" in design and design["portrait_side"] not in ("left", "right"):
+                raise ValueError("Invalid portrait side")
             for key in ("show_subtitles", "show_japanese"):
                 if key in design and type(design[key]) is not bool:
                     raise ValueError(f"{key} must be boolean")

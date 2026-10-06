@@ -20,10 +20,11 @@ export function companionDragBounds(origin: Bounds, start: Point, cursor: Point,
   return clampCompanion({ ...origin, x: origin.x + cursor.x - start.x, y: origin.y + cursor.y - start.y }, work);
 }
 
-export function inspectorBounds(card: Bounds, work: Bounds): Bounds {
+export function inspectorBounds(card: Bounds, work: Bounds, portraitSide: 'left' | 'right' = 'right'): Bounds {
   const width = Math.min(336, work.width - 24), height = Math.min(600, work.height - 32);
   const left = card.x - width - 10, right = card.x + card.width + 10;
   // The appearance button is at the left of the card's header.
-  const x = left >= work.x + 8 ? left : right + width <= work.x + work.width - 8 ? right : card.x + 12;
+  const x = left >= work.x + 8 ? left : right + width <= work.x + work.width - 8 ? right
+    : portraitSide === 'left' ? card.x + card.width - width - 12 : card.x + 12;
   return clampCompanion({ x, y: card.y + 12, width, height }, work);
 }

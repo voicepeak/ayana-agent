@@ -82,7 +82,7 @@ function queueCompanionPosition() {
 function positionDesignWindow() {
   if (!chat || chat.isDestroyed() || !designWindow || designWindow.isDestroyed() || !designWindow.isVisible()) return;
   const card = chat.getBounds();
-  designWindow.setBounds(inspectorBounds(card, screen.getDisplayMatching(card).workArea));
+  designWindow.setBounds(inspectorBounds(card, screen.getDisplayMatching(card).workArea, designPreview.portrait_side as 'left' | 'right'));
 }
 
 function notifyDesignPreview() {
@@ -91,7 +91,7 @@ function notifyDesignPreview() {
 
 function openDesign() {
   if (!designWindow || !chat) return;
-  designWindow.setBounds(inspectorBounds(chat.getBounds(), screen.getDisplayMatching(chat.getBounds()).workArea));
+  designWindow.setBounds(inspectorBounds(chat.getBounds(), screen.getDisplayMatching(chat.getBounds()).workArea, designPreview.portrait_side as 'left' | 'right'));
   designWindow.show(); designWindow.focus();
   notifyDesignPreview();
   broadcast({ protocol_version: 1, type: 'desktop.design-visibility', open: true }, false);
@@ -549,7 +549,8 @@ function registerIpc() {
   ipcMain.handle('ayana:hide', (event) => trustedSender(event.sender.id) ? hide() : undefined);
   ipcMain.on('ayana:companion-interactive', (event, interactive: unknown) => {
     if (!chat || event.sender.id !== windowId(chat) || typeof interactive !== 'boolean' || companionMenuOpen || companionDrag) return;
-    chat.setIgnoreMouseEvents(!interactive, { forward: true });
+    // Windows owns hit testing through the card's native region. Ignoring the whole
+    // window also ignores WM_NCHITTEST and prevents a system titlebar drag.
   });
   ipcMain.on('ayana:companion-move', (event, dx: unknown, dy: unknown) => {
     if (!chat || event.sender.id !== windowId(chat) || typeof dx !== 'number' || typeof dy !== 'number'
@@ -572,14 +573,18 @@ function registerIpc() {
   ipcMain.on('ayana:design-preview', (event, value: unknown) => {
     if (event.sender.id !== windowId(designWindow) || !value || typeof value !== 'object' || Array.isArray(value)) return;
     const next = value as Record<string, unknown>;
-    const bounds = { portrait_size: [220, 380], frame_width: [380, 900], frame_height: [320, 720], font_size: [18, 26], opacity: [0, 96] };
+    const bounds = { portrait_size: [220, 380], frame_width: [380, 900], frame_height: [320, 720], font_size: [18, 26], opacity: [0, 100], portrait_x: [-60, 60], portrait_y: [-60, 60] };
     if (Object.keys(next).some(key => !(key in defaults.companion_ui))) return;
     if (Object.entries(bounds).some(([key, [low, high]]) => key in next && (!Number.isInteger(next[key]) || Number(next[key]) < low || Number(next[key]) > high))) return;
     if (['show_subtitles', 'show_japanese'].some(key => key in next && typeof next[key] !== 'boolean')) return;
     if ('portrait_range' in next && !['half', 'full'].includes(String(next.portrait_range))) return;
-    if ('background_mode' in next && !['transparent', 'frosted', 'image'].includes(String(next.background_mode))) return;
+    if ('background_mode' in next && !['transparent', 'frosted', 'image', 'minimal', 'solid'].includes(String(next.background_mode))) return;
+    if ('background_color' in next && (typeof next.background_color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(next.background_color))) return;
+    if ('portrait_side' in next && !['left', 'right'].includes(String(next.portrait_side))) return;
     designPreview = { ...designPreview, ...next };
-    placeCompanion(); notifyDesignPreview();
+    placeCompanion();
+    if ('portrait_side' in next) positionDesignWindow();
+    notifyDesignPreview();
   });
   ipcMain.handle('ayana:companion-menu', event => {
     if (!chat || event.sender.id !== windowId(chat) || companionMenuOpen) return;
@@ -661,6 +666,13 @@ function createWindow(kind: 'chat' | 'settings' | 'design' | 'highlight') {
   if (kind === 'chat') {
     window.on('close', event => { if (!quitting) { event.preventDefault(); hide(); } });
     window.on('move', () => { queueCompanionPosition(); positionDesignWindow(); });
+    const shape = () => {
+      if (window.isDestroyed()) return;
+      const [width, height] = window.getSize();
+      window.setShape([{ x: 12, y: 12, width: Math.max(1, width - 24), height: Math.max(1, height - 24) }]);
+    };
+    window.on('resize', shape);
+    shape();
   }
   if (kind === 'design') window.on('close', event => { if (!quitting) { event.preventDefault(); closeDesign(); } });
   if (kind === 'settings') window.on('close', event => { if (!quitting) { event.preventDefault(); hideManagement(); } });

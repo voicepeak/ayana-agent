@@ -7,8 +7,6 @@ export function CinematicDialogue({ speech, translate, textOnly, show = true, sh
   const [columns, setColumns] = useState(14);
   const [originalColumns, setOriginalColumns] = useState(26);
   const [elapsed, setElapsed] = useState(0);
-  const [leaving, setLeaving] = useState(false);
-  const [hidden, setHidden] = useState(false);
   const [reduced, setReduced] = useState(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
   const text = speech ? (translate ? speech.zh || speech.ja : speech.ja) : '';
   const timed = textOnly || speech?.audioEnabled === false;
@@ -30,7 +28,7 @@ export function CinematicDialogue({ speech, translate, textOnly, show = true, sh
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
-    setElapsed(0); setLeaving(false); setHidden(false);
+    setElapsed(0);
     if (!text || !timed) return;
     const started = performance.now();
     const duration = dialogueRevealDuration(text);
@@ -41,22 +39,15 @@ export function CinematicDialogue({ speech, translate, textOnly, show = true, sh
     }, 45);
     return () => clearInterval(interval);
   }, [speech?.id, text, timed]);
-  const complete = Boolean(text) && (timed ? elapsed >= dialogueRevealDuration(text) : speech?.state === 'played');
-  useEffect(() => {
-    if (!complete) return;
-    const fade = setTimeout(() => setLeaving(true), 1900);
-    const clear = setTimeout(() => setHidden(true), reduced ? 1900 : 2320);
-    return () => { clearTimeout(fade); clearTimeout(clear); };
-  }, [complete, speech?.id, text, reduced]);
   const count = dialogueRevealCount(text, timed ? elapsed / dialogueRevealDuration(text) : speech?.state === 'played' ? 1 : (speech?.total ? speech.played / speech.total : 0));
   const pages = useMemo(() => dialoguePages(text, columns), [text, columns]);
   const page = dialoguePageAt(pages, count);
-  const visible = Boolean(show && speech && text && page && !hidden);
+  const visible = Boolean(show && speech && text && page);
   useEffect(() => { onVisibilityChange?.(visible); }, [visible, onVisibilityChange]);
   const original = showJapanese && translate && speech?.zh ? speech.ja : '';
   const originalCount = dialogueRevealCount(original, timed ? elapsed / dialogueRevealDuration(text) : speech?.state === 'played' ? 1 : (speech?.total ? speech.played / speech.total : 0));
   const originalPage = dialoguePageAt(dialoguePages(original, originalColumns), originalCount);
-  return <section ref={ref} className={`cinematic-dialogue ${leaving ? 'is-leaving' : ''}`} aria-label="彩名的台词" lang={translate && speech?.zh ? 'zh-CN' : 'ja'}>
+  return <section ref={ref} className="cinematic-dialogue" aria-label="彩名的台词" lang={translate && speech?.zh ? 'zh-CN' : 'ja'}>
     {visible && page && <>
       <span className="cinematic-accessible" aria-live="polite">{page.lines.map(line => line.map(glyph => glyph.value).join('')).join('\n')}</span>
       <div key={`${speech!.id}:${text}:${page.start}`} className="cinematic-shot" aria-hidden="true">

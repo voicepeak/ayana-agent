@@ -21,4 +21,6 @@ for (const work of [{ x: 0, y: 0, width: 1097, height: 666 }, { x: -1920, y: -20
 const dock = inspectorBounds({ x: 900, y: 200, width: 784, height: 504 }, { x: 0, y: 0, width: 1920, height: 1040 });
 assert.equal(dock.x, 554); assert.equal(dock.y, 212);
 const smallWork = { x: 0, y: 0, width: 1097, height: 666 }, smallCard = { x: 289, y: 80, width: 784, height: 504 };
+assert.equal(inspectorBounds(smallCard, smallWork, 'right').x, 301);
+assert.equal(inspectorBounds(smallCard, smallWork, 'left').x, 725, 'When space is tight, inspector opens opposite the portrait.');
 console.log('PASS: absolute native drag, reversal, small screens, negative monitor coordinates and adjacent inspector placement.');

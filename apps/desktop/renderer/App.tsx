@@ -4,11 +4,10 @@ import { bridge, useRuntime, nextTextSpeech } from './state';
 import { Settings, settingsSections, type SettingsSection } from './SettingsPanel';
 import { TaskPanel } from './TaskPanel';
 import { ConversationHistory } from './Conversations';
-import { CinematicDialogue } from './CinematicDialogue';
+import { CompanionWorkspace } from './CompanionWorkspace';
 import { dialogueReadTime } from './cinematic';
-import { useCompanionPointer } from './companionPointer';
 import desktopPackage from '../package.json';
-import { companionDesign, useCompanionDesign, designStyle, DesignControls, type CompanionDesign } from './CompanionDesign';
+import { companionDesign, useCompanionDesign, designStyle, designTone, DesignControls, type CompanionDesign } from './CompanionDesign';
 import { savePreferences } from './preferences';
 import { useCompanionDrag } from './companionDrag';
 
@@ -51,7 +50,6 @@ export default function App() {
   const targetDialog = useRef<HTMLDialogElement>(null);
   const current = state.speeches.find(speech => speech.id === state.current);
   const busy = state.task === 'thinking' || state.task === 'observing' || state.inputState === 'transcribing' || Boolean(current);
-  useCompanionPointer(companion, kind === 'chat');
 
   function openComposer() { setComposerOpen(true); textarea.current?.focus({ preventScroll: true }); }
   function changeDesign(patch: Partial<CompanionDesign>) {
@@ -282,19 +280,20 @@ export default function App() {
     : <div className="highlight-frame"><span>Ayana · 看这里</span></div>;
   if (kind === 'design') return <DesignControls value={design} onChange={changeDesign} onSave={() => void saveDesign()} onClose={() => void bridge.closeDesign()} onBackground={() => void chooseBackground()} onUndo={() => changeDesign(companionDesign(state.settings))} costume={String(state.settings.avatar_costume || '校服')} onCostume={value => void changeCostume(value)} saving={designSaving || costumeSaving} dirty={designDirty} message={designMessage}/>;
   if (kind === 'chat') return <main ref={companion} className="companion-shell companion-framed" data-design-open={designOpen} style={designStyle(design)} onContextMenu={event => { event.preventDefault(); void bridge.openCompanionMenu(); }}>
-    <section className="companion-frame companion-note is-visible" data-background={design.background_mode} data-speaking={captionVisible} aria-label="彩名便签" data-companion-interactive>
+    <section className="companion-frame companion-note is-visible" data-tone={designTone(design)} data-background={design.background_mode} data-portrait-side={design.portrait_side} data-speaking={captionVisible} aria-label="彩名便签" data-companion-interactive>
+    {['minimal', 'solid'].includes(design.background_mode) && <div className="note-surface" aria-hidden="true"/>}
     {design.background_mode === 'image' && <div className="note-background-image" style={{ backgroundImage: `url("ayana-background://custom/?v=${backgroundRevision}")` }} aria-hidden="true"/>}
-    <header className="companion-frame-heading" title="拖动标题栏移动彩名" {...drag.handlers}><div className="companion-heading-start"><div className="companion-signature"><i/><strong>彩名</strong><span>AYANA</span></div><button className="companion-appearance-button" type="button" aria-label="打开设计控件" aria-expanded={designOpen} title="调整外观" onClick={() => { if (designOpen) void bridge.closeDesign(); else void bridge.openDesign(); }}><Icon name="settings" size={14}/><span>外观</span></button></div><span className="companion-drag-grip" aria-hidden="true"/><div className="companion-frame-actions">
+    <header className="companion-frame-heading" title="系统标题栏：拖动移动彩名"><div className="companion-heading-start"><div className="companion-signature"><i/><strong>彩名</strong><span>AYANA</span></div><button className="companion-appearance-button" type="button" aria-label="打开设计控件" aria-expanded={designOpen} title="调整外观" onClick={() => { if (designOpen) void bridge.closeDesign(); else void bridge.openDesign(); }}><Icon name="settings" size={14}/><span>外观</span></button></div><span className="companion-title-drag-area" aria-hidden="true"/><div className="companion-frame-actions">
       <button type="button" aria-label="输入回复" title="输入回复" onMouseDown={event => event.preventDefault()} onClick={openComposer}><Icon name="message" size={15}/></button>
       <button type="button" aria-label="更多操作" title="话题、任务与设置" onClick={() => void bridge.openCompanionMenu()}>···</button>
       <button type="button" aria-label="隐藏彩名" title="隐藏彩名" onClick={() => void bridge.hide()}><Icon name="close" size={14}/></button>
     </div></header>
     <button className="portrait-stage" data-range={design.portrait_range} type="button" aria-label="彩名：点击输入，拖动移动，右键操作" onClick={() => { if (!drag.consumeClick()) openComposer(); }} {...drag.handlers}>
-      <div className="portrait-reveal" ref={portraitReveal}>
+      <div className="portrait-position"><div className="portrait-reveal" ref={portraitReveal}>
       <Character key={String(state.connected)} expression={state.expression} motion={state.settings.sentence_motion !== false} />
-      </div>
+      </div></div>
     </button>
-    <CinematicDialogue speech={presented} translate={state.settings.subtitles !== false} textOnly={textOnly} show={design.show_subtitles} showJapanese={design.show_japanese} onVisibilityChange={setCaptionVisible}/>
+    <CompanionWorkspace state={state} speech={presented} textOnly={textOnly} show={design.show_subtitles} showJapanese={design.show_japanese} onVisibilityChange={setCaptionVisible}/>
     <form className="floating-input" data-companion-interactive onSubmit={event => { event.preventDefault(); void ask(); }} onBlur={event => {
       if (!companion.current?.contains(event.relatedTarget as Node | null) && !recordRequested.current && state.inputState !== 'transcribing') setComposerOpen(false);
     }}>
