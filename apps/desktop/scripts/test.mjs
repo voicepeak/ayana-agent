@@ -9,6 +9,11 @@ import './test-cinematic.mjs';
 import './test-companion-geometry.mjs';
 import './test-portrait-geometry.mjs';
 import './test-caption-layout.mjs';
+import './test-caption-focus.mjs';
+import './test-caption-stack.mjs';
+import './test-dialogue-waiting.mjs';
+import './test-design-zoom.mjs';
+import './test-companion-palette.mjs';
 
 await verifyPortableIsolation();
 

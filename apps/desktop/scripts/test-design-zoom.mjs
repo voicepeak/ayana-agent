@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import { build } from 'esbuild';
+const compiled = await build({ entryPoints: ['renderer/designZoom.ts'], bundle: true, format: 'esm', write: false });
+const { wheelZoom } = await import('data:text/javascript;base64,' + Buffer.from(compiled.outputFiles[0].text).toString('base64'));
+assert(wheelZoom(320, -100, 0, 160, 640) > 320);
+assert(wheelZoom(320, 100, 0, 160, 640) < 320);
+assert.equal(wheelZoom(100, 120, 0, 100, 300), 100);
+assert.equal(wheelZoom(300, -120, 0, 100, 300), 300);
+assert.equal(wheelZoom(320, 1, 1, 160, 640), wheelZoom(320, 16, 0, 160, 640));
+assert.equal(wheelZoom(320, NaN, 0, 160, 640), 320);
+assert.equal(wheelZoom(320, 0, 0, 160, 640), 320);
+let scale = 100;
+for (let index = 0; index < 12; index++) scale = wheelZoom(scale, -120, 0, 100, 300);
+assert.equal(scale, 300);
+for (let index = 0; index < 12; index++) scale = wheelZoom(scale, 120, 0, 100, 300);
+assert.equal(scale, 100);
+console.log('PASS: portrait and image wheels normalize trackpad/mouse deltas and bound both scaling directions.');
