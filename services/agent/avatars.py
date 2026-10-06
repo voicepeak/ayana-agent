@@ -72,7 +72,7 @@ class AvatarCatalog:
             if speech.get("status") == "partial" and not speech.get("played_samples", 0):
                 continue
             item = self.mapping["assets"].get(speech.get("asset_id"), {})
-            if item.get("costume") != costume:
+            if not item.get("source_expression"):
                 continue
             result.append({"expression": item["source_expression"], "pose": item["pose"]})
             if len(result) == 3:

@@ -36,7 +36,7 @@ def test_diagnostics_distinguish_missing_invalid_and_explicit_choices():
     assert catalog.resolve(speech)["resolved_expression"] == "休闲"
 
 
-def test_continuity_ignores_unshown_cancelled_wrong_costume_and_zero_playback():
+def test_continuity_crosses_outfits_and_ignores_unshown_cancelled_zero_playback():
     catalog = AvatarCatalog(ROOT)
     def face(uid, expression, **kwargs):
         return {"utterance_id": uid, "asset_id": catalog.route({"expression": expression, "intent": "explain"}),
@@ -46,10 +46,10 @@ def test_continuity_ignores_unshown_cancelled_wrong_costume_and_zero_playback():
                 face("g", "委屈", status="partial", played_samples=0)]
     other = next(key for key, item in catalog.mapping["assets"].items() if item["costume"] != "校服")
     speeches.append({"utterance_id": "h", "asset_id": other, "displayed": True})
-    assert [face["expression"] for face in catalog.recent_context(speeches)] == ["卖萌", "得意", "脸红卖萌"]
+    assert [face["expression"] for face in catalog.recent_context(speeches)] == ["得意", "脸红卖萌", catalog.mapping["assets"][other]["source_expression"]]
     # A late receipt overrides the older persisted state for the same sentence.
     speeches.append(face("d", "脸红卖萌", status="partial", played_samples=0))
-    assert [face["expression"] for face in catalog.recent_context(speeches)] == ["担忧", "卖萌", "得意"]
+    assert [face["expression"] for face in catalog.recent_context(speeches)] == ["卖萌", "得意", catalog.mapping["assets"][other]["source_expression"]]
 
 
 def test_shown_expression_survives_restart_and_legacy_history(tmp_path):

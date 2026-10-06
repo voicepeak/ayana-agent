@@ -373,10 +373,9 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             validated = self.settings.validate(patch)
             # Presentation changes can be applied while a reply is playing.
             # Persist first: a failed write must not stop a task or voice.
-            presentation = {"companion_ui", "volume", "subtitles", "sentence_motion", "hotkey", "cancel_hotkey"}
+            presentation = {"companion_ui", "avatar_costume", "volume", "subtitles", "sentence_motion", "hotkey", "cancel_hotkey"}
             interrupt = any(key not in presentation and value != self.settings.values.get(key)
                             for key, value in validated.items())
-            previous_costume = self.settings.values.get("avatar_costume", "校服")
             previous_voice = self.settings.values.get("voice", {})
             previous_history = self.settings.values.get("save_history", True)
             self.settings.update(patch)
@@ -408,21 +407,6 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             await self.emit("settings.ready", settings=self.settings.public(), api_key_configured=bool(self.settings.key()), request_id=cmd.get("request_id"))
             if any(key in patch for key in ("full_access", "search_provider", "search_proxy")):
                 await self._capabilities_snapshot()
-            costume = self.settings.values.get("avatar_costume", "校服")
-            if costume != previous_costume:
-                # Commit a reply immediately; no model request or next user turn is needed.
-                self.turn_id = identifier("appearance")
-                speech = validate_speech({"speech_ja": "ふふ、着替えてみたけど、どうかな？", "intent": "playful",
-                                          "affect": "pleased", "intensity": .4,
-                                          "expression": "得意", "pose": "crossed"})
-                speech.update(self.avatars.resolve(speech, costume))
-                uid = identifier("u")
-                self.utterances[uid] = {"generation_id": self.generation,
-                                        "conversation_id": self.conversations.current_id, **speech}
-                await self.emit("task.state", state="thinking")
-                await self.emit("utterance.ready", utterance_id=uid, presentation="costume-change", **speech)
-                await self.emit("subtitle.ready", utterance_id=uid, display_zh="我要换上新衣服啦。嘿嘿，怎么样？", display_en="I'm changing into my new outfit. Hehe, how do I look?")
-                self.task = asyncio.create_task(self._costume_voice(uid, speech["speech_ja"], self.generation))
         elif kind == "history.get":
             await self._history_snapshot(cmd.get("conversation_id"), cmd.get("before"))
         elif kind == "subtitles.translate":
@@ -432,22 +416,6 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             self._queue_subtitle_translation(self.conversations.current_id, ids)
         else:
             raise ValueError(f"Unknown command: {kind}")
-
-    async def _costume_voice(self, uid, text, gen):
-        queue = asyncio.Queue(maxsize=3)
-        queue.put_nowait((uid, text))
-        queue.put_nowait(None)
-        try:
-            await self._speech_worker(queue, gen)
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            if gen == self.generation:
-                await self.emit("service.state", service="tts", state="failed", message=str(e)[:300])
-                await self.emit("error", source="tts", message="换装已保存，语音暂时不可用。")
-        finally:
-            if gen == self.generation:
-                await self.emit("task.state", state="idle")
 
     async def _receipt(self, cmd):
         uid = cmd.get("utterance_id")

@@ -128,25 +128,33 @@ const schoolAsset = Object.entries(catalog.assets).find(([, item]) => item.costu
 const [outfitAsset, outfit] = Object.entries(catalog.assets).find(([, item]) => item.costume !== '校服' && item.source_expression === '休闲' && item.pose === 'crossed');
 let wardrobe = reduceEvent(initialState, event('settings.ready', { settings: { avatar_costume: '校服' } }));
 assert.equal(wardrobe.expression, schoolAsset);
+wardrobe = reduceEvent(wardrobe, event('utterance.ready', { utterance_id: 'ongoing', speech_ja: '話を続けよう。', asset_id: schoolAsset }));
+wardrobe = reduceEvent(wardrobe, event('playback.started', { utterance_id: 'ongoing', total_samples: 100 }));
+const beforeOutfit = wardrobe;
 wardrobe = reduceEvent(wardrobe, event('settings.ready', { settings: { avatar_costume: outfit.costume } }));
-assert.equal(wardrobe.expression, schoolAsset); // wait for the outfit acknowledgment, independent of audio
-wardrobe = reduceEvent(wardrobe, event('utterance.ready', { utterance_id: 'wardrobe', speech_ja: '着替えるね。', asset_id: outfitAsset, presentation: 'costume-change' }));
-assert.equal(wardrobe.pendingCostume.assetId, outfitAsset);
-assert.equal(wardrobe.expression, outfitAsset); // voice may still be loading
-wardrobe = reduceEvent(wardrobe, event('playback.started', { utterance_id: 'wardrobe', total_samples: 100 }));
 assert.equal(wardrobe.expression, outfitAsset);
-assert.equal(wardrobe.pendingCostume, undefined);
-wardrobe = reduceEvent(wardrobe, event('utterance.ready', { utterance_id: 'wardrobe-back', speech_ja: '着替えるね。', asset_id: schoolAsset, presentation: 'costume-change' }));
-wardrobe = reduceEvent(wardrobe, event('generation.cancelled', { cancelled_generation_id: 7, generation_id: 8 }));
-assert.equal(wardrobe.expression, schoolAsset); // cancelling voice keeps the saved outfit
-assert.equal(wardrobe.pendingCostume, undefined);
-wardrobe = reduceEvent(wardrobe, event('utterance.ready', { utterance_id: 'stale-outfit', asset_id: outfitAsset, presentation: 'costume-change' }));
-assert.equal(wardrobe.pendingCostume, undefined);
-const silentOutfit = reduceEvent(reduceEvent(initialState, event('utterance.ready', { utterance_id: 'silent-outfit', speech_ja: '着替えるね。', asset_id: outfitAsset, presentation: 'costume-change' })), event('desktop.present', { utterance_id: 'silent-outfit' }));
-assert.equal(silentOutfit.expression, outfitAsset);
-assert.equal(silentOutfit.pendingCostume, undefined);
+assert.equal(wardrobe.generation, beforeOutfit.generation);
+assert.equal(wardrobe.current, 'ongoing');
+assert.equal(wardrobe.presented, 'ongoing');
+assert.equal(wardrobe.sentenceVersion, beforeOutfit.sentenceVersion);
+assert.equal(wardrobe.speeches.length, 1);
+// A queued sentence still contains its old catalog ID; presentation uses the current outfit.
+wardrobe = reduceEvent(wardrobe, event('utterance.ready', { utterance_id: 'queued', speech_ja: 'そうだね。', asset_id: schoolAsset }));
+wardrobe = reduceEvent(wardrobe, event('playback.started', { utterance_id: 'queued', total_samples: 100 }));
+assert.equal(wardrobe.expression, outfitAsset);
+wardrobe = reduceEvent(wardrobe, event('settings.ready', { settings: { avatar_costume: '校服' } }));
+assert.equal(wardrobe.expression, schoolAsset);
+assert.equal(wardrobe.current, 'queued');
 assert.equal(reduceEvent(initialState, event('settings.ready', { settings: { avatar_costume: outfit.costume } })).expression, outfitAsset);
-console.log('PASS: wardrobe acknowledgment presents saved outfit on playback/text, restores on startup, and rejects cancelled replies.');
+// Every catalog expression and pose must survive changing clothes in both directions.
+for (const [id, face] of Object.entries(catalog.assets).filter(([, face]) => face.costume === '校服')) {
+ const dressed = reduceEvent({ ...initialState, settingsLoaded: true, settings: { avatar_costume: '校服' }, expression: id }, event('settings.ready', { settings: { avatar_costume: outfit.costume } }));
+ const target = catalog.assets[dressed.expression];
+ assert.equal(target.costume, outfit.costume);
+ assert.equal(target.source_expression, face.source_expression);
+ if (Object.values(catalog.assets).some(item => item.costume === outfit.costume && item.source_expression === face.source_expression && item.pose === face.pose)) assert.equal(target.pose, face.pose);
+}
+console.log('PASS: changing clothes preserves expression tags, active playback and queued sentences without adding a speech.');
 
 let taskState = reduceEvent(initialState, event('task.updated', { task: { task_id: 'task-a', state: 'waiting_approval', goal: 'Edit' } }));
 taskState = reduceEvent(taskState, event('approval.required', { approval: { approval_id: 'approve-a', task_id: 'task-a', diff: '-old\n+new' } }));
