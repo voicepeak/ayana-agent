@@ -9,7 +9,7 @@ import { dialogueReadTime } from './cinematic';
 import desktopPackage from '../package.json';
 import { companionDesign, useCompanionDesign, designStyle, designTone, DesignControls, type CompanionDesign } from './CompanionDesign';
 import { savePreferences } from './preferences';
-import { useCompanionDrag } from './companionDrag';
+import { CompanionPortrait } from './CompanionPortrait';
 
 const taskLabels: Record<string, string> = { idle: '空闲', observing: '正在观察目标', thinking: '正在整理思路', acting: '正在执行这一步', failed: '需要留意', speaking: 'Ayana 正在说话' };
 
@@ -45,8 +45,6 @@ export default function App() {
   const discardRecording = useRef(false);
   const recordingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const textarea = useRef<HTMLTextAreaElement>(null);
-  const portraitReveal = useRef<HTMLDivElement>(null);
-  const drag = useCompanionDrag(kind === 'chat');
   const targetDialog = useRef<HTMLDialogElement>(null);
   const current = state.speeches.find(speech => speech.id === state.current);
   const busy = state.task === 'thinking' || state.task === 'observing' || state.inputState === 'transcribing' || Boolean(current);
@@ -54,7 +52,7 @@ export default function App() {
   function openComposer() { setComposerOpen(true); textarea.current?.focus({ preventScroll: true }); }
   function changeDesign(patch: Partial<CompanionDesign>) {
     setDesign(value => ({ ...value, ...patch })); setDesignMessage('');
-    if (kind === 'design') bridge.previewDesign(patch);
+    if (kind === 'design' || kind === 'chat') bridge.previewDesign(patch);
   }
   async function changeCostume(costume: string) {
     setCostumeSaving(true); setDesignMessage('');
@@ -138,7 +136,7 @@ export default function App() {
   useEffect(() => {
     if (kind !== 'chat' || !state.summonVersion || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     // Separate from Character's sentence dip, so the two transforms never fight.
-    const portrait = portraitReveal.current?.animate([
+    const portrait = companion.current?.querySelector<HTMLElement>('.portrait-reveal')?.animate([
       { transform: 'translateY(26px) scale(.98)' },
       { transform: 'translateY(0) scale(1)' },
     ], { duration: 480, easing: 'cubic-bezier(.16,1,.3,1)' });
@@ -288,11 +286,9 @@ export default function App() {
       <button type="button" aria-label="更多操作" title="话题、任务与设置" onClick={() => void bridge.openCompanionMenu()}>···</button>
       <button type="button" aria-label="隐藏彩名" title="隐藏彩名" onClick={() => void bridge.hide()}><Icon name="close" size={14}/></button>
     </div></header>
-    <button className="portrait-stage" data-range={design.portrait_range} type="button" aria-label="彩名：点击输入，拖动移动，右键操作" onClick={() => { if (!drag.consumeClick()) openComposer(); }} {...drag.handlers}>
-      <div className="portrait-position"><div className="portrait-reveal" ref={portraitReveal}>
-      <Character key={String(state.connected)} expression={state.expression} motion={state.settings.sentence_motion !== false} />
-      </div></div>
-    </button>
+    <CompanionPortrait design={design} expression={state.expression} motion={state.settings.sentence_motion !== false}
+      connected={state.connected} onChange={changeDesign} onClick={openComposer}
+      onCommit={patch => { void savePreferences({ companion_ui: patch }).catch(error => setLocalError(`立绘位置未保存：${String(error)}`)); }}/>
     <CompanionWorkspace state={state} speech={presented} textOnly={textOnly} show={design.show_subtitles} showJapanese={design.show_japanese} onVisibilityChange={setCaptionVisible}/>
     <form className="floating-input" data-companion-interactive onSubmit={event => { event.preventDefault(); void ask(); }} onBlur={event => {
       if (!companion.current?.contains(event.relatedTarget as Node | null) && !recordRequested.current && state.inputState !== 'transcribing') setComposerOpen(false);

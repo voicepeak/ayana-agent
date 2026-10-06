@@ -71,7 +71,7 @@ function storedDesign(settings: Record<string, unknown>) {
 function persistCompanionPosition() {
   if (!chat || chat.isDestroyed()) return;
   if (companionPositionTimer) clearTimeout(companionPositionTimer);
-  try { writeFileSync(path.join(app.getPath('userData'), 'companion-position.json'), JSON.stringify({ version: 2, ...chat.getBounds() })); } catch { /* Position is cosmetic. */ }
+  try { writeFileSync(path.join(app.getPath('userData'), 'companion-position.json'), JSON.stringify({ version: 3, ...chat.getBounds() })); } catch { /* Position is cosmetic. */ }
 }
 
 function queueCompanionPosition() {
@@ -558,22 +558,22 @@ function registerIpc() {
     const bounds = chat.getBounds();
     const next = { ...bounds, x: bounds.x + dx, y: bounds.y + dy };
     const placed = clampCompanion(next, screen.getDisplayMatching(next).workArea);
-    chat.setBounds({ ...placed, ...companionSize(designPreview, screen.getDisplayMatching(placed).workArea) });
+    chat.setBounds(placed);
     queueCompanionPosition();
   });
   ipcMain.on('ayana:companion-drag-start', event => {
     if (event.sender.id !== windowId(chat) || !chat || companionDrag) return;
     chat.setIgnoreMouseEvents(false);
     const origin = chat.getBounds();
-    companionDrag = { origin: { ...origin, ...companionSize(designPreview, screen.getDisplayMatching(origin).workArea) }, cursor: screen.getCursorScreenPoint(), moved: false, timer: setInterval(stepCompanionDrag, 16) };
+    companionDrag = { origin, cursor: screen.getCursorScreenPoint(), moved: false, timer: setInterval(stepCompanionDrag, 16) };
   });
   ipcMain.on('ayana:companion-drag-end', event => { if (event.sender.id === windowId(chat)) endCompanionDrag(); });
   ipcMain.handle('ayana:design-open', event => { if (event.sender.id === windowId(chat)) openDesign(); });
   ipcMain.handle('ayana:design-close', event => { if ([windowId(chat), windowId(designWindow)].includes(event.sender.id)) closeDesign(); });
   ipcMain.on('ayana:design-preview', (event, value: unknown) => {
-    if (event.sender.id !== windowId(designWindow) || !value || typeof value !== 'object' || Array.isArray(value)) return;
+    if (![windowId(designWindow), windowId(chat)].includes(event.sender.id) || !value || typeof value !== 'object' || Array.isArray(value)) return;
     const next = value as Record<string, unknown>;
-    const bounds = { portrait_size: [220, 380], frame_width: [380, 900], frame_height: [320, 720], font_size: [18, 26], opacity: [0, 100], portrait_x: [-60, 60], portrait_y: [-60, 60] };
+    const bounds = { portrait_size: [160, 640], frame_width: [380, 900], frame_height: [320, 720], font_size: [18, 26], opacity: [0, 100], portrait_x: [-4096, 4096], portrait_y: [-4096, 4096] };
     if (Object.keys(next).some(key => !(key in defaults.companion_ui))) return;
     if (Object.entries(bounds).some(([key, [low, high]]) => key in next && (!Number.isInteger(next[key]) || Number(next[key]) < low || Number(next[key]) > high))) return;
     if (['show_subtitles', 'show_japanese'].some(key => key in next && typeof next[key] !== 'boolean')) return;
@@ -638,12 +638,12 @@ function createWindow(kind: 'chat' | 'settings' | 'design' | 'highlight') {
   const window = new BrowserWindow({
     width: kind === 'settings' ? Math.min(1160, workArea.width - 40) : kind === 'chat' ? companionSize(designPreview, workArea).width : kind === 'design' ? 336 : 300,
     height: kind === 'settings' ? Math.min(830, workArea.height - 40) : kind === 'chat' ? companionSize(designPreview, workArea).height : kind === 'design' ? Math.min(600, workArea.height - 32) : 140,
-    minWidth: kind === 'settings' ? 820 : kind === 'chat' ? 240 : 40,
-    minHeight: kind === 'settings' ? 480 : undefined,
+    minWidth: kind === 'settings' ? 820 : kind === 'chat' ? Math.min(380, workArea.width - 32) : 40,
+    minHeight: kind === 'settings' ? 480 : kind === 'chat' ? Math.min(320, workArea.height - 32) : undefined,
     show: false, frame: !overlay, transparent: overlay, backgroundColor: overlay ? '#00000000' : '#f5f7fb',
     alwaysOnTop: overlay, focusable: kind !== 'highlight', skipTaskbar: overlay,
     title: kind === 'settings' ? 'Ayana · 设置与管理' : kind === 'design' ? '彩名 · 外观' : 'Ayana', autoHideMenuBar: true, hasShadow: !overlay,
-    resizable: kind === 'settings',
+    resizable: kind === 'settings' || kind === 'chat',
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   if (overlay) {
@@ -666,13 +666,8 @@ function createWindow(kind: 'chat' | 'settings' | 'design' | 'highlight') {
   if (kind === 'chat') {
     window.on('close', event => { if (!quitting) { event.preventDefault(); hide(); } });
     window.on('move', () => { queueCompanionPosition(); positionDesignWindow(); });
-    const shape = () => {
-      if (window.isDestroyed()) return;
-      const [width, height] = window.getSize();
-      window.setShape([{ x: 12, y: 12, width: Math.max(1, width - 24), height: Math.max(1, height - 24) }]);
-    };
-    window.on('resize', shape);
-    shape();
+    // Keep the native border intact: a cropped region removes Windows' resize hit targets.
+    window.on('resize', () => { queueCompanionPosition(); positionDesignWindow(); });
   }
   if (kind === 'design') window.on('close', event => { if (!quitting) { event.preventDefault(); closeDesign(); } });
   if (kind === 'settings') window.on('close', event => { if (!quitting) { event.preventDefault(); hideManagement(); } });
@@ -692,11 +687,18 @@ function placeCompanion(initial = false) {
     try {
       const saved = JSON.parse(readFileSync(path.join(app.getPath('userData'), 'companion-position.json'), 'utf8'));
       // Old positions describe the large invisible canvas; migrate away from its bottom lock.
-      if (saved.version === 2 && Number.isFinite(saved.x) && Number.isFinite(saved.y)) current = { ...chat.getBounds(), x: saved.x, y: saved.y };
+      if ([2, 3].includes(saved.version) && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+        current = { ...chat.getBounds(), x: saved.x, y: saved.y };
+        if (saved.version === 3 && Number.isFinite(saved.width) && saved.width >= 240 && Number.isFinite(saved.height) && saved.height >= 200) {
+          current.width = saved.width; current.height = saved.height;
+        }
+      }
     } catch { /* First launch. */ }
   }
   const { workArea } = current ? screen.getDisplayMatching(current) : screen.getPrimaryDisplay();
-  const size = companionSize(designPreview, workArea);
+  // Appearance preview and runtime snapshots must never undo a user's native resize.
+  const size = current ? { width: Math.min(current.width, workArea.width - 32), height: Math.min(current.height, workArea.height - 32) }
+    : companionSize(designPreview, workArea);
   const next = clampCompanion({ ...size, x: current?.x ?? workArea.x + workArea.width - size.width - 24,
     y: current?.y ?? workArea.y + (workArea.height - size.height) / 2 }, workArea);
   if (initial || !current || Math.abs(current.width - next.width) > 2 || Math.abs(current.height - next.height) > 2 || current.x !== next.x || current.y !== next.y) {

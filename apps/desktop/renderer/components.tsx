@@ -38,7 +38,7 @@ export function Icon({ name, size = 18 }: { name: string; size?: number }) {
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[name] || paths.sparkles}</svg>;
 }
 
-export function Character({ expression = 'neutral', className = '', motion = true }: { expression?: string; className?: string; motion?: boolean }) {
+export function Character({ expression = 'neutral', className = '', motion = true, onDimensions }: { expression?: string; className?: string; motion?: boolean; onDimensions?: (width: number, height: number) => void }) {
   const [loaded, setLoaded] = useState('');
   const [missing, setMissing] = useState(false);
   const previous = useRef<string | null>(null);
@@ -114,7 +114,7 @@ export function Character({ expression = 'neutral', className = '', motion = tru
     return () => animation?.cancel();
   }, [loaded, motion]);
   return <div ref={frame} className={cn('character-frame', className)}>
-    <div ref={figure} className="character-figure">{loaded && <img className="character" crossOrigin="anonymous" src={`ayana-asset://${loaded}/`} alt="Ayana 立绘" draggable={false} />}</div>
+    <div ref={figure} className="character-figure">{loaded && <img className="character" crossOrigin="anonymous" src={`ayana-asset://${loaded}/`} alt="Ayana 立绘" draggable={false} onLoad={event => onDimensions?.(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)} />}</div>
     {missing && <span className="asset-missing" role="status">新立绘加载失败，请检查素材后重试</span>}
     <div ref={shimmer} className="costume-shimmer" aria-hidden="true"><i/><i/><i/><i/><i/></div>
   </div>;
