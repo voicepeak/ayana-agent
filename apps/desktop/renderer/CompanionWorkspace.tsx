@@ -30,23 +30,18 @@ export function CompanionWorkspace({ state, speech, textOnly, show, showJapanese
   useEffect(() => {
     if (contextOpen && follow.current && list.current) list.current.scrollTop = list.current.scrollHeight;
   }, [entries, contextOpen]);
-  const lastQuestion = state.questions.at(-1)?.text || [...entries].reverse().find(item => item.role === 'user')?.text;
   function openContext() {
     setContextOpen(value => !value);
     if (!contextOpen && state.connected && cid) void bridge.send({ type: 'history.get' });
   }
   return <section className="companion-workspace" aria-label="对话与工作区" data-companion-interactive>
-    <header className="companion-workspace-heading"><div><i/><span>对话 / 工作区</span></div><button type="button" aria-label="查看上下文" aria-expanded={contextOpen} onClick={openContext}>上下文{entries.length > 0 && <small>{entries.length}</small>}</button></header>
-    <div className="companion-workspace-topic" title={state.conversation?.title}>{state.conversation?.title || '与彩名聊一聊'}<span>{state.task === 'thinking' ? '思考中' : state.task === 'acting' ? '工作中' : '当前话题'}</span></div>
     <div className="companion-live-dialogue" hidden={contextOpen}>
-      {lastQuestion && <p className="companion-last-question"><span>你</span>{lastQuestion}</p>}
       <CinematicDialogue speech={speech} translate={state.settings.subtitles !== false} textOnly={textOnly} show={show} showJapanese={showJapanese} onVisibilityChange={onVisibilityChange}/>
-      {!speech && <p className="companion-workspace-empty">从这里开始，对话会留在当前话题里。</p>}
     </div>
     <div className="companion-context" hidden={!contextOpen} ref={list} onScroll={event => {
       const node = event.currentTarget; follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 32;
     }}>
-      <div className="companion-context-materials"><strong>话题上下文</strong><p>{state.contextSummary || '记录本话题中的对话与工作材料。'}</p>
+      <div className="companion-context-materials"><strong className="companion-workspace-topic">{state.conversation?.title || '与彩名聊一聊'}</strong>{state.contextSummary && <p>{state.contextSummary}</p>}
         {(state.target || state.repository) && <p>{[state.target?.title, state.repository?.name].filter(Boolean).join(' · ')}</p>}
         <button type="button" onClick={() => void bridge.openSettings('tasks')}>查看任务与结果 ↗</button>
       </div>
@@ -57,5 +52,6 @@ export function CompanionWorkspace({ state, speech, textOnly, show, showJapanese
       {entries.map(item => <article key={item.id} className={`companion-context-message from-${item.role}`}><header><strong>{item.role === 'user' ? '你' : '彩名'}</strong>{['partial', 'cancelled'].includes(item.status) && <small>已打断</small>}</header><p>{item.text}</p></article>)}
       {!entries.length && <p className="companion-workspace-empty">这个话题还没有对话。</p>}
     </div>
+    <footer className="companion-workspace-heading"><span role="status">{state.task === 'thinking' ? '思考中…' : state.task === 'acting' ? '工作中…' : ''}</span><button type="button" aria-label="查看上下文" aria-expanded={contextOpen} title="回看当前话题的对话与工作上下文" onClick={openContext}>{contextOpen ? '返回台词' : '对话回看'}{!contextOpen && entries.length > 0 && <small>· {entries.length}</small>}</button></footer>
   </section>;
 }
