@@ -1,7 +1,7 @@
 {
   "hotkey": "CommandOrControl+Alt+A",
   "cancel_hotkey": "CommandOrControl+Alt+Space",
-  "watch_hotkey": "CommandOrControl+Alt+W",
+  "ambient_attention": true,
   "provider": "local",
   "base_url": "https://api.openai.com/v1",
   "model": "",
@@ -27,6 +27,8 @@
     "provider": "local",
     "model": "tiny"
   },
+  "character": "ayana",
+  "character_profiles": {},
   "avatar_root": "assets/ayana",
   "avatar_costume": "校服",
   "sentence_motion": true,

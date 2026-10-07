@@ -119,14 +119,16 @@ def stage(args):
     example = ROOT / "config/voice.example.json"
     if example.exists():
         shutil.copy2(example, config_root / example.name)
-    avatar_destination = backend_root / "assets/ayana"
-    avatar_destination.mkdir(parents=True)
-    mapping = json.loads((ROOT / "characters/ayana/avatar-map.json").read_text(encoding="utf-8"))
-    for filename in {item["file"] for item in mapping["assets"].values()}:
-        image = ROOT / "assets/ayana" / filename
-        if not image.is_file():
-            raise FileNotFoundError(f"Import character resources before packaging: {image}")
-        shutil.copy2(image, avatar_destination / image.name)
+    registry = json.loads((ROOT / "characters/registry.json").read_text(encoding="utf-8"))
+    for character, entry in registry["characters"].items():
+        avatar_destination = backend_root / entry["avatar_root"]
+        avatar_destination.mkdir(parents=True, exist_ok=True)
+        mapping = json.loads((ROOT / entry["map"]).read_text(encoding="utf-8"))
+        for filename in {item["file"] for item in mapping["assets"].values()}:
+            image = ROOT / entry["avatar_root"] / filename
+            if not image.is_file():
+                raise FileNotFoundError(f"Import character resources before packaging ({character}): {image}")
+            shutil.copy2(image, avatar_destination / image.name)
     model_source = ROOT / ".runtime/models/stt/tiny"
     stt_staged = not args.without_stt_model and (model_source / "model.bin").is_file()
     if stt_staged:

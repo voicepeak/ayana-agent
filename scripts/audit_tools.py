@@ -109,7 +109,7 @@ async def audit(options):
         fixture = output / "artifacts/fixture.txt"
         read = await probe("files.read", {"root_id": "output", "path": "fixture.txt"},
                            lambda r: r["content"] == fixture.read_text(encoding="utf-8") and bool(r["sha256"]))
-        await probe("files.list", {"root_id": "output", "limit": 10}, lambda r: any(Path(x["path"]).name == "fixture.txt" for x in r["entries"]))
+        await probe("files.find", {"root_id": "output", "limit": 10}, lambda r: any(Path(x["path"]).name == "fixture.txt" for x in r["entries"]))
         await probe("files.find", {"root_id": "output", "query": "fixture"}, lambda r: bool(r["matches"]))
         await probe("files.search", {"root_id": "output", "query": "unique-tool-audit-token"}, lambda r: bool(r["matches"]))
         edited = None
@@ -121,11 +121,9 @@ async def audit(options):
                         lambda r: fixture.read_text(encoding="utf-8") == read["content"])
         await probe("shell.run", {"command": "[IO.File]::WriteAllText('shell-proof.txt', 'shell verified'); Write-Output 'shell verified'", "cwd": str(output), "timeout_seconds": 10},
                     lambda r: r["exit_code"] == 0 and (output / "shell-proof.txt").read_text() == "shell verified")
-        apps = await probe("apps.search", {"query": "calculator", "limit": 5}, lambda r: bool(r), lambda r: {"matches": len(r), "names": [x["name"] for x in r]})
-        if apps:
-            await probe("apps.open", {"app_id": apps[0]["app_id"]}, lambda r: r["status"] in {"open_requested", "window_observed"},
-                        lambda r: {"status": r["status"], "window_count": len(r.get("windows", []))})
-        await probe("files.open", {"root_id": "output", "path": "fixture.txt"}, lambda r: r["status"] == "open_requested",
+        await probe("open", {"target": "calculator"}, lambda r: r["status"] in {"open_requested", "window_observed", "ambiguous"},
+                    lambda r: {"status": r["status"], "window_count": len(r.get("windows", [])), "candidates": len(r.get("candidates", []))})
+        await probe("open", {"root_id": "output", "path": "fixture.txt"}, lambda r: r["status"] == "open_requested",
                     lambda r: {"status": r["status"], "path": r["absolute_path"]})
 
         opened = threading.Event()
@@ -141,12 +139,12 @@ async def audit(options):
             def log_message(self, *args): pass
         server = ThreadingHTTPServer(("127.0.0.1", 0), Page)
         threading.Thread(target=server.serve_forever, daemon=True).start()
-        async def browser_open(**args):
-            result = await runtime._web_open(**args)
+        async def browser_open(target, root_id=None, app_id=None):
+            result = await runtime._open(target=target)
             result["page_requested"] = await asyncio.to_thread(opened.wait, 10)
             return result
-        runtime.registry.tools["web.open"].handler = browser_open
-        await probe("web.open", {"url": f"http://127.0.0.1:{server.server_port}/tool-audit"}, lambda r: r["page_requested"],
+        runtime.registry.tools["open"].handler = browser_open
+        await probe("open", {"target": f"http://127.0.0.1:{server.server_port}/tool-audit"}, lambda r: r["page_requested"],
                     lambda r: {"status": r["status"], "page_requested": r["page_requested"]})
         await asyncio.sleep(2)
 
@@ -171,11 +169,11 @@ async def audit(options):
         user32.SetWindowPos.restype = wintypes.BOOL
         if not user32.SetWindowPos(initial["hwnd"], wintypes.HWND(-1), 0, 0, 0, 0, 0x3):
             raise ctypes.WinError(ctypes.get_last_error())
-        windows = await probe("windows.list", {}, lambda r: any(x["process_id"] == demo.pid for x in r), lambda r: {"window_count": len(r), "owned_demo_present": any(x["process_id"] == demo.pid for x in r)})
+        windows = await probe("desktop.observe", {"scope": "list"}, lambda r: any(x["process_id"] == demo.pid for x in r["windows"]), lambda r: {"window_count": len(r["windows"]), "owned_demo_present": any(x["process_id"] == demo.pid for x in r["windows"])})
         if windows:
-            selected = next((x for x in windows if x["process_id"] == demo.pid), None)
+            selected = next((x for x in windows["windows"] if x["process_id"] == demo.pid), None)
             if selected:
-                await probe("windows.select", {"window_id": selected["window_id"]}, lambda r: r["target"]["hwnd"] == initial["hwnd"], lambda r: {"snapshot_id": r["snapshot_id"], "image_size_px": r["image_size_px"]})
+                await probe("desktop.observe", {"scope": "window", "window_id": selected["window_id"]}, lambda r: r["target"]["hwnd"] == initial["hwnd"], lambda r: {"snapshot_id": r["snapshot_id"], "image_size_px": r["image_size_px"]})
         if runtime.target:
             api = runtime.desktop._api
             if not api.focus(initial["hwnd"]):
@@ -190,8 +188,8 @@ async def audit(options):
                 await asyncio.sleep(.2)
             assert api.foreground() == initial["hwnd"], "Owned fixture could not acquire focus"
             await asyncio.sleep(.3)
-            await probe("capture_target", {}, lambda r: bool(r["snapshot_id"]), lambda r: {"snapshot_id": r["snapshot_id"], "image_size_px": r["image_size_px"]})
-            await probe("observe_controls", {}, summarize=lambda r: {"returned_type": type(r).__name__, "control_count": len(r.get("controls", [])) if isinstance(r, dict) else len(r)})
+            await probe("desktop.observe", {}, lambda r: bool(r["snapshot_id"]), lambda r: {"snapshot_id": r["snapshot_id"], "image_size_px": r["image_size_px"]})
+            await probe("desktop.observe", {"controls": True}, summarize=lambda r: {"returned_type": type(r).__name__, "control_count": len(r.get("controls", [])) if isinstance(r, dict) else 0})
             def point(name):
                 widget = state()["widgets"][name]
                 t = runtime.snapshot["transform"]

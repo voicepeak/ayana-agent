@@ -74,11 +74,11 @@ Application.Run(new Form { Text="Ayana Open Probe", Width=480, Height=300 }); } 
         else:
             agent.active_task = TaskRunner('Open and observe the owned application', {})
             agent.mode = 'execute'
-            found = await agent._dispatch_tool({'name': 'apps.search', 'arguments': {'query': 'Ayana Open Probe'}})
-            opened = await agent._dispatch_tool({'name': 'apps.open', 'arguments': {'app_id': found['result'][0]['app_id']}})
+            opened = await agent._dispatch_tool({'name': 'open', 'arguments': {'target': 'Ayana Open Probe'}})
             assert opened['result']['status'] == 'window_observed', opened
-            selected = await agent._dispatch_tool({'name': 'windows.select', 'arguments': {'window_id': opened['result']['windows'][0]['window_id']}})
-            assert 'error' not in selected, selected
+            selected = await agent._dispatch_tool({'name': 'desktop.observe', 'arguments': {
+                'scope': 'window', 'window_id': opened['result']['windows'][0]['window_id'], 'controls': True}})
+            assert 'error' not in selected and selected['result'].get('controls'), selected
             agent.active_task.transition('succeeded')
         windows = desktop.list_windows()
         report.update(window_observed=bool(windows), target_selected=bool(agent.target and any(w['hwnd'] == agent.target['hwnd'] for w in windows)),

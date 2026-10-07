@@ -5,7 +5,10 @@ param(
     [switch]$SkipNpm,
     [switch]$Package,
     [string]$AvatarRoot,
-    [string]$VoiceRoot
+    [string]$VoiceRoot,
+    [string]$SuAvatarRoot,
+    [string]$SuVoiceRoot,
+    [string]$BaseVoiceRoot
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
@@ -34,7 +37,10 @@ try {
     $resourceArguments = @('scripts/prepare_resources.py')
     if ($AvatarRoot) { $resourceArguments += @('--avatar-root', $AvatarRoot) }
     if ($VoiceRoot) { $resourceArguments += @('--voice-root', $VoiceRoot) }
-    if ($AvatarRoot -or $VoiceRoot) {
+    if ($SuAvatarRoot) { $resourceArguments += @('--su-avatar-root', $SuAvatarRoot) }
+    if ($SuVoiceRoot) { $resourceArguments += @('--su-voice-root', $SuVoiceRoot) }
+    if ($BaseVoiceRoot) { $resourceArguments += @('--base-voice-root', $BaseVoiceRoot) }
+    if ($AvatarRoot -or $VoiceRoot -or $SuAvatarRoot -or $SuVoiceRoot) {
         & $environmentPython @resourceArguments
         if ($LASTEXITCODE -ne 0) { throw 'Selected resource import failed' }
     }
