@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>音无彩名 · Ayana — Windows 个性化 Agent</title>
+<meta name="description" content="立绘、细宋体电影对白和紧凑输入收在一张可定制便签里；跳字跟随实际语音播放，语音可打断。能读网页、查资料、改文件、观察窗口的 Windows 个性化 Agent。">
+<meta name="color-scheme" content="dark">
+<link rel="canonical" href="https://voicepeak.github.io/ayana-agent/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="音无彩名 · Ayana — Windows 个性化 Agent">
+<meta property="og:description" content="立绘、声音与电影感对白，收在一张呼出即聊的便签里。">
+<meta property="og:url" content="https://voicepeak.github.io/ayana-agent/">
+<meta property="og:image" content="https://voicepeak.github.io/ayana-agent/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip-link" href="#main">跳到正文</a>
+
+<header class="nav" id="nav">
+  <div class="nav-inner">
+    <a class="brand" href="#top">
+      <span class="brand-seal" aria-hidden="true">彩</span>
+      <span class="brand-name">彩名 <em>AYANA</em></span>
+    </a>
+    <nav class="nav-links" aria-label="页面导航">
+      <a href="#features">特性</a>
+      <a href="#gallery">立绘</a>
+      <a href="#screens">界面</a>
+      <a href="#tools">工具</a>
+      <a href="#start">开始使用</a>
+      <a href="#releases">版本</a>
+    </nav>
+    <div class="nav-actions">
+      <a class="nav-ghost" href="https://github.com/voicepeak/ayana-agent" rel="noopener">GitHub</a>
+      <a class="nav-cta" href="https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.16" rel="noopener">下载 v0.3.16</a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero" id="top">
+  <div class="hero-glow" aria-hidden="true"></div>
+  <div class="hero-inner">
+    <div class="hero-copy reveal">
+      <p class="eyebrow">AYANA · PERSONAL AGENT</p>
+      <h1>音无彩名<span class="h1-sub">把屏幕前的事，一起看懂。</span></h1>
+      <p class="lede">
+        立绘、细宋体电影对白和紧凑输入收在一张可定制便签里，跳字跟随实际语音播放进度。
+        看屏幕、读网页、查资料、改文件——需要动手的事，她会先让你确认。
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.16" rel="noopener">下载 v0.3.16 · Windows x64</a>
+        <a class="btn btn-ghost" href="https://github.com/voicepeak/ayana-agent" rel="noopener">查看源码</a>
+      </div>
+      <ul class="keys" aria-label="快捷键">
+        <li><span class="kbd">Ctrl</span><span class="kbd">Alt</span><span class="kbd">A</span> 呼出便签</li>
+        <li><span class="kbd">Ctrl</span><span class="kbd">Alt</span><span class="kbd">Space</span> 立即打断</li>
+        <li><span class="kbd">Ctrl</span><span class="kbd">Alt</span><span class="kbd">W</span> 注视窗口</li>
+      </ul>
+    </div>
+
+    <div class="hero-stage reveal">
+      <div class="companion" data-theme="ink" id="companionMock">
+        <div class="companion-bar">
+          <div class="companion-title"><span class="title-mark" aria-hidden="true"></span>彩名 <em>AYANA</em></div>
+          <div class="companion-actions" aria-hidden="true"><i></i><i></i><i></i></div>
+        </div>
+        <div class="companion-body">
+          <div class="companion-dialogue" id="mockDialogue">
+            <p class="line muted" data-slot="0"></p>
+            <p class="line muted" data-slot="1"></p>
+            <p class="line active" data-slot="2" aria-live="polite"></p>
+          </div>
+          <img class="companion-portrait" id="mockPortrait" src="art/crossed-a0001.webp" alt="音无彩名立绘：休闲">
+        </div>
+        <div class="companion-input"><span class="placeholder">写下一句话…</span><span class="ellipsis" aria-hidden="true">···</span></div>
+        <div class="companion-themes" role="group" aria-label="便签主题">
+          <button type="button" class="theme-chip" data-theme="ink" aria-pressed="true"><i class="swatch swatch-ink"></i>夜墨</button>
+          <button type="button" class="theme-chip" data-theme="paper" aria-pressed="false"><i class="swatch swatch-paper"></i>纸笺</button>
+          <button type="button" class="theme-chip" data-theme="forest" aria-pressed="false"><i class="swatch swatch-forest"></i>林间</button>
+          <button type="button" class="theme-chip" data-theme="sea" aria-pressed="false"><i class="swatch swatch-sea"></i>暮海</button>
+        </div>
+      </div>
+      <p class="stage-note">真实界面还原：对白跟随语音跳字，四套主题点一下就能换。</p>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="features">
+  <div class="section-head reveal">
+    <p class="eyebrow">CAPABILITIES</p>
+    <h2>一张便签里的完整陪伴</h2>
+    <p class="section-lede">从呼出的那一刻起，立绘、声音、对白、输入和任务都在同一张便签里；设置与历史收在独立窗口。</p>
+  </div>
+  <div class="feature-grid">
+    <article class="card reveal">
+      <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M5 20c1.4-3.6 3.9-5 7-5s5.6 1.4 7 5"/></svg></div>
+      <h3>立绘与表情路由</h3>
+      <p>234 张原始透明 PNG，26 种表情、9 种服装与姿势组合。模型按每句语境选择表情，路由器验证并限制在所选服装内。</p>
+    </article>
+    <article class="card reveal">
+      <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8h10M4 12h16M4 16h7"/></svg></div>
+      <h3>电影感对白</h3>
+      <p>细宋体 Light、每段最多两行，跳字跟随 AudioWorklet 实际消费的音频采样；标点保留停顿，句子完成后再停留淡出。</p>
+    </article>
+    <article class="card reveal">
+      <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16"/></svg></div>
+      <h3>四套主题 · 自定义</h3>
+      <p>夜墨、纸笺、林间、暮海四套主题，另有透明、磨砂或自选图片背景；便签宽度、立绘尺寸与字幕字号都可预览后保存。</p>
+    </article>
+    <article class="card reveal">
+      <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 12h3l2-6 3 12 3-9 2 3h5"/></svg></div>
+      <h3>日语 Ayana 音色</h3>
+      <p>GPT-SoVITS 常驻独立推理进程，显式加载权重；Ctrl+Alt+Space 立即打断，关闭呼出面板也会停止输出。</p>
+    </article>
+    <article class="card reveal">
+      <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="9" y="4" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></div>
+      <h3>语音输入</h3>
+      <p>按住麦克风说话、松开识别，结果先填进输入框由你修改再发送。Whisper tiny 对技术词可能误识别，不会直接替你提交。</p>
+    </article>
+    <article class="card reveal">
+      <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 7V4M15 7V4M7 7h10v5a5 5 0 0 1-10 0zM12 17v4"/></svg></div>
+      <h3>原生工具调用</h3>
+      <p>兼容 OpenAI 接口（如 DeepSeek deepseek-flash），默认原生 function calling：携带 tools schema、流式解析 delta.tool_calls、以 role:"tool" 回传真实结果。</p>
+    </article>
+    <article class="card reveal">
+      <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.4-2.9 7.4-7 9-4.1-1.6-7-4.6-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
+      <h3>权限与隐私</h3>
+      <p>模型密钥经 Windows DPAPI 加密保存在本机，界面与日志不接收；Full access 默认关闭，开启的写操作直接应用并保留备份。</p>
+    </article>
+    <article class="card reveal">
+      <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6h16v9H9l-5 4z"/><path d="M8 10h8"/></svg></div>
+      <h3>对话与记忆</h3>
+      <p>聊天窗口顶部直接切换对话；长对话自动整理摘要，个人记忆从你的原话整理、跨对话携带，可查看来源、修改或忘记。</p>
+    </article>
+  </div>
+</section>
+
+<section class="section" id="gallery">
+  <div class="section-head reveal">
+    <p class="eyebrow">GALLERY</p>
+    <h2>26 种表情，跟着每一句话换</h2>
+    <p class="section-lede">素材库共 234 张原始透明立绘（26 表情 × 9 套服装姿势）。这里展示校服的两组姿态；其余服装不属于公开页面。</p>
+  </div>
+  <div class="gallery-layout">
+    <aside class="gallery-preview reveal">
+      <div class="preview-stage">
+        <div class="preview-ring" aria-hidden="true"></div>
+        <img id="galleryPortrait" src="art/crossed-a0001.webp" alt="音无彩名：休闲">
+      </div>
+      <div class="preview-meta">
+        <span class="badge" id="galleryPoseBadge">校服 · 双手交叠</span>
+        <h3 id="galleryName">休闲</h3>
+        <p id="galleryNote">平静、放松地陪伴、问候、倾听或普通回应。</p>
+      </div>
+    </aside>
+    <div class="gallery-main reveal">
+      <div class="pose-tabs" role="tablist" aria-label="姿态">
+        <button type="button" role="tab" class="pose-tab active" data-pose="crossed" aria-selected="true">双手交叠</button>
+        <button type="button" role="tab" class="pose-tab" data-pose="open" aria-selected="false">手臂展开</button>
+      </div>
+      <div class="expression-grid" id="expressionGrid" role="list"></div>
+    </div>
+  </div>
+</section>
+
+<section class="section section-paper" id="screens">
+  <div class="section-head reveal">
+    <p class="eyebrow">INTERFACE</p>
+    <h2>安静的便签，清楚的账本</h2>
+    <p class="section-lede">便签常驻桌面角落，设计按钮里可以调整一切；工作台单独收纳任务、文件差异和资料出处。以下均为实际界面截图。</p>
+  </div>
+  <div class="shots">
+    <figure class="shot reveal" data-caption="夜墨 · 暖金：日语原声与中文字幕同步出现">
+      <img src="shots/companion-dark.webp" alt="夜墨主题便签，日语与中文字幕" loading="lazy">
+      <figcaption>夜墨 · 暖金 — 日语原声与中文字幕同步</figcaption>
+    </figure>
+    <figure class="shot reveal" data-caption="纸笺 · 茶白：同一个便签的浅色主题">
+      <img src="shots/companion-paper.webp" alt="茶白主题便签，浅色背景与对白气泡" loading="lazy">
+      <figcaption>纸笺 · 茶白 — 浅色主题，气泡承载对白</figcaption>
+    </figure>
+    <figure class="shot reveal" data-caption="每次只突出一条台词，向上滚动回看">
+      <img src="shots/companion-scroll.webp" alt="便签中滚动回看历史对白" loading="lazy">
+      <figcaption>每次只突出一条台词，向上滚动可回看</figcaption>
+    </figure>
+    <figure class="shot reveal" data-caption="新一句进入焦点，前一句平退到背后">
+      <img src="shots/companion-reply.webp" alt="便签中新对白进入焦点" loading="lazy">
+      <figcaption>新一句进入焦点，前一句平退到背后</figcaption>
+    </figure>
+    <figure class="shot reveal" data-caption="聊天窗口顶部直接切换对话">
+      <img src="shots/conversation-switcher.webp" alt="聊天窗口顶部的对话切换列表" loading="lazy">
+      <figcaption>顶部直接搜索、切换或新建对话</figcaption>
+    </figure>
+    <figure class="shot reveal" data-caption="「正在聊」里管理话题与材料绑定">
+      <img src="shots/topics.webp" alt="话题管理与材料绑定界面" loading="lazy">
+      <figcaption>话题管理：材料绑定与完整记录</figcaption>
+    </figure>
+    <figure class="shot shot-wide reveal" data-caption="工作台欢迎页：从一个问题开始">
+      <img src="shots/workshop-welcome.webp" alt="Ayana 工作台欢迎页" loading="lazy">
+      <figcaption>工作台 — 从一个问题开始</figcaption>
+    </figure>
+    <figure class="shot shot-wide reveal" data-caption="讲解跟着目标窗口与真实文件证据">
+      <img src="shots/workshop-live.webp" alt="工作台讲解界面与目标窗口面板" loading="lazy">
+      <figcaption>讲解跟着目标窗口与真实文件证据</figcaption>
+    </figure>
+    <figure class="shot shot-wide reveal" data-caption="任务与结果：工具、文件差异与来源">
+      <img src="shots/tasks.webp" alt="任务与结果面板，展示保存文件与资料来源" loading="lazy">
+      <figcaption>任务与结果 — 工具证据、文件差异与来源</figcaption>
+    </figure>
+    <figure class="shot shot-wide reveal" data-caption="权限与隐私：Full access 开关与本机保存">
+      <img src="shots/access.webp" alt="权限与隐私页面，Full access 开关" loading="lazy">
+      <figcaption>Full access — 默认关闭，选择保存在本机</figcaption>
+    </figure>
+    <figure class="shot shot-wide reveal" data-caption="外观与声音：服装、字幕与音量">
+      <img src="shots/settings-appearance.webp" alt="设置中的外观与声音页面" loading="lazy">
+      <figcaption>外观与声音 — 服装、字幕与音量</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="section" id="tools">
+  <div class="section-head reveal">
+    <p class="eyebrow">TOOLBOX</p>
+    <h2>会说，也会动手</h2>
+    <p class="section-lede">对话框里直接描述需求，模型自行选择工具。读操作随时可用；写操作需要执行模式或 Full access，每个结果都保留真实出处。</p>
+  </div>
+  <div class="tool-grid">
+    <article class="tool-group reveal">
+      <h3>联网与浏览器</h3>
+      <p>Bing RSS 无需凭据，也可配置 Brave；正文可分段续读，页面内容按不可信证据处理。</p>
+      <div class="chips"><span>web.search</span><span>web.fetch</span><span>web.open</span><span>browser.open</span><span>browser.observe</span><span>browser.act</span></div>
+    </article>
+    <article class="tool-group reveal">
+      <h3>文件与文档</h3>
+      <p>读取文本与 PDF / DOCX / XLSX / PPTX；修改前先读取原文，保留备份并返回差异。</p>
+      <div class="chips"><span>files.list</span><span>files.find</span><span>files.search</span><span>files.read</span><span>files.create</span><span>files.propose_edit</span><span>files.propose_restore</span><span>files.open</span></div>
+    </article>
+    <article class="tool-group reveal">
+      <h3>桌面与窗口</h3>
+      <p>单步执行需要新鲜截图并核对观察结果；支持普通权限、已解锁、可捕获且未最小化的窗口。</p>
+      <div class="chips"><span>apps.search</span><span>apps.open</span><span>windows.list</span><span>windows.select</span><span>capture_target</span><span>observe_controls</span><span>computer.run</span><span>desktop.step</span></div>
+    </article>
+    <article class="tool-group reveal">
+      <h3>系统（Full access）</h3>
+      <p>PowerShell 返回真实退出码，超时或取消会停止整棵进程树；长任务用受管理的后台进程。</p>
+      <div class="chips"><span>shell.run</span><span>process.start</span><span>process.status</span><span>process.stop</span></div>
+    </article>
+  </div>
+  <div class="tool-note reveal">
+    <p><strong>实际边界</strong>：受保护内容和管理员窗口会明确失败；发送输入不等于目标成功，只有实际观察到的结果可用于判断。关闭 Full access 会停止当前任务并恢复原有目录授权与确认规则。</p>
+  </div>
+</section>
+
+<section class="section" id="start">
+  <div class="section-head reveal">
+    <p class="eyebrow">GET STARTED</p>
+    <h2>在本机运行</h2>
+    <p class="section-lede">最省事的方式是直接双击便携包；想改代码再从源码构建。模型权重、音色引擎与角色素材独立于 Git 管理，没有资源时可先用文字模式。</p>
+  </div>
+  <div class="steps">
+    <article class="step reveal">
+      <span class="step-num">01</span>
+      <h3>构建桌面端</h3>
+      <p>Windows x64，Python 3.11+ 与 Node.js。</p>
+      <div class="code">
+        <pre><code>python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e '.[test,stt]'
+npm --prefix apps/desktop ci
+npm --prefix apps/desktop run build
+npm --prefix apps/desktop start</code></pre>
+        <button type="button" class="copy" aria-label="复制命令">复制</button>
+      </div>
+    </article>
+    <article class="step reveal">
+      <span class="step-num">02</span>
+      <h3>接入自己的资源</h3>
+      <p>音色与立绘路径只写入被 Git 忽略的 <code>config/local.json</code>。</p>
+      <div class="code">
+        <pre><code>.\.venv\Scripts\python.exe scripts/prepare_resources.py `
+  --voice-root '你的 ayana-voice 目录' `
+  --avatar-root '你的正常立绘目录'</code></pre>
+        <button type="button" class="copy" aria-label="复制命令">复制</button>
+      </div>
+    </article>
+    <article class="step reveal">
+      <span class="step-num">03</span>
+      <h3>配置模型</h3>
+      <p>任意 OpenAI 兼容端点皆可；密钥经环境变量或 DPAPI 加密保存。</p>
+      <div class="code">
+        <pre><code>provider  = openai
+base_url  = https://api.deepseek.com
+model     = deepseek-flash
+# 密钥：环境变量 AYANA_API_KEY 或 DEEPSEEK_API_KEY</code></pre>
+        <button type="button" class="copy" aria-label="复制配置">复制</button>
+      </div>
+    </article>
+  </div>
+  <div class="run-note reveal">
+    <p>开发目录也可以直接双击 <code>启动 Ayana.cmd</code>；便携包首次解包与加载音色需要等待，期间文字输入与界面保持可用。启动新版前请退出旧实例。</p>
+  </div>
+</section>
+
+<section class="section" id="architecture">
+  <div class="section-head reveal">
+    <p class="eyebrow">ARCHITECTURE</p>
+    <h2>各管一段的清晰边界</h2>
+  </div>
+  <div class="arch-table reveal">
+    <table>
+      <thead><tr><th>目录</th><th>职责</th></tr></thead>
+      <tbody>
+        <tr><td><code>packages/protocol</code></td><td>完整模型对象解析、日语语句与表达验证</td></tr>
+        <tr><td><code>services/agent</code></td><td>会话、流式模型、工具证据、背压、取消、SQLite 历史</td></tr>
+        <tr><td><code>services/tts</code></td><td>常驻独立推理进程、显式权重加载、参考缓存、单 worker</td></tr>
+        <tr><td><code>native/windows</code></td><td>Win32 截图、独立 MTA UIA、单步输入与结果观察</td></tr>
+        <tr><td><code>apps/desktop</code></td><td>Electron、受限 IPC、React、唯一 AudioWorklet 播放器</td></tr>
+        <tr><td><code>characters/ayana</code></td><td>人设、工具政策、受控表情映射</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section" id="releases">
+  <div class="section-head reveal">
+    <p class="eyebrow">RELEASES</p>
+    <h2>版本记录</h2>
+    <p class="section-lede">公开版本托管在 GitHub Releases；更新的构建先在本机验证，再决定是否发布。</p>
+  </div>
+  <ol class="timeline">
+    <li class="release reveal">
+      <div class="release-head"><span class="release-tag public">公开</span><h3>0.3.16</h3><span class="release-date">2026-10-07</span></div>
+      <p>呼出只打开对话、注视当前窗口（Ctrl+Alt+W）；人设去掉可照搬台词；工具结果保留更完整。就是上面的下载按钮指向的版本。</p>
+      <a class="release-link" href="https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.16" rel="noopener">GitHub Release</a>
+    </li>
+    <li class="release reveal">
+      <div class="release-head"><span class="release-tag local">本机构建</span><h3>0.3.19</h3><span class="release-date">2026-10-07</span></div>
+      <p>聊天窗口顶部直接切换对话：搜索标题与最近消息、新建、任务中途取消，草稿各自保留。</p>
+    </li>
+    <li class="release reveal">
+      <div class="release-head"><span class="release-tag local">本机构建</span><h3>0.3.18</h3><span class="release-date">2026-10-07</span></div>
+      <p>工具调用恢复修复：保留原始名称搜索、精确查询与格式回退、正文链接与续读、独立联网并发、单条错误恢复与真实进度。</p>
+    </li>
+    <li class="release reveal">
+      <div class="release-head"><span class="release-tag local">本机构建</span><h3>0.3.17</h3><span class="release-date">2026-10-07</span></div>
+      <p>连续对话与个人记忆：后台整理早期上下文、记忆来源与忘记、对话与记忆管理页、完整 Markdown / JSON 导出。</p>
+    </li>
+  </ol>
+</section>
+
+<section class="closing reveal">
+  <div class="closing-inner">
+    <h2>她不会冒充成功，也不会用别的音色冒充 Ayana。</h2>
+    <p>看不到屏幕就说明限制，没有证据就不说操作成功——立绘、声音和每一项工具都按这个规矩工作。</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.16" rel="noopener">下载 Windows 便携包</a>
+      <a class="btn btn-ghost" href="https://github.com/voicepeak/ayana-agent" rel="noopener">在 GitHub 查看源码</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="footer-inner">
+    <div class="footer-brand">
+      <span class="brand-seal" aria-hidden="true">彩</span>
+      <div>
+        <p class="footer-name">音无彩名 · Ayana</p>
+        <p class="footer-sub">Windows 个性化 Agent · 本地优先</p>
+      </div>
+    </div>
+    <nav class="footer-links" aria-label="相关链接">
+      <a href="https://github.com/voicepeak/ayana-agent" rel="noopener">GitHub</a>
+      <a href="https://github.com/voicepeak/ayana-agent/releases" rel="noopener">Releases</a>
+      <a href="https://github.com/voicepeak/ayana-agent/blob/main/README.md" rel="noopener">README</a>
+      <a href="https://github.com/voicepeak/ayana-agent/tree/main/docs" rel="noopener">文档</a>
+    </nav>
+    <p class="footer-legal">
+      界面使用 Kun UI 主题 tokens（AGPL-3.0，见 THIRD_PARTY_NOTICES）。角色立绘与相关素材的版权归原作及权利方所有，
+      本站仅作个人项目展示；模型权重、音色引擎与角色素材不随仓库分发。
+    </p>
+  </div>
+</footer>
+
+<dialog class="lightbox" id="lightbox">
+  <button type="button" class="lightbox-close" aria-label="关闭">✕</button>
+  <img id="lightboxImage" src="" alt="">
+  <p id="lightboxCaption"></p>
+</dialog>
+
+<script src="data/expressions.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
