@@ -41,9 +41,9 @@ export function TaskPanel({ state, send, controls }: { state: ModelState; send: 
       </div>
     </article>}
     {state.approvals.map(item => <article className="agent-approval" key={String(item.approval_id)}>
-      <span className="agent-state">需要确认</span>
-      <h3>{item.kind === 'file' ? `修改 ${String(item.path)}` : String(item.expected_result || '执行窗口操作')}</h3>
-      {item.kind === 'file' ? <pre className="agent-diff">{String(item.diff || '内容没有变化。')}</pre> : <p>{String(item.action_kind)}{item.text ? ` · ${String(item.text)}` : ''}</p>}
+      <span className="agent-state">{item.action_kind === 'create' ? '等待确认 · 尚未写入' : '需要确认'}</span>
+      <h3>{item.kind === 'file' ? `${item.action_kind === 'create' ? '新建' : '修改'} ${String(item.path)}` : String(item.expected_result || '执行窗口操作')}</h3>
+      {item.kind === 'file' ? <pre className="agent-diff">{String(item.action_kind === 'create' ? (item.preview || '（空文件）') : (item.diff || '内容没有变化。'))}</pre> : <p>{String(item.action_kind)}{item.text ? ` · ${String(item.text)}` : ''}</p>}
       {!canExecute && <p>请在执行模式下开始修改任务。切换模式会取消当前预览。</p>}
       <div className="agent-buttons"><Button color="primary" disabled={!canExecute && item.action_kind !== 'highlight'} onClick={() => void send({ type: 'approval.resolve', approval_id: item.approval_id, accept: true })}>确认这一步</Button><Button variant="light" onClick={() => void send({ type: 'approval.resolve', approval_id: item.approval_id, accept: false })}>拒绝</Button></div>
     </article>)}

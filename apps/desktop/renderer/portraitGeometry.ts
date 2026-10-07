@@ -1,7 +1,7 @@
-import avatarCatalog from '../../../characters/ayana/avatar-map.json';
+import { catalogFor, characterAspect } from './avatarCatalogs';
 
 // Reserve the widest source across all poses and outfits. Images fit inside this stable slot.
-export const portraitSlotAspect = Math.max(...Object.values(avatarCatalog.assets).map(asset => asset.width / asset.height));
+export const portraitSlotAspect = characterAspect(catalogFor(null));
 export interface PortraitLayout { x: number; y: number; width: number; height: number; anchorX: number }
 
 /** Full-body source; 100% frames the character at the knees (72% of its height). */

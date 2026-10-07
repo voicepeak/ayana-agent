@@ -30,6 +30,14 @@
 .conversation-switch-search input::placeholder { color: var(--chrome-muted); }
 .conversation-switch-list { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--chrome-muted) transparent; }
 .conversation-switch-item { display: block; width: 100%; margin: 3px 0; padding: 10px; text-align: left; border: 1px solid transparent; border-radius: 7px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.conversation-switch-row { position: relative; }
+.conversation-switch-row .conversation-switch-item { padding-right: 42px; }
+.conversation-switch-delete { position: absolute; top: 14px; right: 6px; display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 5px; background: transparent; color: var(--chrome-muted); cursor: pointer; }
+.conversation-switch-delete:hover, .conversation-switch-delete:focus-visible { color: #c16c65; background: color-mix(in srgb, #c16c65 12%, transparent); }
+.conversation-switch-delete-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding: 4px 10px 10px; font-size: 11px; color: var(--chrome-muted); }
+.conversation-switch-delete-confirm span { flex: 1; }
+.conversation-switch-delete-confirm button { border: 1px solid var(--chrome-border); border-radius: 4px; padding: 3px 8px; background: transparent; color: var(--chrome-text); cursor: pointer; }
+.conversation-switch-delete-confirm button:last-child { color: #c16c65; }
 .conversation-switch-item:hover, .conversation-switch-heading button:hover { background: color-mix(in srgb, var(--chrome-text) 7%, var(--chrome-surface)); }
 .conversation-switch-item[aria-current=true] { border-color: color-mix(in srgb, var(--chrome-accent) 32%, transparent); background: color-mix(in srgb, var(--chrome-accent) 9%, var(--chrome-surface)); }
 .conversation-switch-item-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }

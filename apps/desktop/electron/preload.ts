@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('ayana', Object.freeze({
   chooseNoteBackground: () => ipcRenderer.invoke('ayana:note-background'),
   openSettings: (tab?: string) => ipcRenderer.invoke('ayana:settings', tab),
   hideSettings: () => ipcRenderer.invoke('ayana:hide-settings'),
+  revealPath: (file: string) => ipcRenderer.invoke('ayana:reveal-path', file) as Promise<boolean>,
   chooseRepository: () => ipcRenderer.invoke('ayana:choose-repository'),
   chooseDirectory: () => ipcRenderer.invoke('ayana:choose-directory'),
   restart: () => ipcRenderer.invoke('ayana:restart'),

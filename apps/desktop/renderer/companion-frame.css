@@ -50,6 +50,49 @@
 .companion-note .floating-input button:hover { color: var(--chrome-text); }
 .companion-error { z-index: 5; left: 20px; right: 20px; bottom: 16px; padding: 6px 9px; background: #2a1e1f; border-radius: 6px; }
 .companion-approval { z-index: 5; left: 20px; bottom: 20px; }
+.companion-change {
+  position: absolute; z-index: 6; left: 20px; right: 20px; bottom: 62px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--chrome-border) 32%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--chrome-surface) 94%, transparent);
+  color: var(--chrome-text);
+  box-shadow: 0 8px 26px #00000038;
+}
+.companion-change .change-badge { display: grid; place-items: center; flex: 0 0 24px; width: 24px; height: 24px; border-radius: 6px; background: color-mix(in srgb, var(--chrome-accent) 18%, transparent); color: var(--chrome-accent); }
+.companion-change .change-copy { min-width: 0; }
+.companion-change strong { display: block; font: 400 12px/1.5 'Microsoft YaHei', 'Yu Gothic', sans-serif; letter-spacing: .02em; }
+.companion-change small { display: block; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--chrome-muted); font: 11px/1.5 'Microsoft YaHei', sans-serif; }
+.companion-change .change-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.companion-change .change-actions button { padding: 4px 8px; border: 0; border-radius: 6px; background: color-mix(in srgb, var(--chrome-text) 10%, var(--chrome-surface)); color: var(--chrome-text); font: 12px/1.5 'Microsoft YaHei', sans-serif; cursor: pointer; }
+.companion-change .change-actions button:hover { background: color-mix(in srgb, var(--chrome-text) 18%, var(--chrome-surface)); }
+.companion-change .change-dismiss { display: grid; place-items: center; padding: 3px 5px; }
+.companion-frame-actions button { position: relative; }
+.files-count { position: absolute; top: 0; right: 0; min-width: 13px; height: 13px; padding: 0 3px; border-radius: 7px; background: var(--chrome-accent); color: #241d29; font: 700 8px/13px 'Microsoft YaHei', sans-serif; text-align: center; font-style: normal; }
+.companion-files {
+  position: absolute; z-index: 7; top: 46px; right: 14px; width: 288px; max-height: 300px;
+  display: flex; flex-direction: column; overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--chrome-border) 32%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--chrome-surface) 96%, transparent);
+  color: var(--chrome-text);
+  box-shadow: 0 12px 32px #00000045;
+}
+.companion-files header { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid color-mix(in srgb, var(--chrome-border) 16%, transparent); }
+.companion-files header strong { font: 400 12px/1.5 'Microsoft YaHei', sans-serif; }
+.companion-files header span { color: var(--chrome-muted); font-size: 11px; }
+.companion-files header button { margin-left: auto; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--chrome-muted); cursor: pointer; }
+.companion-files header button:hover { background: color-mix(in srgb, var(--chrome-text) 10%, var(--chrome-surface)); color: var(--chrome-text); }
+.companion-files p { margin: 0; padding: 12px 10px; color: var(--chrome-muted); font: 12px/1.6 'Microsoft YaHei', sans-serif; }
+.companion-files ul { list-style: none; margin: 0; padding: 4px; overflow-y: auto; }
+.companion-files li { display: flex; align-items: center; gap: 4px; }
+.companion-files .file-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.companion-files .file-main:hover { background: color-mix(in srgb, var(--chrome-text) 8%, var(--chrome-surface)); }
+.companion-files .file-main strong { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 12px/1.5 'Microsoft YaHei', sans-serif; }
+.companion-files .file-main small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--chrome-muted); font: 10px/1.5 'Microsoft YaHei', sans-serif; }
+.companion-files .file-reveal { flex: 0 0 auto; padding: 4px 6px; border: 0; border-radius: 6px; background: color-mix(in srgb, var(--chrome-text) 10%, var(--chrome-surface)); color: var(--chrome-text); font: 11px/1.4 'Microsoft YaHei', sans-serif; cursor: pointer; }
+.companion-files .file-reveal:hover { background: color-mix(in srgb, var(--chrome-text) 18%, var(--chrome-surface)); }
 
 /* A constant slot keeps expression and costume changes from moving the dialogue. */
 .portrait-canvas { grid-column: 1 / -1; grid-row: 2; position: relative; z-index: 2; min-width: 0; min-height: 0; overflow: hidden; pointer-events: none; mask-image: linear-gradient(to bottom, #000 calc(100% - 16px), transparent); }

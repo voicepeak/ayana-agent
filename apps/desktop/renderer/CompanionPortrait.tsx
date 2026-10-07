@@ -5,9 +5,9 @@ import { portraitLayout, portraitSlotAspect } from './portraitGeometry';
 import type { PortraitScene } from './captionLayout';
 import { wheelZoom } from './designZoom';
 
-export function CompanionPortrait({ design, expression, motion, connected, editable, onChange, onCommit, onClick, onSceneChange, bottomInset = 0 }: {
+export function CompanionPortrait({ design, expression, motion, connected, editable, onChange, onCommit, onClick, onSceneChange, bottomInset = 0, aspect = portraitSlotAspect }: {
   design: CompanionDesign; expression: string; motion: boolean; connected: boolean;
-  editable: boolean;
+  editable: boolean; aspect?: number;
   onChange: (patch: Partial<CompanionDesign>) => void;
   onCommit: (patch: Partial<CompanionDesign>) => void; onClick: () => void;
   onSceneChange: (scene: PortraitScene) => void; bottomInset?: number;
@@ -15,7 +15,6 @@ export function CompanionPortrait({ design, expression, motion, connected, edita
   const canvas = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const [area, setArea] = useState({ width: 1, height: 1 });
-  const aspect = portraitSlotAspect;
   const [dragging, setDragging] = useState(false);
   const layout = portraitLayout(area, aspect, design);
   useLayoutEffect(() => { onSceneChange({ area, portrait: layout, dragging }); },

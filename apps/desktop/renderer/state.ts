@@ -2,6 +2,7 @@ import { useEffect, useReducer, useRef } from 'react';
 import { AudioPlayer } from './audio';
 import type { AyanaBridge, RuntimeEvent } from './types';
 import { outfitAsset } from './avatarOutfit';
+import { activeCatalog } from './avatarCatalogs';
 
 export interface Speech {
   id: string; order?: number; ja: string; zh: string; en?: string; enError?: string; intent: string; generation: number;
@@ -33,7 +34,7 @@ export interface ModelState {
   settingsLoaded: boolean;
   apiKeyConfigured?: boolean;
   presented?: string; sentenceVersion: number;
-  summonVersion: number; workspaceHintAt: number; targetCue?: RuntimeEvent; watching: boolean;
+  summonVersion: number; workspaceHintAt: number; targetCue?: RuntimeEvent; attentionObserving: boolean;
   progress: number; repository?: Repository; settings: Record<string, unknown>;
   history: Record<string, unknown>[]; windows: Target[]; evidence: Evidence[];
   actions: RuntimeEvent[]; tools: RuntimeEvent[]; error?: string; shortcuts?: RuntimeEvent;
@@ -52,7 +53,7 @@ export interface ModelState {
 export const initialState: ModelState = {
   connected: false, service: 'starting', generation: 0, cancelledGeneration: -1,
   task: 'idle', voice: 'starting', mode: 'teach', speeches: [], expression: 'neutral', expressionAt: 0, inputState: 'idle',
-  progress: 0, sentenceVersion: 0, summonVersion: 0, workspaceHintAt: 0, watching: false, settingsLoaded: false, settings: {}, history: [], windows: [], evidence: [], actions: [], tools: [], questions: [],
+  progress: 0, sentenceVersion: 0, summonVersion: 0, workspaceHintAt: 0, attentionObserving: false, settingsLoaded: false, settings: {}, history: [], windows: [], evidence: [], actions: [], tools: [], questions: [],
   approvals: [], artifacts: [], sources: [], directories: [], taskHistory: [], searchConfigured: false,
   computerProgress: [],
   conversations: [], persistentHistory: true, contextSummary: '', contextState: 'ready', retainedTurns: 0, historyHasMore: false,
@@ -165,10 +166,8 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
     }
     case 'desktop.summoned': next.summonVersion = state.summonVersion + 1; break;
     case 'desktop.workspace-hint': next.workspaceHintAt = Date.now(); break;
-    case 'desktop.target-cue':
-      next.targetCue = event;
-      next.watching = event.variant === 'watch';
-      break;
+    case 'desktop.target-cue': next.targetCue = event; break;
+    case 'attention.state': next.attentionObserving = event.observing === true; break;
     case 'desktop.dismiss-error': next.error = undefined; break;
     case 'desktop.service':
       next.connected = Boolean(event.connected); next.service = String(event.state); break;
@@ -207,9 +206,10 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
     case 'settings.ready': {
       next.settings = (event.settings ?? {}) as Record<string, unknown>;
       next.apiKeyConfigured = typeof event.api_key_configured === 'boolean' ? event.api_key_configured : state.apiKeyConfigured;
-      if (!state.settingsLoaded || next.settings.avatar_costume !== state.settings.avatar_costume) {
+      if (!state.settingsLoaded || next.settings.avatar_costume !== state.settings.avatar_costume
+        || next.settings.character !== state.settings.character) {
         const costume = String(next.settings.avatar_costume || '校服');
-        next.expression = outfitAsset(state.expression, costume);
+        next.expression = outfitAsset(state.expression, costume, activeCatalog(next.settings));
       }
       next.settingsLoaded = true;
       break;
@@ -257,7 +257,7 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
       if (state.presented !== id) { next.presented = id; next.sentenceVersion = state.sentenceVersion + 1; }
       const expression = ['explain', 'encourage', 'caution', 'playful'].includes(speech?.intent || '') ? speech!.intent : 'neutral';
       if (speech.assetId || speech.intensity >= .35) {
-        next.expression = outfitAsset(speech.assetId || expression, String(state.settings.avatar_costume || '校服'));
+        next.expression = outfitAsset(speech.assetId || expression, String(state.settings.avatar_costume || '校服'), activeCatalog(state.settings));
         next.expressionAt = Date.now();
       }
       if (event.type === 'playback.started') next.speeches = state.speeches.map(s => s.id === id ? { ...s, state: 'playing', total: Number(event.total_samples) } : s);
@@ -287,7 +287,7 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
     case 'error':
       // Correlated command errors are shown by the initiating form. They must
       // neither duplicate its feedback nor mark an unrelated live task failed.
-      if (event.request_id || (event.source === 'capture' && state.watching)) break;
+      if (event.request_id) break;
       next.error = String(event.message || event.error || '发生了未知错误。'); next.task = 'failed'; break;
   }
   return next;
@@ -301,6 +301,7 @@ const previewBridge: AyanaBridge = {
   beginCompanionDrag: () => {}, endCompanionDrag: () => {}, openDesign: async () => {}, closeDesign: async () => {}, previewDesign: () => {},
   revertDesignPreview: async () => {},
   chooseNoteBackground: async () => ({ ok: false, error: '请在桌面应用中选择图片。' }),
+  revealPath: async () => false,
   chooseRepository: async () => null, chooseDirectory: async () => null, restart: async () => {},
   getState: async () => ({ connected: false, service: 'preview', version: '0.3.3', repositoryRoot: '', events: [] }),
 };

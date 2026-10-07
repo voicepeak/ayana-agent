@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Icon, Input } from './components';
 import { bridge, type ModelState } from './state';
 import { preferences, preferencePatch, savePreferences, type Preferences } from './preferences';
-import avatarCatalog from '../../../characters/ayana/avatar-map.json';
+import { catalogFor, characterOptions, costumesOf } from './avatarCatalogs';
 
 export const settingsSections = [
   { id: 'appearance', title: '外观与声音', icon: 'volume' },
@@ -42,7 +42,16 @@ export function Settings({ state, section }: { state: ModelState; section: Setti
   const update = <K extends keyof Preferences>(key: K, value: Preferences[K]) => {
     setDraft(current => ({ ...current, [key]: value })); setMessage(''); setError('');
   };
-  const costumes = [...new Set(Object.values(avatarCatalog.assets).map(item => item.costume))];
+  const changeCharacter = (character: string) => {
+    const nextCostumes = costumesOf(catalogFor(character));
+    setDraft(current => ({ ...current, character,
+      avatar_costume: nextCostumes.includes(current.avatar_costume) ? current.avatar_costume : nextCostumes[0] }));
+    setMessage(''); setError('');
+  };
+  const characters = characterOptions();
+  const readyCharacters = new Map(((state.settings.character_options as { id: string; ready: boolean }[] | undefined) || [])
+    .map(item => [item.id, item.ready]));
+  const costumes = costumesOf(catalogFor(draft.character));
   async function save() {
     if (saving || !dirty) return;
     setSaving(true); setError(''); setMessage('');
@@ -67,7 +76,10 @@ export function Settings({ state, section }: { state: ModelState; section: Setti
     <form className="settings-form" onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={saving || !state.settingsLoaded} className="settings-fields" key={section}>
       {section === 'appearance' && <>
-        <div className="form-section"><h3>形象</h3><label>服装<select aria-label="服装" value={draft.avatar_costume} onChange={event => update('avatar_costume', event.target.value)}>{costumes.map(item => <option key={item}>{item}</option>)}</select></label>
+        <div className="form-section"><h3>形象与声音</h3>
+          <label>角色<select aria-label="角色" value={draft.character} onChange={event => changeCharacter(event.target.value)}>{characters.map(item => <option key={item.id} value={item.id} disabled={readyCharacters.get(item.id) === false && item.id !== draft.character}>{item.name}{readyCharacters.get(item.id) === false ? '（资源未导入）' : ''}</option>)}</select></label>
+          <p className="form-hint">切换角色会同时更换立绘和声音；人设、记忆与使用设置保持不变。</p>
+          <label>服装<select aria-label="服装" value={draft.avatar_costume} onChange={event => update('avatar_costume', event.target.value)}>{costumes.map(item => <option key={item}>{item}</option>)}</select></label>
           <p className="form-hint">字幕语言在彩名窗口的「外观 → 对白」中调整，可选择主语言与翻译语言。</p>
           <Toggle checked={draft.sentence_motion} onChange={value => update('sentence_motion', value)}>表情切换动效</Toggle>
         </div>
@@ -89,10 +101,10 @@ export function Settings({ state, section }: { state: ModelState; section: Setti
             <div className="agent-buttons"><Button type="button" disabled={!state.connected} onClick={() => void choose(false)}>添加只读目录</Button><Button type="button" disabled={!state.connected} onClick={() => void choose(true)}>添加可读写目录</Button></div>
           </details>
         </div>
-        <div className="form-section"><h3>隐私</h3><Toggle checked={draft.send_screenshot} onChange={value => update('send_screenshot', value)} note="当前目标窗口截图可发送给在线模型。">允许发送窗口截图</Toggle><Toggle checked={draft.save_history} onChange={value => update('save_history', value)} note="切换会新建话题；关闭不会删除已有记录。">保存对话记录</Toggle></div>
+        <div className="form-section"><h3>隐私</h3><Toggle checked={draft.send_screenshot} onChange={value => update('send_screenshot', value)} note="需要看屏幕时，将窗口或桌面截图发送给模型。">允许屏幕观察</Toggle><Toggle checked={draft.ambient_attention} onChange={value => update('ambient_attention', value)} note="空闲时偶尔看看前台窗口，有值得聊的事情才搭话；也可以说“别看了”。">允许彩名偶尔偷看</Toggle><Toggle checked={draft.save_history} onChange={value => update('save_history', value)} note="切换会新建话题；关闭不会删除已有记录。">保存对话记录</Toggle></div>
       </>}
       {section === 'advanced' && <>
-        <details className="preference-advanced"><summary>快捷键</summary><div className="form-grid"><label>呼出 Ayana<Input required value={draft.hotkey} onChange={event => update('hotkey', event.target.value)}/></label><label>注视当前窗口<Input required value={draft.watch_hotkey} onChange={event => update('watch_hotkey', event.target.value)}/></label><label>立即打断<Input required value={draft.cancel_hotkey} onChange={event => update('cancel_hotkey', event.target.value)}/></label></div>{state.shortcuts && (!state.shortcuts.summon_ok || !state.shortcuts.cancel_ok || !state.shortcuts.watch_ok) && <p className="shortcut-error" role="alert">快捷键注册失败，请更换组合。</p>}</details>
+        <details className="preference-advanced"><summary>快捷键</summary><div className="form-grid"><label>呼出 Ayana<Input required value={draft.hotkey} onChange={event => update('hotkey', event.target.value)}/></label><label>立即打断<Input required value={draft.cancel_hotkey} onChange={event => update('cancel_hotkey', event.target.value)}/></label></div>{state.shortcuts && (!state.shortcuts.summon_ok || !state.shortcuts.cancel_ok) && <p className="shortcut-error" role="alert">快捷键注册失败，请更换组合。</p>}</details>
         <details className="preference-advanced"><summary>回复与任务限制</summary><div className="form-grid">{count('max_utterances', '普通回复最多句数', 1, 12)}{count('detailed_max_utterances', '详细回复最多句数', 12, 64)}{draft.provider === 'openai' && count('model_max_tokens', '单次请求输出上限（tokens）', 1000, 12000)}</div><div className="form-grid">{([['rounds', '最多处理轮数', 24], ['calls', '最多工具调用', 64], ['seconds', '最长时间（秒）', 600]] as const).map(([key, title, max]) => <label key={key}>{title}<Input type="number" min="1" max={max} step="1" required value={draft.task_limits[key]} onChange={event => update('task_limits', { ...draft.task_limits, [key]: Number(event.target.value) })}/></label>)}</div></details>
         <details className="preference-advanced"><summary>接口兼容与代理</summary><Toggle checked={draft.native_tools} onChange={value => update('native_tools', value)}>原生工具调用</Toggle><label>Brave 本机 HTTP 代理<Input value={draft.search_proxy} onChange={event => update('search_proxy', event.target.value)} placeholder="http://127.0.0.1:7892"/></label></details>
         <details className="preference-advanced"><summary>服务与诊断</summary>

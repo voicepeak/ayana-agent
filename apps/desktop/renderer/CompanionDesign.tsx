@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { surfacePalette } from './companionPalette';
 import defaults from '../../../config/default.json';
 import { Icon } from './components';
-import avatarCatalog from '../../../characters/ayana/avatar-map.json';
 import { wheelZoom } from './designZoom';
 import { themes, resolveTheme } from './companionThemes';
 
@@ -107,16 +106,15 @@ function BackgroundPosition({ value, onChange, revision }: { value: CompanionDes
   </div>;
 }
 
-export function DesignControls({ value, onChange, portraitEditing, onPortraitEditing, onSave, onClose, onBackground, onUndo, costume, onCostume, saving, dirty, message, backgroundRevision = 0 }: {
+export function DesignControls({ value, onChange, portraitEditing, onPortraitEditing, onSave, onClose, onBackground, onUndo, costume, costumes, onCostume, saving, dirty, message, backgroundRevision = 0 }: {
   value: CompanionDesign; onChange: (patch: Partial<CompanionDesign>) => void;
   portraitEditing: boolean; onPortraitEditing: (value: boolean) => void;
   onSave: () => void; onClose: () => void; saving: boolean; dirty: boolean; message: string;
   onBackground: () => void;
-  onUndo: () => void; costume: string; onCostume: (value: string) => void;
+  onUndo: () => void; costume: string; costumes: string[]; onCostume: (value: string) => void;
   backgroundRevision?: number;
 }) {
   const [tab, setTab] = useState<'portrait' | 'dialogue' | 'frame'>('portrait');
-  const costumes = [...new Set(Object.values(avatarCatalog.assets).map(item => item.costume))];
   const range = (key: 'portrait_size' | 'font_size', label: string, min: number, max: number, unit: string) =>
     <label className="design-range"><span>{label}<output>{key === 'portrait_size' ? Math.round(value[key] / 320 * 100) : value[key]}{unit}</output></span><input aria-label={label} type="range" min={min} max={max} step={1} value={value[key]} onChange={event => onChange({ [key]: Number(event.target.value) })}/></label>;
   return <aside className="design-controls design-inspector" aria-label="设计控件" data-companion-interactive onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); onClose(); } }}>

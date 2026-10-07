@@ -16,7 +16,7 @@ import { resolveTheme } from '../renderer/companionThemes';
 
 type Event = Record<string, unknown> & { type: string; protocol_version: number };
 const commands = new Set([
-  'session.start', 'session.close', 'session.watch', 'session.unwatch', 'turn.start', 'generation.cancel', 'target.bind',
+  'session.start', 'session.close', 'turn.start', 'generation.cancel', 'target.bind',
   'target.capture', 'windows.list', 'repository.inspect', 'repository.read',
   'repository.search', 'settings.get', 'settings.update', 'history.get', 'tool.execute', 'utterance.displayed', 'mode.set', 'input.audio',
   'capabilities.get', 'directory.grant', 'directory.revoke', 'task.pause', 'task.resume', 'task.cancel',
@@ -50,6 +50,7 @@ let focusAfterCapture = false;
 let summonPending = false;
 let startupSummonDone = false;
 let companionShown = false;
+let summonRaised = false;
 let refreshSummon = false;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 let highlightTimer: ReturnType<typeof setTimeout> | undefined;
@@ -58,10 +59,6 @@ let recentEvents: Event[] = [];
 let repositoryRoot = '';
 let summonShortcut = 'Control+Alt+A';
 let cancelShortcut = 'Control+Alt+Space';
-let watchShortcut = 'Control+Alt+W';
-let watching = false;
-let watchPaused = false;
-let watchFollowTimer: ReturnType<typeof setInterval> | undefined;
 let inputAfterCapture = true;
 let composerRequested = false;
 let companionMenuOpen = false;
@@ -214,25 +211,15 @@ function cancel() {
   highlight?.hide();
 }
 
-function stopWatch() {
-  watching = false;
-  watchPaused = false;
-  if (watchFollowTimer) clearInterval(watchFollowTimer);
-  watchFollowTimer = undefined;
-  if (highlightTimer) clearTimeout(highlightTimer);
-  highlight?.hide();
-  desktopEvent('desktop.target-cue', { cue_id: Date.now(), variant: 'released' });
-}
-
 function hide() {
   endCompanionDrag(); closeDesign();
   composerRequested = false;
   focusAfterCapture = false;
   summonPending = false;
   companionShown = false;
+  summonRaised = false;
   refreshSummon = false;
   if (focusTimer) clearTimeout(focusTimer);
-  stopWatch();
   cancel();
   runtimeSend({ type: 'session.close' });
   chat?.hide();
@@ -241,18 +228,27 @@ function hide() {
 }
 
 function summon(openInput = true) {
-  // The summon key is a conversation toggle. It never binds a window.
-  if (companionShown || summonPending) {
+  // The first explicit invocation raises her; the next hides her even when
+  // Windows declines focus or changes focus while dispatching the shortcut.
+  if (chat?.isVisible() && summonRaised) {
     hide();
     return;
   }
-  stopWatch();
-  runtimeSend({ type: 'session.unwatch' });
+  if (chat?.isVisible()) {
+    summonRaised = openInput;
+    chat.setAlwaysOnTop(true, 'screen-saver');
+    chat.moveTop();
+    if (openInput) requestComposer();
+    return;
+  }
+  if (summonPending) return;
+  summonRaised = openInput;
   inputAfterCapture = openInput;
   focusAfterCapture = true;
   refreshSummon = false;
   if (!runtimeSend({ type: 'session.start' })) {
     summonPending = true;
+    chat?.setAlwaysOnTop(true, 'screen-saver');
     chat?.showInactive();
     desktopEvent('desktop.summoned');
     desktopEvent('desktop.service', { state: service, message: '本地服务正在启动…' });
@@ -266,7 +262,10 @@ function focusChat() {
   if (!focusAfterCapture) return;
   focusAfterCapture = false;
   if (focusTimer) clearTimeout(focusTimer);
+  chat?.setAlwaysOnTop(true, 'screen-saver');
+  if (chat?.isMinimized()) chat.restore();
   if (inputAfterCapture) chat?.show(); else chat?.showInactive();
+  chat?.moveTop();
   refreshSummon = false;
   companionShown = true;
   desktopEvent('desktop.summoned');
@@ -285,9 +284,11 @@ function requestComposer() {
 
 function openManagement(tab?: 'tasks' | 'history') {
   closeDesign();
+  summonRaised = false;
   // The transparent companion must not cover the management window's controls.
-  chat?.setAlwaysOnTop(false);
-  settingsWindow?.show(); settingsWindow?.focus();
+  chat?.setAlwaysOnTop(true, 'screen-saver');
+  settingsWindow?.setAlwaysOnTop(true, 'screen-saver');
+  settingsWindow?.show(); settingsWindow?.moveTop(); settingsWindow?.focus();
   broadcast({ protocol_version: 1, type: 'desktop.navigate', tab: tab || 'settings' }, false);
 }
 
@@ -331,21 +332,16 @@ function updateShortcuts(settings: Record<string, unknown>) {
   const raw = settings.shortcuts as Record<string, unknown> | undefined;
   const nextSummon = String(raw?.summon || settings.hotkey || settings.summon_shortcut || summonShortcut);
   const nextCancel = String(raw?.cancel || settings.cancel_hotkey || settings.cancel_shortcut || cancelShortcut);
-  const nextWatch = String(raw?.watch || settings.watch_hotkey || settings.watch_shortcut || watchShortcut);
   globalShortcut.unregisterAll();
   summonShortcut = nextSummon;
   cancelShortcut = nextCancel;
-  watchShortcut = nextWatch;
   let summonOk = false;
   let cancelOk = false;
-  let watchOk = false;
   try { summonOk = globalShortcut.register(summonShortcut, () => { summon(); }); } catch { /* Invalid accelerator. */ }
   try { cancelOk = globalShortcut.register(cancelShortcut, cancel); } catch { /* Invalid accelerator. */ }
-  try { watchOk = globalShortcut.register(watchShortcut, () => { void watchForeground(); }); } catch { /* Invalid accelerator. */ }
-  desktopEvent('desktop.shortcuts', { summon: summonShortcut, cancel: cancelShortcut, watch: watchShortcut, summon_ok: summonOk, cancel_ok: cancelOk, watch_ok: watchOk });
+  desktopEvent('desktop.shortcuts', { summon: summonShortcut, cancel: cancelShortcut, summon_ok: summonOk, cancel_ok: cancelOk });
   if (tray) tray.setContextMenu(Menu.buildFromTemplate([
     { label: `呼出 Ayana · ${summonShortcut}`, click: () => { summon(); } },
-    { label: `注视当前窗口 · ${watchShortcut}`, click: () => { void watchForeground(); } },
     { label: `停止当前回复 · ${cancelShortcut}`, click: cancel },
     { label: '收起会话', click: hide },
     { label: '话题与记录', click: () => openManagement('history') },
@@ -375,38 +371,6 @@ function showHighlight(event: Event) {
   highlightTimer = setTimeout(() => highlight?.hide(), 6000);
 }
 
-function placeWatch(target: Record<string, unknown> | undefined) {
-  const rect = target?.bounds as Record<string, number> | undefined;
-  if (!highlight || !chat || !rect || ![rect.left, rect.top, rect.right, rect.bottom].every(Number.isFinite)) return false;
-  if (rect.right <= rect.left || rect.bottom <= rect.top) return false;
-  const bounds = screen.screenToDipRect(chat, { x: rect.left, y: rect.top, width: rect.right - rect.left, height: rect.bottom - rect.top });
-  highlight.setBounds({ x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(40, Math.round(bounds.width)), height: Math.max(40, Math.round(bounds.height)) });
-  highlight.showInactive();
-  return true;
-}
-
-async function watchForeground() {
-  if (watching) {
-    stopWatch();
-    runtimeSend({ type: 'session.unwatch' });
-    if (!companionShown) summon(false);
-    return;
-  }
-  if (!companionShown) {
-    inputAfterCapture = false;
-    focusAfterCapture = true;
-    chat?.showInactive();
-    companionShown = true;
-    desktopEvent('desktop.summoned');
-  }
-  watching = true;
-  if (watchFollowTimer) clearInterval(watchFollowTimer);
-  watchFollowTimer = setInterval(() => {
-    if (watching && !watchPaused && companionSettings.send_screenshot !== false) runtimeSend({ type: 'target.capture', watch: true });
-  }, 1200);
-  runtimeSend({ type: 'session.watch' });
-}
-
 function receive(event: Event) {
   if (event.protocol_version !== 1 || typeof event.type !== 'string') return;
   if (event.type === 'conversation.exported') {
@@ -421,11 +385,14 @@ function receive(event: Event) {
   if (event.type === 'artifact.open') {
     const artifact = event.artifact as Record<string, unknown> | undefined;
     const file = String(artifact?.absolute_path || '');
-    if (artifact?.artifact_id && path.isAbsolute(file) && /\.(md|txt|json|toml|ya?ml|csv|py|tsx?|jsx?|vue|html|css|sql|rs|go|cs|java|c|cpp|h)$/i.test(file)) {
+    if (!artifact?.artifact_id || !path.isAbsolute(file) || !existsSync(file)) return;
+    if (/\.(md|txt|json|toml|ya?ml|csv|py|tsx?|jsx?|vue|html|css|sql|rs|go|cs|java|c|cpp|h)$/i.test(file)) {
       // Source extensions can be associated with interpreters; always open as text.
       const viewer = spawn('notepad.exe', [file], { windowsHide: false, stdio: 'ignore' });
       viewer.on('error', () => desktopEvent('error', { message: '无法打开文本查看器。' }));
       viewer.unref();
+    } else {
+      void shell.openPath(file).then(error => { if (error) desktopEvent('error', { message: '无法打开这个文件。' }); });
     }
     return;
   }
@@ -448,25 +415,8 @@ function receive(event: Event) {
   }
   if (event.type === 'error' && designSaves.delete(String(event.request_id || ''))) revertDesignPreview();
   if (event.type === 'mode.ready') companionMode = event.mode === 'execute' ? 'execute' : 'teach';
-  if (event.type === 'conversation.changed' && !watching) highlight?.hide();
-  if (event.type === 'session.started' && event.watching === true && placeWatch(event.target as Record<string, unknown> | undefined)) {
-    desktopEvent('desktop.target-cue', { cue_id: Date.now(), variant: 'watch', title: String((event.target as Record<string, unknown> | undefined)?.title || '') });
-  }
+  if (event.type === 'conversation.changed') highlight?.hide();
   if (event.type === 'session.started' && focusAfterCapture) focusChat();
-  if (event.type === 'target.bound' && watching) {
-    if (placeWatch(event.target as Record<string, unknown> | undefined)) {
-      desktopEvent('desktop.target-cue', { cue_id: Date.now(), variant: 'watch', title: String((event.target as Record<string, unknown> | undefined)?.title || '') });
-    }
-  }
-  if (event.type === 'snapshot.ready' && watching) placeWatch(event.target as Record<string, unknown> | undefined);
-  if (event.type === 'observation.unavailable' && watching) {
-    watchPaused = true;
-    if (watchFollowTimer) clearInterval(watchFollowTimer);
-    watchFollowTimer = undefined;
-    highlight?.hide();
-  }
-  if (event.type === 'snapshot.ready' && watchPaused) watchPaused = false;
-  if (event.type === 'snapshot.invalidated' && watching) highlight?.hide();
   if (event.type === 'target.bound' || event.type === 'snapshot.ready' || event.type === 'error') focusChat();
   if (event.type === 'highlight.ready' || event.type === 'target.highlight'
     || (event.type === 'tool.completed' && ((event.result as Record<string, unknown> | undefined)?.kind === 'highlight'))) {
@@ -688,6 +638,13 @@ function registerIpc() {
   ipcMain.handle('ayana:settings', (event, tab?: unknown) => {
     if (!trustedSender(event.sender.id)) return;
     openManagement(tab === 'tasks' || tab === 'history' ? tab : undefined);
+  });
+  ipcMain.handle('ayana:reveal-path', (event, file: unknown) => {
+    if (![windowId(chat), windowId(settingsWindow)].includes(event.sender.id)) return false;
+    const target = String(file || '');
+    if (!path.isAbsolute(target) || !existsSync(target)) return false;
+    shell.showItemInFolder(target);
+    return true;
   });
   ipcMain.handle('ayana:note-background', async event => {
     if (![windowId(chat), windowId(designWindow)].includes(event.sender.id)) return { ok: false };

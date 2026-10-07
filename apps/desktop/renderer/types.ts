@@ -44,6 +44,7 @@ export interface AyanaBridge {
   chooseNoteBackground(): Promise<{ ok: boolean; error?: string; imageId?: string }>;
   openSettings(tab?: 'tasks' | 'history'): Promise<void>;
   hideSettings(): Promise<void>;
+  revealPath(file: string): Promise<boolean>;
   chooseRepository(): Promise<string | null>;
   chooseDirectory(): Promise<string | null>;
   restart(): Promise<void>;

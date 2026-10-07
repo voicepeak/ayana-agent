@@ -3,9 +3,10 @@ import {
   cn, kunVariantClasses, kunRoundedClasses, kunFocusRingClasses, kunControlSizeClasses,
   type KunUIColor, type KunUIVariant,
 } from '@kungal/ui-core';
-import avatarCatalog from '../../../characters/ayana/avatar-map.json';
+import { catalogs } from './avatarCatalogs';
 
-const avatarAssets: Record<string, { costume: string }> = avatarCatalog.assets;
+const avatarAssets: Record<string, { costume: string }> = Object.assign(
+  {}, ...Object.values(catalogs).map(catalog => catalog.assets));
 
 export function Button({ color = 'default', variant = 'flat', className, children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { color?: KunUIColor; variant?: KunUIVariant }) {
   return <button className={cn('kun-button', kunVariantClasses(variant, color), kunRoundedClasses.md, kunFocusRingClasses[color], kunControlSizeClasses.sm, className)} {...props}>{children}</button>;

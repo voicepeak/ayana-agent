@@ -162,6 +162,18 @@ for (const [id, face] of Object.entries(catalog.assets).filter(([, face]) => fac
 }
 console.log('PASS: changing clothes preserves expression tags, active playback and queued sentences without adding a speech.');
 
+const suCatalog = JSON.parse(await readFile(new URL('../../../characters/ayana-su/avatar-map.json', import.meta.url), 'utf8'));
+const suNeutral = Object.entries(suCatalog.assets).find(([, item]) => !item.alias && item.costume === '白色校服' && item.source_expression === '平静' && item.pose === 'crossed')[0];
+const ayanaNeutral = Object.entries(catalog.assets).find(([, item]) => !item.alias && item.costume === '校服' && item.source_expression === '休闲' && item.pose === 'crossed')[0];
+let character = reduceEvent({ ...initialState, settingsLoaded: true, settings: { character: 'ayana', avatar_costume: '校服' }, expression: 'neutral' },
+  event('settings.ready', { settings: { character: 'ayana-su', avatar_costume: '白色校服' } }));
+assert.equal(character.expression, suNeutral);
+character = reduceEvent(character, event('settings.ready', { settings: { character: 'ayana', avatar_costume: '校服' } }));
+assert.equal(character.expression, ayanaNeutral);
+const options = await readFile(new URL('../../../characters/registry.json', import.meta.url), 'utf8');
+assert.deepEqual(Object.keys(JSON.parse(options).characters), ['ayana', 'ayana-su']);
+console.log('PASS: switching character re-dresses the visible face from the selected catalog and back.');
+
 let taskState = reduceEvent(initialState, event('task.updated', { task: { task_id: 'task-a', state: 'waiting_approval', goal: 'Edit' } }));
 taskState = reduceEvent(taskState, event('approval.required', { approval: { approval_id: 'approve-a', task_id: 'task-a', diff: '-old\n+new' } }));
 taskState = reduceEvent(taskState, event('approval.required', { approval: { approval_id: 'approve-a', task_id: 'task-a', diff: '-old\n+new' } }));
