@@ -41,7 +41,7 @@ assert(dialogueWaiting({ ...working, task: 'idle', tools: [started, finished], s
 assert(dialogueWaiting({ ...working, tools: [], activeTask: { state: 'running' } }), 'A running task stays visible between its calls.');
 
 const activityCompiled = await build({ entryPoints: ['renderer/waitingActivity.ts'], bundle: true, format: 'esm', write: false });
-const { waitingActivity, waitingDuration } = await import('data:text/javascript;base64,' + Buffer.from(activityCompiled.outputFiles[0].text).toString('base64'));
+const { waitingActivity } = await import('data:text/javascript;base64,' + Buffer.from(activityCompiled.outputFiles[0].text).toString('base64'));
 assert.equal(waitingActivity(state).stage, 'thinking');
 assert.equal(waitingActivity({ ...state, tools: [concurrent] }).stage, 'reading');
 assert.equal(waitingActivity(working).stage, 'working');
@@ -51,8 +51,6 @@ assert.equal(waitingActivity({ ...state, tools: [started, finished, { ...finishe
 assert.equal(waitingActivity({ ...state, speeches: [queued] }).stage, 'voice');
 assert.notEqual(waitingActivity({ ...state, speeches: [queued], settings: { voice: { voice_mode: 'silent' } } }).stage, 'voice');
 assert.notEqual(waitingActivity({ ...state, speeches: [{ ...queued, audioEnabled: false }] }).stage, 'voice');
-assert.equal(waitingDuration(72), '1 分 12 秒');
-assert.equal(waitingDuration(12.9), '12 秒');
 console.log('PASS: friendly work labels follow real calls, parallel receipts, voice preparation and post-acknowledgment work.');
 
 const searchStart = { ...started, tool: 'web.search', call_id: 'search' };

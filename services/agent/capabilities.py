@@ -15,7 +15,7 @@ from pathlib import Path
 import httpx
 
 from .tasks import TaskRunner
-from .work import remember_result
+from .work import remember_result, result_digest
 from .tools.registry import ToolRegistry, ToolError, arguments, string
 from .tools.receipts import receipt
 from .tools.search_terms import restore_search_terms
@@ -23,6 +23,10 @@ from packages.protocol import validate_tool_request
 from .prompts import TOOL_RESULT_PREFIX, SCREENSHOT_NOTICE
 
 _current_tool = contextvars.ContextVar("ayana_current_tool", default=None)
+
+# Read-only observers that can be repeated forever without adding information.
+# A second identical result is a stuck loop, not progress.
+REPEAT_READ_TOOLS = {"capture_target", "observe_controls", "windows.list"}
 
 
 class CapabilityRuntime:
@@ -553,6 +557,10 @@ class CapabilityRuntime:
             except ValueError as error:
                 raise ToolError("invalid_arguments", str(error)) from None
             result = await self.registry.execute(name, args)
+            if (task and tool is not None and tool.effect == "read" and name in REPEAT_READ_TOOLS
+                    and task.note_observation(signature, result_digest(result)) >= 1):
+                raise ToolError("repeated_no_progress",
+                                "这一步和上一次结果完全相同，没有新信息。请停止重复同一个调用，改用其他方法，或根据现有证据报告 blocked/needs_input")
             evidence = receipt(name, result, tool.effect if tool else "read")
             value = {"name": name, "call_id": call_id, "result": result, "receipt": evidence}
             await self.emit("tool.completed", tool=name, result=result, receipt=evidence, audience="assistant", **metadata)

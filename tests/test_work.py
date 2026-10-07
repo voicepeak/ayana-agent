@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from services.agent.tasks import TaskRunner
-from services.agent.work import local_clock, remember_result
+from services.agent.work import local_clock, remember_result, result_digest
 from services.agent.tools.registry import ToolError
 from services.agent.tools.system import SystemTools, ApplicationCatalog, app_record
 from services.agent.tools.policy import DirectoryPolicy
@@ -82,6 +82,18 @@ def test_read_evidence_can_verify_an_already_completed_goal_without_repeating_a_
     task.results["read"] = {"value": {"result": {"content": "requested content"}}}
     task.report(complete("保存指定内容", "read", "/content", "requested content"))
     assert not task.effects and task.outcome() == "succeeded"
+
+
+def test_repeated_read_digest_ignores_volatile_fields_and_counts_no_progress():
+    first = {"snapshot_id": "a", "captured_at_monotonic_ms": 1, "content_sha256": "same"}
+    second = {"snapshot_id": "b", "captured_at_monotonic_ms": 2, "content_sha256": "same"}
+    changed = {**second, "content_sha256": "other"}
+    assert result_digest(first) == result_digest(second)
+    assert result_digest(second) != result_digest(changed)
+    task = TaskRunner("observe a window", {})
+    assert task.note_observation("sig", result_digest(second)) == 0
+    assert task.note_observation("sig", result_digest(first)) == 1
+    assert task.note_observation("sig", result_digest(changed)) == 0
 
 
 @pytest.mark.asyncio

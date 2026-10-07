@@ -51,8 +51,3 @@ export function waitingActivity(state: ModelState): WaitingActivity {
   if (receipt) return { key: `retry:${String(receipt.call_id || receipt.tool)}`, stage: 'thinking', title: '这条路没走通，再想想。', detail: '刚才的尝试没有完成，在整理下一步' };
   return { key: 'thinking', stage: 'thinking', title: '让我想一会儿。', detail: '在整理思路' };
 }
-
-export function waitingDuration(seconds: number): string {
-  if (seconds < 60) return `${Math.max(0, Math.floor(seconds))} 秒`;
-  return `${Math.floor(seconds / 60)} 分 ${Math.floor(seconds % 60)} 秒`;
-}

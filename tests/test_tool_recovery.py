@@ -392,6 +392,31 @@ async def test_network_error_is_typed_and_other_call_succeeds(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_repeated_observation_without_new_information_breaks_the_loop(tmp_path):
+    agent = runtime(tmp_path, lambda r: sse_response([speech()]))
+    agent.target = {"target_id": "win"}
+    async def observe():
+        return [{"name": "新标签页 - Google Chrome"}]
+    agent.registry.tools["observe_controls"].handler = observe
+    try:
+        await agent.handle({"type": "turn.start", "text": "打开网页给我看看"})
+        await agent.task
+        first = await agent._dispatch_tool({"type": "tool", "name": "observe_controls", "arguments": {}, "call_id": "obs-1"})
+        assert first["result"][0]["name"].startswith("新标签页")
+        second = await agent._dispatch_tool({"type": "tool", "name": "observe_controls", "arguments": {}, "call_id": "obs-2"})
+        assert second["code"] == "repeated_no_progress"
+        assert second["receipt"]["retryable"] is False
+        async def changed():
+            return [{"name": "音无彩名 - 萌娘百科 - Google Chrome"}]
+        agent.registry.tools["observe_controls"].handler = changed
+        third = await agent._dispatch_tool({"type": "tool", "name": "observe_controls", "arguments": {}, "call_id": "obs-3"})
+        assert third["result"][0]["name"].startswith("音无彩名")
+        assert [e["type"] for e in next(iter(agent.clients)).events].count("tool.failed") == 1
+    finally:
+        await agent.close()
+
+
+@pytest.mark.asyncio
 async def test_repeated_searches_stop_network_and_feedback_is_task_local(tmp_path):
     calls = []
     agent = runtime(tmp_path, lambda r: sse_response([speech()]))

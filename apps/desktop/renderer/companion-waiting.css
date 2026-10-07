@@ -12,7 +12,6 @@
 .waiting-copy { min-width: 0; flex: 1; }
 .waiting-title { margin: 0; font: 400 17px/1.65 'Noto Serif SC', 'SimSun', serif; letter-spacing: .035em; overflow-wrap: anywhere; }
 .waiting-detail { margin: 5px 0 0; color: var(--bubble-secondary); font: 12px/1.7 'Microsoft YaHei', sans-serif; overflow-wrap: anywhere; }
-.waiting-time { display: block; margin-top: 11px; color: var(--bubble-secondary); font: 11px/1.5 'Microsoft YaHei', sans-serif; font-variant-numeric: tabular-nums; }
 .waiting-controls { display: flex; align-items: baseline; gap: 12px; }
 .waiting-stop { border: 0; background: transparent; color: inherit; padding: 3px 6px; font: 11px/1.5 'Microsoft YaHei', sans-serif; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; opacity: .7; }
 .waiting-stop:hover, .waiting-stop:focus-visible { opacity: 1; }
@@ -27,10 +26,9 @@
 .cinematic-memory:is([data-reading=true], [data-waiting-continuation=true]) .waiting-motion span { width: 4px; height: 4px; }
 .cinematic-memory:is([data-reading=true], [data-waiting-continuation=true]) .waiting-message .waiting-detail { display: none; }
 .cinematic-memory:is([data-reading=true], [data-waiting-continuation=true]) .waiting-title { font-size: 12px; line-height: 1.5; }
-.cinematic-memory:is([data-reading=true], [data-waiting-continuation=true]) .waiting-time { color: var(--chrome-muted); margin-top: 2px; font-size: 11px; }
 .companion-note[data-bubbles=false] .companion-waiting { background: transparent; box-shadow: none; }
 .companion-note[data-bubbles=false] .waiting-title { color: var(--bare-text); }
-.companion-note[data-bubbles=false] :is(.waiting-detail,.waiting-time) { color: var(--bare-secondary); }
+.companion-note[data-bubbles=false] .waiting-detail { color: var(--bare-secondary); }
 @keyframes waiting-drift {
   0%, 65%, 100% { transform: translateY(0); opacity: .35; }
   30% { transform: translateY(-4px); opacity: .9; }

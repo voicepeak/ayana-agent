@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime
+import hashlib
 import json
 import os
 
@@ -26,6 +27,29 @@ def pointer(value, path):
         else:
             value = value[part]
     return value
+
+
+# Volatile tool fields change on every call without adding information; they
+# must not make a repeated observation look like progress.
+_VOLATILE_RESULT_KEYS = {"snapshot_id", "captured_at_monotonic_ms", "captured_at", "timestamp",
+                         "at", "duration_ms", "expires", "png_base64", "request_id", "log_cursor"}
+
+
+def _stable(value):
+    if isinstance(value, dict):
+        return {key: _stable(item) for key, item in value.items() if key not in _VOLATILE_RESULT_KEYS}
+    if isinstance(value, list):
+        return [_stable(item) for item in value]
+    return value
+
+
+def result_digest(result):
+    """A stable digest of a read result, ignoring volatile observation fields."""
+    try:
+        encoded = json.dumps(_stable(result), ensure_ascii=False, sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        encoded = repr(result)
+    return hashlib.sha256(encoded.encode("utf-8", "replace")).hexdigest()
 
 
 def validate_report(event):

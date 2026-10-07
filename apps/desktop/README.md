@@ -36,11 +36,12 @@ the backend resolves only catalog IDs under the user-selected outfit. A 300ms,
 12px dip runs only when the visible expression actually changes; the portrait
 holds its current face while the next sentence is generated. Idle and speech never float.
 
-Waiting displays the fixed text `在终之空游荡中...` beside three gently pulsing dots,
-with the actual work state, elapsed timer and stop button below. Tool work stays visible
-after a spoken acknowledgment and while its results are being organized. Long waits
-receive an honest note after 30 seconds in the same phase; completion, cancellation,
-errors and approval requests clear the waiting state. Reduced motion keeps the dots still.
+Waiting keeps the original quiet pulsing dots for thinking, voice preparation
+and result organization. Only while a tool call is actually running do those dots
+expand into the fixed text `在终之空游荡中...` with the real work state and a stop
+button, so a slow call cannot look like a frozen window. There is no elapsed timer.
+Completion, cancellation, errors and approval requests clear the waiting state.
+Reduced motion keeps the dots still.
 The wheel and arrow keys browse earlier dialogue while waiting. A new reply preserves
 the selected older sentence; the return-to-latest button resumes the current dialogue.
 After building, run `node_modules/electron/dist/electron.exe scripts/preview-waiting.mjs`

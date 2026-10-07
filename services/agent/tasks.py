@@ -30,6 +30,18 @@ class TaskRunner:
     effects: list = field(default_factory=list)
     repair_requested: bool = False
     continues_task_id: str | None = None
+    observations: dict = field(default_factory=dict)
+
+    def note_observation(self, signature, digest):
+        """Count identical read results so a stuck repeat can be broken.
+
+        A changed digest means the call learned something new; only an
+        unchanged digest is treated as no progress.
+        """
+        previous = self.observations.get(signature)
+        repeats = previous["repeats"] + 1 if previous and previous["digest"] == digest else 0
+        self.observations[signature] = {"digest": digest, "repeats": repeats}
+        return repeats
 
     def report(self, event):
         event = validate_report(event)

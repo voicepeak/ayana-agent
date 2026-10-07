@@ -6,7 +6,7 @@ import { bridge } from './state';
 import type { DialogueLanguage } from './dialogueLanguages';
 import type { CaptionLayout } from './captionLayout';
 import { captionLayer, captionStep } from './captionStack';
-import { dialogueWaiting } from './dialogueWaiting';
+import { activeWaitingTool, dialogueWaiting } from './dialogueWaiting';
 import { CompanionWaiting } from './CompanionWaiting';
 
 export function CompanionWorkspace(props: {
@@ -66,6 +66,10 @@ function DialogueScene({ state, speech, textOnly, show, primaryLanguage, transla
   const selectedId = entries[selectedIndex]?.id;
   const reading = Boolean(selectedId && selectedId !== activeId);
   const waiting = dialogueWaiting(state);
+  // The processing card only covers a tool call that is actually running, so a
+  // slow call cannot look like a frozen window. Every other wait keeps the
+  // original quiet dots.
+  const toolWaiting = waiting && Boolean(activeWaitingTool(state));
   const waitingContinuation = state.speeches.some(item => item.generation === state.generation
     && (item.id === state.presented || ['playing', 'played', 'partial'].includes(item.state)));
   const previousSelection = useRef<{ id?: string; index: number }>({ index: selectedIndex });
@@ -156,7 +160,11 @@ function DialogueScene({ state, speech, textOnly, show, primaryLanguage, transla
           </article>;
         })}
       </div>
-      {waiting && <CompanionWaiting key={state.questions.at(-1)?.id} state={state}/>}
+      {toolWaiting && <CompanionWaiting key={state.questions.at(-1)?.id} state={state}/>}
+      {waiting && !toolWaiting && <div className="cinematic-waiting" role="status" aria-label="彩名正在思考" title="彩名正在思考">
+        <span className="cinematic-waiting-light" aria-hidden="true"/>
+        <span className="cinematic-waiting-dots" aria-hidden="true"><i/><i/><i/></span>
+      </div>}
       {show && entries.length > 0 && <nav className="cinematic-stack-navigation" aria-label="浏览对白" aria-busy={loading}>
         {reading && <button type="button" className="cinematic-stack-latest" aria-label="回到最新台词" title="回到最新台词" onClick={latest}>
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 8v5a6 6 0 0 0 12 0V5m-4 4 4-4 4 4"/></svg>
