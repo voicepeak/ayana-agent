@@ -2,11 +2,19 @@
 
 Windows 个性化 Agent：立绘、细宋体电影对白和紧凑的文字输入收在可定制的便签中，跳字跟随实际语音播放进度；日语 Ayana 音色、可打断播放。便签提供夜墨、茶白、苔绿、雾蓝四套主题，以及自定义图片或纯色。模型、声音、服装和桌面工具通过右键菜单或托盘进入独立管理窗口。正式人设见 `characters/ayana/persona.md`。
 
+## 项目主页
+
+`site/` 是 GitHub Pages 静态主页：[voicepeak.github.io/ayana-agent](https://voicepeak.github.io/ayana-agent/)。首次启用：仓库 Settings → Pages 将 Source 设为 **GitHub Actions**；之后推送到 `main` 且改动 `site/**` 时由 `.github/workflows/pages.yml` 自动发布。本地预览：`python -m http.server 4173 --directory site`。
+
+主页立绘、表情清单与截图由 `python site/build_assets.py` 从本机 `assets/ayana`、`characters/ayana` 与 `.runtime` 材料生成（输出已提交，重建需要这些本地素材）。页面只使用校服素材，角色立绘版权归原作及权利方所有。
+
 ## 在本机运行
 
-最新整合版为 `apps/desktop/release/Ayana-0.3.16-win-x64.exe`（2026-10-07），下载见 [GitHub Releases](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.16)。呼出不再绑定窗口；`Ctrl+Alt+W` 注视当前窗口，再按一次解除。窗口无法截图时对话继续，并说明限制。人设不再附带可照搬的台词示例。个人配置和话题继续使用 `%APPDATA%/Ayana`；完整改动与验证见 [0.3.16 发布记录](docs/RELEASE_0.3.16.md)。
+本机新构建为 `apps/desktop/release/Ayana-0.3.19-win-x64.exe`（2026-10-07）：聊天顶部直接切换或新建对话，见 [聊天窗口切换对话](docs/RELEASE_0.3.19.md)。它同时包含最新工具恢复修复：保留原始名称搜索、精确查询与格式回退、正文链接与续读、独立联网工具并发、单条错误恢复、真实进度和停止按钮，见 [工具调用恢复修复](docs/RELEASE_0.3.18.md)。此前连续聊天、对话管理和个人记忆功能继续保留，见 [连续对话与对话管理](docs/CONTINUOUS_CONVERSATION.md)。
 
-本机交付版可直接双击 `apps/desktop/release/Ayana-0.3.16-win-x64.exe`。它包含独立 Python、桌面程序与立绘；个人模型配置保存在 `%APPDATA%/Ayana/config/local.json`。首次解包和加载音色需要等待；此前版本首次语音冷启动实测约 43 秒，期间文字输入与界面保持可用。启动新版前请退出旧版。
+本机交付版可直接双击 `apps/desktop/release/Ayana-0.3.19-win-x64.exe`。它包含独立 Python、桌面程序与立绘；个人模型配置保存在 `%APPDATA%/Ayana/config/local.json`。首次解包和加载音色需要等待；此前版本首次语音冷启动实测约 43 秒，期间文字输入与界面保持可用。启动新版前请退出旧版。
+
+上一个公开发布为 [0.3.16](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.16)。它修复呼出绑定窗口、截图受限后的对话中断和工具结果被过度压缩，并提供 `Ctrl+Alt+W` 注视开关；见 [0.3.16 发布记录](docs/RELEASE_0.3.16.md)。0.3.17 至 0.3.19 仅在本机构建。
 
 开发目录也可双击 `启动 Ayana.cmd`，后续修改仍按下面的流程构建。
 
