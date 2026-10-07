@@ -33,6 +33,8 @@ class OpenAIProvider:
         self.request_messages = []
         self.usage = None
         self.tool_calls = []
+        self.tool_errors = {}
+        self.report_errors = []
         self.used_native_tools = False
         self.request_observer = None
         self.speaking_style = ""
@@ -93,8 +95,12 @@ class OpenAIProvider:
                             if event.get("type") == "task":
                                 try:
                                     validate_report(event)
-                                except (ValueError, TypeError):
-                                    raise ModelEventError("Model returned an invalid task report") from None
+                                except (ValueError, TypeError) as error:
+                                    self.report_errors.append({"issue": str(error)[:300], "fields": sorted(event)[:32]})
+                                    self.output_repaired = True
+                                    # Invalid metadata must not discard speech or sibling tools.
+                                    # The runtime requests one bounded continuation to correct it.
+                                    continue
                             expanded = [event]
                             if event.get("type") == "speech":
                                 try:
@@ -210,7 +216,7 @@ class OpenAIProvider:
             return {"role": "assistant", "content": self.response_text or "",
                     "tool_calls": [{"id": call["call_id"], "type": "function",
                                     "function": {"name": call["api_name"],
-                                                 "arguments": json.dumps(call["arguments"], ensure_ascii=False)}}
+                                                 "arguments": call.get("raw_arguments", json.dumps(call["arguments"], ensure_ascii=False))}}
                                    for call in self.tool_calls]}
         return {"role": "assistant", "content": self.response_text}
 
@@ -220,6 +226,8 @@ class OpenAIProvider:
         self.request_messages = messages
         self.usage = None
         self.tool_calls = []
+        self.tool_errors = {}
+        self.report_errors = []
         self.used_native_tools = False
         self.output_repaired = False
         started = time.monotonic()
@@ -327,18 +335,23 @@ class OpenAIProvider:
                 for index in sorted(native):
                     slot = native[index]
                     arguments = {}
+                    argument_error = None
                     if slot["arguments"].strip():
                         try:
                             parsed = json.loads(slot["arguments"])
                             if not isinstance(parsed, dict):
-                                raise ModelEventError("Model tool arguments must be an object")
-                            arguments = parsed
+                                argument_error = "工具参数必须是 JSON 对象；请更正这一条调用"
+                            else:
+                                arguments = parsed
                         except json.JSONDecodeError:
-                            raise ModelEventError("Model tool arguments were incomplete or malformed") from None
+                            argument_error = "工具参数不是完整有效的 JSON；请更正这一条调用"
                     call_id = slot["id"] or ("call-" + str(abs(hash((url, slot["name"], index))))[:12])
+                    if argument_error:
+                        self.tool_errors[call_id] = argument_error
                     internal = (tool_names or {}).get(slot["name"], slot["name"])
                     self.tool_calls.append({"call_id": call_id, "name": internal,
-                                            "api_name": slot["name"], "arguments": arguments})
+                                            "api_name": slot["name"], "arguments": arguments,
+                                            "raw_arguments": slot["arguments"] or "{}"})
                     event_count += 1
                     yield {"type": "tool", "name": internal, "arguments": arguments, "call_id": call_id}
                 self.used_native_tools = bool(self.tool_calls)

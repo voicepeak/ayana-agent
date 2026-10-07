@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import ipaddress
 import json
 import socket
 import uuid
+import unicodedata
 import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse, parse_qs
 
 import httpx
 
@@ -64,16 +66,23 @@ class BodyText(HTMLParser):
         self.title = False
         self.heading = []
         self.text = []
+        self.links = []
+        self.anchor = None
 
     def handle_starttag(self, tag, attrs):
         if tag in {"script", "style", "nav", "footer", "noscript", "svg"}:
             self.skip += 1
         if tag == "title":
             self.title = True
+        if tag == "a" and not self.skip:
+            self.anchor = {"url": dict(attrs).get("href", ""), "text": ""}
         if tag in {"p", "div", "br", "li", "h1", "h2", "h3", "pre"} and not self.skip:
             self.text.append("\n")
 
     def handle_endtag(self, tag):
+        if tag == "a" and self.anchor is not None:
+            self.links.append(self.anchor)
+            self.anchor = None
         if tag in {"script", "style", "nav", "footer", "noscript", "svg"}:
             self.skip = max(0, self.skip - 1)
         if tag == "title":
@@ -84,6 +93,64 @@ class BodyText(HTMLParser):
             self.heading.append(value)
         elif not self.skip:
             self.text.append(value)
+            if self.anchor is not None:
+                self.anchor["text"] += value
+
+
+class BingResults(HTMLParser):
+    """Only organic result blocks; navigation and verification pages aren't results."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.stack, self.items = [], []
+        self.item = None
+        self.depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "li" and "b_algo" in attrs.get("class", "").split() and self.item is None:
+            self.item = {"title": "", "url": "", "summary": ""}
+            self.depth = len(self.stack)
+        if self.item is not None and tag == "a" and "h2" in self.stack and not self.item["url"]:
+            self.item["url"] = attrs.get("href", "")
+        if tag not in {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}:
+            self.stack.append(tag)
+
+    def handle_endtag(self, tag):
+        if tag not in self.stack:
+            return
+        index = len(self.stack) - 1 - self.stack[::-1].index(tag)
+        del self.stack[index:]
+        if self.item is not None and len(self.stack) <= self.depth:
+            if self.item["url"] and self.item["title"].strip():
+                self.items.append(self.item)
+            self.item = None
+
+    def handle_data(self, value):
+        if self.item is None or any(tag in self.stack for tag in {"script", "style"}):
+            return
+        if "h2" in self.stack:
+            self.item["title"] += value
+        elif "p" in self.stack:
+            self.item["summary"] += value
+
+
+def bing_result_url(value):
+    # Bing HTML may wrap outbound links as /ck/a?...&u=a1<base64 URL>.
+    url = urljoin("https://www.bing.com", value)
+    parsed = urlparse(url)
+    if parsed.hostname == "www.bing.com" and parsed.path == "/ck/a":
+        wrapped = parse_qs(parsed.query).get("u", [""])[0]
+        if not wrapped.startswith("a1"):
+            raise ToolError("blocked_url", "搜索链接无法解析")
+        try:
+            url = base64.urlsafe_b64decode(wrapped[2:] + "=" * (-len(wrapped[2:]) % 4)).decode("utf-8")
+        except (ValueError, UnicodeError):
+            raise ToolError("blocked_url", "搜索链接无法解析") from None
+    return str(public_url(url))
+
+
+def normalized(value):
+    return "".join(unicodedata.normalize("NFKC", value).casefold().split())
 
 
 class WebTools:
@@ -95,6 +162,7 @@ class WebTools:
                                        follow_redirects=False, trust_env=False,
                                        headers={"User-Agent": "Ayana/0.3 public-evidence"})
         self.sources = {}
+        self.pages = {}
 
     @property
     def selected_search_provider(self):
@@ -137,29 +205,79 @@ class WebTools:
                 return url, response.headers.get("content-type", ""), bytes(raw), response.encoding or "utf-8"
         raise ToolError("redirect_limit", "网页重定向失败")
 
-    async def fetch(self, url):
+    def page(self, sid, offset, max_chars):
+        page = self.pages[sid]
+        content = page["content"]
+        if offset >= len(content) and offset != 0:
+            raise ToolError("invalid_offset", "读取位置超出正文范围")
+        end = min(offset + max_chars, len(content))
+        return {**self.sources[sid], "content": content[offset:end], "offset": offset,
+                "total_chars": len(content), "truncated": end < len(content),
+                "next_offset": end if end < len(content) else None, "links": page["links"],
+                "links_total": page["links_total"], "links_truncated": page["links_total"] > len(page["links"])}
+
+    async def fetch(self, url, offset=0, max_chars=12000):
+        if type(offset) is not int or offset < 0 or type(max_chars) is not int or not 1000 <= max_chars <= 20000:
+            raise ToolError("invalid_arguments", "网页分页参数无效")
+        if url in self.pages and url in self.sources:
+            return self.page(url, offset, max_chars)
+        if offset:
+            raise ToolError("source_expired", "续读需要仍在缓存中的 source_id；请从网址重新读取")
         if url in self.sources:
             url = self.sources[url]["url"]
         async with asyncio.timeout(25):
             final, content_type, raw, encoding = await self.download(url)
+        links = []
+        seen = set()
         if "html" in content_type:
             parser = BodyText()
             parser.feed(raw.decode(encoding, errors="replace"))
             content = "\n".join(line.strip() for line in "".join(parser.text).splitlines() if line.strip())
             title = "".join(parser.heading).strip()[:500]
+            for item in parser.links:
+                if not item["url"] or item["url"].startswith("#"):
+                    continue
+                try:
+                    link = str(public_url(urljoin(final, item["url"])))
+                except ToolError:
+                    continue
+                if link not in seen:
+                    seen.add(link)
+                    if len(links) < 100:
+                        links.append({"url": link, "text": " ".join(item["text"].split())[:300]})
         elif content_type.startswith("text/plain"):
             content, title = raw.decode(encoding, errors="replace"), final
         else:
             raise ToolError("unsupported_web_format", "首批网页读取仅支持 HTML 和纯文本")
         if len(content.strip()) < 30:
             raise ToolError("web_empty", "正文不足，可能需要浏览器加载或登录")
-        return self.remember({"url": final, "title": title or final, "content": content[:12000],
-                              "truncated": len(content) > 12000, "fetched_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()})
+        source = self.remember({"url": final, "title": title or final,
+                               "fetched_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()})
+        sid = source["source_id"]
+        self.pages[sid] = {"content": content, "links": links, "links_total": len(seen)}
+        # Bounded full-page cache; source metadata remains independently bounded.
+        while len(self.pages) > 16 or sum(len(p["content"]) for p in self.pages.values()) > 8 * 1024 * 1024:
+            self.pages.pop(next(iter(self.pages)))
+        return self.page(sid, 0, max_chars)
 
-    async def search(self, query, count=5):
+    async def search(self, query, count=5, subject=None, progress=None):
         provider = self.selected_search_provider
         if provider == "bing":
-            return await self._bing_search(query, count)
+            async with asyncio.timeout(25):
+                result = await self._bing_search(query, count, progress)
+                exact = normalized(subject) if subject else ""
+                if exact and query.strip() != '"' + subject.strip('"') + '"' and not any(
+                        exact in normalized(item["title"] + " " + item["summary"]) for item in result):
+                    if progress:
+                        await progress("exact_search", "结果没有提到这个名称，正在按名称重新查找")
+                    result = await self._bing_search('"' + subject.strip('"') + '"', count, progress)
+                    for item in result:
+                        item["query_used"] = '"' + subject.strip('"') + '"'
+                if exact:
+                    for item in result:
+                        # A hint for inspecting results, never proof of relevance or identity.
+                        item["subject_mentioned"] = exact in normalized(item["title"] + " " + item["summary"])
+                return result
         if provider != "brave":
             raise ToolError("search_unconfigured", "搜索方式必须为 auto、bing 或 brave")
         key = self.key_provider()
@@ -189,7 +307,40 @@ class WebTools:
                                          "summary": str(item.get("description", ""))[:1800], "published": item.get("page_age")}))
         return result
 
-    async def _bing_search(self, query, count):
+    async def _bing_search(self, query, count, progress=None):
+        try:
+            return await self._bing_rss(query, count)
+        except ToolError as error:
+            if error.code not in {"search_invalid_response", "search_empty"}:
+                raise
+            if progress:
+                await progress("search_fallback", "搜索服务返回异常，正在换一种方式查找")
+            url = str(httpx.URL("https://www.bing.com/search", params={"q": query}))
+            try:
+                _, _, raw, encoding = await self.download(url)
+                parser = BingResults()
+                parser.feed(raw.decode(encoding, errors="replace"))
+                result, seen = [], set()
+                for item in parser.items:
+                    try:
+                        link = bing_result_url(item["url"])
+                    except ToolError:
+                        continue
+                    if link in seen:
+                        continue
+                    seen.add(link)
+                    result.append(self.remember({"title": " ".join(item["title"].split())[:500],
+                        "url": link, "summary": " ".join(item["summary"].split())[:1800],
+                        "provider": "bing", "format": "html", "rank": len(result) + 1}))
+                    if len(result) >= count:
+                        break
+                if result:
+                    return result
+            except ToolError:
+                pass
+            raise error
+
+    async def _bing_rss(self, query, count):
         # Adapted from ByteMind's RSS search approach, commit f259496e.
         # https://github.com/1024XEngineer/bytemind/blob/f259496ed7f959b3400c57e2d3d4d0a548d4b6a3/internal/tools/web_search.go
         url = str(httpx.URL("https://www.bing.com/search", params={"q": query, "format": "rss"}))

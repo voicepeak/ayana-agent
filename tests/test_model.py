@@ -352,9 +352,11 @@ async def test_invalid_native_arguments_never_become_empty_executable_arguments(
         calls.append(request)
         return native_tool_sse("call_1", "files__create", arguments)
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
-        with pytest.raises(ModelEventError):
-            _ = [event async for event in OpenAIProvider(Settings(), client).stream_reply([])]
-    assert len(calls) == 2
+        provider = OpenAIProvider(Settings(), client)
+        events = [event async for event in provider.stream_reply([])]
+    assert len(calls) == 1 and events[0]["call_id"] == "call_1"
+    assert "call_1" in provider.tool_errors  # runtime returns invalid_arguments without executing
+    assert provider.assistant_message()["tool_calls"][0]["function"]["arguments"] == arguments
 
 
 @pytest.mark.asyncio
