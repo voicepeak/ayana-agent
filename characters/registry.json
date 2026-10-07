@@ -1,0 +1,15 @@
+{
+  "default": "ayana",
+  "characters": {
+    "ayana": {
+      "name": "彩名（黑制服）",
+      "map": "characters/ayana/avatar-map.json",
+      "avatar_root": "assets/ayana"
+    },
+    "ayana-su": {
+      "name": "彩名（白制服）",
+      "map": "characters/ayana-su/avatar-map.json",
+      "avatar_root": "assets/ayana-su"
+    }
+  }
+}

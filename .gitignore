@@ -14,6 +14,7 @@ config/*.local.json
 .env.*
 !.env.example
 assets/ayana/
+assets/ayana-su/
 *.wav
 *.ckpt
 *.pth

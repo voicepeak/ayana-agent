@@ -1,0 +1,468 @@
+{
+  "default_asset_id": "neutral",
+  "intent_defaults": {
+    "acknowledge": "neutral",
+    "explain": "explain",
+    "encourage": "encourage",
+    "caution": "caution",
+    "playful": "playful"
+  },
+  "assets": {
+    "su_ay0000": {
+      "file": "su_ay0000.png",
+      "source_expression": "平静",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0000a": {
+      "file": "su_ay0000a.png",
+      "source_expression": "平静",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0000b": {
+      "file": "su_ay0000b.png",
+      "source_expression": "背影",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 553,
+      "height": 809
+    },
+    "su_ay0001": {
+      "file": "su_ay0001.png",
+      "source_expression": "自然微笑",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0001a": {
+      "file": "su_ay0001a.png",
+      "source_expression": "自然微笑",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0002": {
+      "file": "su_ay0002.png",
+      "source_expression": "得意",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0002a": {
+      "file": "su_ay0002a.png",
+      "source_expression": "得意",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0003": {
+      "file": "su_ay0003.png",
+      "source_expression": "得意",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0003a": {
+      "file": "su_ay0003a.png",
+      "source_expression": "得意",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0004": {
+      "file": "su_ay0004.png",
+      "source_expression": "闭眼嘟嘴",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0004a": {
+      "file": "su_ay0004a.png",
+      "source_expression": "不满",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0005": {
+      "file": "su_ay0005.png",
+      "source_expression": "病娇",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0005a": {
+      "file": "su_ay0005a.png",
+      "source_expression": "病娇",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0006": {
+      "file": "su_ay0006.png",
+      "source_expression": "担忧",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0006a": {
+      "file": "su_ay0006a.png",
+      "source_expression": "担忧",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0007": {
+      "file": "su_ay0007.png",
+      "source_expression": "委屈",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0007a": {
+      "file": "su_ay0007a.png",
+      "source_expression": "委屈",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0008": {
+      "file": "su_ay0008.png",
+      "source_expression": "疑惑",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0008a": {
+      "file": "su_ay0008a.png",
+      "source_expression": "疑惑",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0009": {
+      "file": "su_ay0009.png",
+      "source_expression": "吃惊",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0009a": {
+      "file": "su_ay0009a.png",
+      "source_expression": "吃惊",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0010": {
+      "file": "su_ay0010.png",
+      "source_expression": "无奈",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0010a": {
+      "file": "su_ay0010a.png",
+      "source_expression": "无奈",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0011": {
+      "file": "su_ay0011.png",
+      "source_expression": "坏笑",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0011a": {
+      "file": "su_ay0011a.png",
+      "source_expression": "坏笑",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0012a": {
+      "file": "su_ay0012a.png",
+      "source_expression": "坏笑",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0100": {
+      "file": "su_ay0100.png",
+      "source_expression": "脸红平静",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0100a": {
+      "file": "su_ay0100a.png",
+      "source_expression": "脸红平静",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0101": {
+      "file": "su_ay0101.png",
+      "source_expression": "脸红自然微笑",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0101a": {
+      "file": "su_ay0101a.png",
+      "source_expression": "脸红自然微笑",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0102": {
+      "file": "su_ay0102.png",
+      "source_expression": "脸红得意",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0102a": {
+      "file": "su_ay0102a.png",
+      "source_expression": "脸红得意",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0103": {
+      "file": "su_ay0103.png",
+      "source_expression": "脸红得意",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0103a": {
+      "file": "su_ay0103a.png",
+      "source_expression": "脸红得意",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0104": {
+      "file": "su_ay0104.png",
+      "source_expression": "脸红闭眼嘟嘴",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0104a": {
+      "file": "su_ay0104a.png",
+      "source_expression": "脸红不满",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0105": {
+      "file": "su_ay0105.png",
+      "source_expression": "病娇惊讶",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0105a": {
+      "file": "su_ay0105a.png",
+      "source_expression": "病娇惊讶",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0106": {
+      "file": "su_ay0106.png",
+      "source_expression": "脸红担忧",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0106a": {
+      "file": "su_ay0106a.png",
+      "source_expression": "脸红担忧",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0107": {
+      "file": "su_ay0107.png",
+      "source_expression": "脸红委屈",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0107a": {
+      "file": "su_ay0107a.png",
+      "source_expression": "脸红委屈",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0108": {
+      "file": "su_ay0108.png",
+      "source_expression": "脸红疑惑",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0108a": {
+      "file": "su_ay0108a.png",
+      "source_expression": "脸红疑惑",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0109": {
+      "file": "su_ay0109.png",
+      "source_expression": "脸红吃惊",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0109a": {
+      "file": "su_ay0109a.png",
+      "source_expression": "脸红吃惊",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "su_ay0110": {
+      "file": "su_ay0110.png",
+      "source_expression": "脸红无奈",
+      "pose": "open",
+      "costume": "白色校服",
+      "width": 559,
+      "height": 805
+    },
+    "su_ay0110a": {
+      "file": "su_ay0110a.png",
+      "source_expression": "脸红无奈",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805
+    },
+    "blur": {
+      "file": "blur.png",
+      "source_expression": "背影",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 576,
+      "height": 835,
+      "alias": true
+    },
+    "neutral": {
+      "file": "su_ay0000a.png",
+      "source_expression": "平静",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805,
+      "alias": true
+    },
+    "explain": {
+      "file": "su_ay0000a.png",
+      "source_expression": "平静",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805,
+      "alias": true
+    },
+    "encourage": {
+      "file": "su_ay0001a.png",
+      "source_expression": "自然微笑",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805,
+      "alias": true
+    },
+    "caution": {
+      "file": "su_ay0006a.png",
+      "source_expression": "担忧",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805,
+      "alias": true
+    },
+    "playful": {
+      "file": "su_ay0002a.png",
+      "source_expression": "得意",
+      "pose": "crossed",
+      "costume": "白色校服",
+      "width": 555,
+      "height": 805,
+      "alias": true
+    }
+  },
+  "fallbacks": {
+    "affect": {
+      "pleased": "自然微笑",
+      "concerned": "担忧"
+    },
+    "intent": {
+      "explain": "平静",
+      "encourage": "自然微笑",
+      "caution": "担忧",
+      "playful": "得意"
+    },
+    "default": "平静"
+  },
+  "transition": {
+    "sentence_motion": "dip",
+    "dip_px": 12,
+    "duration_ms": 300
+  }
+}
