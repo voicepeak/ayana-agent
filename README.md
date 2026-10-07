@@ -2,6 +2,17 @@
 
 Windows 个性化 Agent：立绘、细宋体电影对白和紧凑的文字输入收在可定制的便签中，跳字跟随实际语音播放进度；日语 Ayana 音色、可打断播放。便签提供夜墨、茶白、苔绿、雾蓝四套主题，以及自定义图片或纯色。模型、声音、服装和桌面工具通过右键菜单或托盘进入独立管理窗口。正式人设见 `characters/ayana/persona.md`。
 
+### 主动观察与对话管理
+
+本版已打包为 `apps/desktop/release/Ayana-0.3.21-win-x64.exe`，退出旧版后打开即可使用，个人设置和历史沿用原位置；发布记录见 [0.3.21](docs/RELEASE_0.3.21.md)。
+
+呼出快捷键第一次将彩名置于上层，再按一次隐藏。打开聊天不自动绑定窗口，也不持续截图。
+
+Agent 可调用 `desktop.observe` 按需查看前台窗口、指定窗口或整个桌面。桌面全景只用于观察，操作前仍需选择具体窗口并取得新截图。
+开启“允许彩名偶尔偷看”后，彩名在显示且空闲时每 45–90 秒获得一次观察机会；同一窗口至少间隔约 3 分钟重新关注，相同画面会跳过后续视觉请求。她可以保持安静，主动搭话至少间隔 5 分钟。隐藏、进行任务、播放语音或关闭屏幕观察时不会主动偷看。说“别看了”暂停，“继续看”恢复；明确要求看屏幕时仍可按需观察。
+
+对话切换列表提供删除按钮。确认删除后立即清理该对话的消息、模型上下文、摘要、任务和关联记忆，回收 SQLite 数据页并清理 WAL。其他对话和已经导出的文件保留。
+
 ## 项目主页
 
 `site/` 是 GitHub Pages 静态主页：[voicepeak.github.io/ayana-agent](https://voicepeak.github.io/ayana-agent/)。首次启用：仓库 Settings → Pages 将 Source 设为 **GitHub Actions**；之后推送到 `main` 且改动 `site/**` 时由 `.github/workflows/pages.yml` 自动发布。本地预览：`python -m http.server 4173 --directory site`。
@@ -10,11 +21,11 @@ Windows 个性化 Agent：立绘、细宋体电影对白和紧凑的文字输入
 
 ## 在本机运行
 
-本机新构建为 `apps/desktop/release/Ayana-0.3.20-win-x64.exe`（2026-10-07）：中断只读观察工具的死循环，并让等待卡片只在工具执行时出现，见 [0.3.20 发布记录](docs/RELEASE_0.3.20.md)。它同时包含 0.3.19 的聊天窗口对话切换，见 [聊天窗口切换对话](docs/RELEASE_0.3.19.md)，以及 0.3.18 的最新工具恢复修复：保留原始名称搜索、精确查询与格式回退、正文链接与续读、独立联网工具并发、单条错误恢复、真实进度和停止按钮，见 [工具调用恢复修复](docs/RELEASE_0.3.18.md)。此前连续聊天、对话管理和个人记忆功能继续保留，见 [连续对话与对话管理](docs/CONTINUOUS_CONVERSATION.md)。
+本机新构建为 `apps/desktop/release/Ayana-0.3.21-win-x64.exe`（2026-10-08）：呼出改为上浮切换、屏幕改为按需观察，加入第二套「彩名（白制服）」角色与对话删除，并让已提交语音不再被尾部修复失败中断，见 [0.3.21 发布记录](docs/RELEASE_0.3.21.md)。它保留 0.3.20 的重复观察熔断与等待卡片（见 [0.3.20 发布记录](docs/RELEASE_0.3.20.md)）、0.3.19 的聊天窗口对话切换（见 [聊天窗口切换对话](docs/RELEASE_0.3.19.md)）和 0.3.18 的工具恢复修复（见 [工具调用恢复修复](docs/RELEASE_0.3.18.md)）。此前连续聊天、对话管理和个人记忆功能继续保留，见 [连续对话与对话管理](docs/CONTINUOUS_CONVERSATION.md)。
 
-本机交付版可直接双击 `apps/desktop/release/Ayana-0.3.20-win-x64.exe`。它包含独立 Python、桌面程序与立绘；个人模型配置保存在 `%APPDATA%/Ayana/config/local.json`。首次解包和加载音色需要等待；此前版本首次语音冷启动实测约 43 秒，期间文字输入与界面保持可用。启动新版前请退出旧版。
+本机交付版可直接双击 `apps/desktop/release/Ayana-0.3.21-win-x64.exe`。它包含独立 Python、桌面程序与立绘；个人模型配置保存在 `%APPDATA%/Ayana/config/local.json`。首次解包和加载音色需要等待；此前版本首次语音冷启动实测约 43 秒，期间文字输入与界面保持可用。启动新版前请退出旧版。
 
-0.3.17 至 0.3.19 仅在本机构建；上一个公开发布为 [0.3.16](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.16)。它修复呼出绑定窗口、截图受限后的对话中断和工具结果被过度压缩，并提供 `Ctrl+Alt+W` 注视开关；见 [0.3.16 发布记录](docs/RELEASE_0.3.16.md)。
+0.3.17 及之后的版本已上传到 GitHub Releases，当前公开版本为 [0.3.21](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.21)。0.3.16 的 `Ctrl+Alt+W` 固定注视已由 0.3.21 的按需观察取代；见 [0.3.16 发布记录](docs/RELEASE_0.3.16.md)。
 
 开发目录也可双击 `启动 Ayana.cmd`，后续修改仍按下面的流程构建。
 
@@ -37,6 +48,8 @@ npm --prefix apps/desktop start
 ```powershell
 .\.venv\Scripts\python.exe scripts/prepare_resources.py --voice-root '你的 ayana-voice 目录' --avatar-root '你的正常立绘目录'
 ```
+
+第二套「彩名（白制服）」立绘与音色同样先导入（`--su-avatar-root` 指向带 `素材索引.json` 的立绘目录，`--su-voice-root` / `--base-voice-root` 指向各自的语音目录），之后在「设置与管理 → 外观与声音 → 角色」中切换。两套资源只替换立绘和声音，人设、记忆与使用设置共用；表情目录、服装和对话中的表情动作随所选角色自动切换。
 
 联网模型设置 `provider=openai`、`base_url=https://api.deepseek.com`、`model=deepseek-flash`。密钥通过 `AYANA_API_KEY` 或 `DEEPSEEK_API_KEY` 环境变量提供；本机已有密钥使用当前 Windows 用户的 DPAPI 加密保存，界面和日志不接收密钥。
 
@@ -70,7 +83,7 @@ Brave 凭据可通过 `.venv\Scripts\python.exe scripts/configure_search.py --in
 | `services/tts` | 常驻独立推理进程、显式权重加载、参考缓存、单 worker |
 | `native/windows` | Win32 截图、独立 MTA UIA、单步输入与结果观察 |
 | `apps/desktop` | Electron、受限 IPC、React、唯一 AudioWorklet 播放器 |
-| `characters/ayana` | 人设、工具政策、受控表情映射 |
+| `characters` | 角色注册表、人设、工具政策与受控表情映射（ayana / ayana-su） |
 
 开发按文档、协议、Agent、Windows、语音、桌面、语音输入、发布验证分别提交。实施基线见 `docs/AYANA_IMPLEMENTATION_PLAN.md`，完成情况与实测结果见 `docs/DEMO_DELIVERY.md`。
 
