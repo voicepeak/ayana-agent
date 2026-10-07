@@ -111,7 +111,7 @@ class ToolRegistry:
     async def execute(self, name, args):
         tool = self.tools.get(name)
         if not tool:
-            raise ToolError("unknown_tool", "工具未注册")
+            raise ToolError("unknown_tool", "工具未注册：本轮只能调用提供的工具；speech/translation 是 NDJSON 事件，不是工具")
         if not self.available(tool):
             raise ToolError("tool_unavailable", self.state(tool)["reason"])
         validate(args, tool.parameters)

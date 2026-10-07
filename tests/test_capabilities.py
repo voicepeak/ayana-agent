@@ -275,6 +275,11 @@ async def test_create_and_reviewed_edit_continue_with_real_results(tmp_path, his
         await agent.handle({'type': 'turn.start', 'text': 'create and edit', 'mode': 'execute'})
         await agent.task
         assert agent.active_task.state == 'waiting_approval'
+        assert not (tmp_path / 'artifacts/note.md').exists()
+        item, approval = next(iter(agent.approvals.items()))
+        assert approval['action_kind'] == 'create' and approval['preview'] == 'before'
+        await agent.handle({'type': 'approval.resolve', 'approval_id': item, 'accept': True})
+        await agent.task
         assert (tmp_path / 'artifacts/note.md').read_text() == 'before'
         item = next(iter(agent.approvals))
         await agent.handle({'type': 'approval.resolve', 'approval_id': item, 'accept': True})
@@ -303,6 +308,11 @@ async def test_native_tool_call_runs_and_replays_tool_round(tmp_path):
     agent = runtime(tmp_path, respond)
     try:
         await agent.handle({"type": "turn.start", "text": "把这句自然语言的结果保存成文件", "mode": "execute"})
+        await agent.task
+        assert agent.active_task.state == "waiting_approval"
+        assert not (tmp_path / "artifacts/native.md").exists()
+        item = next(iter(agent.approvals))
+        await agent.handle({'type': 'approval.resolve', 'approval_id': item, 'accept': True})
         await agent.task
         assert (tmp_path / "artifacts/native.md").read_text() == "native content"
         assert agent.active_task.state == "needs_verification"
@@ -336,14 +346,47 @@ async def test_native_edit_approval_continues_after_user_confirm(tmp_path):
     try:
         await agent.handle({"type": "turn.start", "text": "edit the file", "mode": "execute"})
         await agent.task
+        item = next(iter(agent.approvals))
+        await agent.handle({'type': 'approval.resolve', 'approval_id': item, 'accept': True})
+        await agent.task
         assert agent.active_task.state == "waiting_approval"
         assert (tmp_path / "artifacts/edit.md").read_text() == "before"
         item = next(iter(agent.approvals))
-        await agent.handle({"type": "approval.resolve", "approval_id": item, "accept": True})
+        await agent.handle({'type': 'approval.resolve', 'approval_id': item, 'accept': True})
         await agent.task
         assert (tmp_path / "artifacts/edit.md").read_text() == "after"
         assert agent.active_task.state == "needs_verification"
         assert [message.get("role") for message in calls[-2]][-1] == "tool"
+    finally:
+        await agent.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('accept,exists,state', [(True, True, 'needs_verification'), (False, False, 'failed')])
+async def test_file_create_waits_for_user_confirmation(tmp_path, accept, exists, state):
+    calls = []
+    def respond(request):
+        calls.append(request)
+        if len(calls) == 1:
+            return sse_response([{'type': 'tool', 'name': 'files.create',
+                                  'arguments': {'root_id': 'output', 'path': 'draft.md', 'content': 'draft'}}])
+        return sse_response([speech()])
+    agent = runtime(tmp_path, respond)
+    try:
+        await agent.handle({'type': 'turn.start', 'text': 'save a draft', 'mode': 'execute'})
+        await agent.task
+        assert agent.active_task.state == 'waiting_approval'
+        assert not (tmp_path / 'artifacts/draft.md').exists()
+        item, approval = next(iter(agent.approvals.items()))
+        assert approval['action_kind'] == 'create' and approval['preview'] == 'draft'
+        await agent.handle({'type': 'approval.resolve', 'approval_id': item, 'accept': accept})
+        await agent.task
+        assert (tmp_path / 'artifacts/draft.md').exists() == exists
+        assert agent.active_task.state == state
+        if exists:
+            # The artifact keeps its conversation so the companion can list it.
+            record = next(iter(agent.store.records('artifact')))
+            assert record['conversation_id'] == agent.conversations.current_id
     finally:
         await agent.close()
 
@@ -368,17 +411,19 @@ async def test_native_write_denied_in_teach_mode_returns_tool_error(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_capture_tool_returns_new_image_to_model(tmp_path):
+async def test_desktop_observe_returns_new_image_to_model(tmp_path):
     calls = []
     class Camera(Desktop):
+        status = {"available": True}
+        def foreground(self):
+            return {'target_id': 'target', 'hwnd': 1, 'process_id': 2, 'process_created': 3,
+                    'class_name': 'Test', 'title': 'Camera'}
         def capture(self, target):
             return {'snapshot_id': 'new', 'png_base64': 'new-image', 'target': {'target_id': target}}
     def respond(request):
         calls.append(json.loads(request.content)['messages'])
-        return sse_response([{'type': 'tool', 'name': 'capture_target', 'arguments': {}}] if len(calls) == 1 else [speech()])
+        return sse_response([{'type': 'tool', 'name': 'desktop.observe', 'arguments': {}}] if len(calls) == 1 else [speech()])
     agent = runtime(tmp_path, respond, Camera())
-    agent.target = {'target_id': 'target'}
-    agent.snapshot = {'snapshot_id': 'old', 'png_base64': 'old-image'}
     try:
         await agent.handle({'type': 'turn.start', 'text': 'look again'})
         await agent.task
@@ -420,6 +465,8 @@ async def test_call_replay_is_idempotent_and_paused_task_stops_at_boundary(tmp_p
     agent = runtime(tmp_path, lambda request: sse_response([speech()]))
     agent.active_task = TaskRunner('test', {})
     agent.mode = 'execute'
+    # Direct creation keeps this test on replay/pause semantics, not approvals.
+    agent.settings.values['full_access'] = True
     request = {'name': 'files.create', 'call_id': 'once', 'arguments': {'root_id': 'output', 'path': 'once.txt', 'content': 'once'}}
     try:
         first = await agent._read_tool(request)
@@ -443,10 +490,12 @@ async def test_cancel_invalidates_preview_and_no_requests_are_silently_dropped(t
         count += 1
         return sse_response([{'type': 'tool', 'name': 'files.create', 'arguments': {'root_id': 'output', 'path': f'{i}.md', 'content': 'content'}} for i in range(5)] if count == 1 else [speech()])
     agent = runtime(tmp_path, respond)
+    agent.settings.values['full_access'] = True
     try:
         await agent.handle({'type': 'turn.start', 'text': 'five files', 'mode': 'execute'})
         await agent.task
         assert len(list((tmp_path / 'artifacts').glob('*.md'))) == 5
+        agent.settings.values['full_access'] = False
         before = agent.files.read('output', '0.md')
         agent.active_task = TaskRunner('modify', {})
         await agent._file_propose(root_id='output', path='0.md', base_sha256=before['sha256'], content='changed')

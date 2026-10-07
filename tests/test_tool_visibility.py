@@ -35,19 +35,17 @@ def test_keyless_default_search_is_visible_and_explicit_brave_requires_key(tmp_p
 
 def test_missing_search_target_execute_mode_and_backup_filter_model_choices(tmp_path):
     runtime = agent(tmp_path)
-    hidden = {"web.search", "capture_target", "observe_controls", "computer.run", "files.create",
-              "apps.open", "files.open", "web.open", "windows.select", "files.propose_restore"}
+    hidden = {"web.search", "computer.run", "files.create", "open", "files.propose_restore"}
     assert not names(runtime) & hidden
-    assert {"files.read", "files.list", "files.find", "files.search", "web.fetch"} <= names(runtime)
+    assert {"files.read", "files.find", "files.search", "web.fetch"} <= names(runtime)
     runtime.mode = "execute"
     runtime.target = {"target_id": "selected"}
     runtime.settings.search_key = lambda: "test-key"
     runtime.computer = type("Computer", (), {"status": {"available": True}})()
-    assert {"web.search", "capture_target", "observe_controls", "computer.run", "files.create"} <= names(runtime)
+    assert {"web.search", "computer.run", "files.create", "open"} <= names(runtime)
     runtime.settings.values["send_screenshot"] = False
-    assert "capture_target" not in names(runtime)
     runtime.target = None
-    assert "observe_controls" not in names(runtime) and "computer.run" not in names(runtime)
+    assert "computer.run" not in names(runtime)
     runtime.store.close()
 
 
@@ -79,14 +77,14 @@ def test_ndjson_catalog_refreshes_in_place_without_persisting_extra_system_turns
     runtime = agent(tmp_path)
     runtime.settings.values["native_tools"] = False
     messages = [{"role": "system", "content": "policy\n" + runtime._tool_prompt()},
-                {"role": "user", "content": "look at the selected window"}]
-    assert '"name": "capture_target"' not in messages[0]["content"]
-    runtime.target = {"target_id": "selected"}
+                {"role": "user", "content": "open the editor"}]
+    assert '"name": "open"' not in messages[0]["content"]
+    runtime.mode = "execute"
     schemas, mapping = runtime._model_tools(messages)
-    assert schemas is None and "capture_target" in mapping
-    assert '"name": "capture_target"' in messages[0]["content"]
+    assert schemas is None and "open" in mapping
+    assert '"name": "open"' in messages[0]["content"]
     assert len(messages) == 2 and messages[0]["content"].startswith("policy\n")
-    runtime.target = None
+    runtime.mode = "teach"
     runtime._model_tools(messages)
-    assert '"name": "capture_target"' not in messages[0]["content"]
+    assert '"name": "open"' not in messages[0]["content"]
     runtime.store.close()

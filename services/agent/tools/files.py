@@ -98,10 +98,12 @@ class FileTools:
             raise ToolError("file_size", "生成文本超过 64 KiB 或包含无效字符")
         return raw
 
-    def _record(self, root_id, path, raw, backup=None):
+    def _record(self, root_id, path, raw, backup=None, conversation_id=None):
         aid = "artifact-" + uuid.uuid4().hex[:12]
         record = {"artifact_id": aid, "root_id": root_id, "path": path, "sha256": digest(raw),
                   "bytes": len(raw), "created": time.time(), "backup": backup}
+        if conversation_id:
+            record["conversation_id"] = conversation_id
         self.store.put_record("artifact", aid, record)
         self.trim_versions()
         return self.public(record)
@@ -132,38 +134,65 @@ class FileTools:
                 result.append({k: v for k, v in record.items() if k != "backup"} | {"unavailable": True, "can_restore": False})
         return result
 
-    def create(self, root_id, path, content, cancelled):
-        with self.lock:
-            target = self.policy.path(root_id, path, write=True)
-            raw = self.content_bytes(content)
-            if target.exists():
-                raise ToolError("file_exists", "文件已存在，请读取后提出修改差异")
-            target.parent.mkdir(parents=True, exist_ok=True)
+    def _write_new(self, root_id, path, raw, cancelled, conversation_id=None):
+        target = self.policy.path(root_id, path, write=True)
+        if target.exists():
+            raise ToolError("file_exists", "文件已存在，请读取后提出修改差异")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        self.policy.path(root_id, path, write=True)
+        temp = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as output:
+                temp = Path(output.name)
+                output.write(raw)
+                output.flush()
+                os.fsync(output.fileno())
+            if cancelled.is_set():
+                raise ToolError("cancelled", "已取消，文件尚未创建")
             self.policy.path(root_id, path, write=True)
-            temp = None
+            # Atomic exclusive publication; an existing destination is never overwritten.
             try:
-                with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as output:
-                    temp = Path(output.name)
-                    output.write(raw)
-                    output.flush()
-                    os.fsync(output.fileno())
-                if cancelled.is_set():
-                    raise ToolError("cancelled", "已取消，文件尚未创建")
-                self.policy.path(root_id, path, write=True)
-                # Atomic exclusive publication; an existing destination is never overwritten.
-                try:
-                    os.link(temp, target)
-                except FileExistsError:
-                    raise ToolError("file_exists", "目标文件已出现，未覆盖") from None
-                verified = self.read(root_id, path)
-                if verified["sha256"] != digest(raw):
-                    raise ToolError("verification_failed", "文件创建后内容发生变化，请检查")
-                return self._record(root_id, path, raw)
-            finally:
-                if temp:
-                    temp.unlink(missing_ok=True)
+                os.link(temp, target)
+            except FileExistsError:
+                raise ToolError("file_exists", "目标文件已出现，未覆盖") from None
+            verified = self.read(root_id, path)
+            if verified["sha256"] != digest(raw):
+                raise ToolError("verification_failed", "文件创建后内容发生变化，请检查")
+            return self._record(root_id, path, raw, conversation_id=conversation_id)
+        finally:
+            if temp:
+                temp.unlink(missing_ok=True)
 
-    def propose(self, root_id, path, base_sha256, content, task_id, generation):
+    def create(self, root_id, path, content, cancelled, conversation_id=None):
+        with self.lock:
+            raw = self.content_bytes(content)
+            return self._write_new(root_id, path, raw, cancelled, conversation_id)
+
+    def stage_create(self, root_id, path, content, task_id, generation, conversation_id=None):
+        """Stage an approved creation; nothing is published before the user confirms."""
+        with self.lock:
+            self.policy.path(root_id, path, write=True)
+            raw = self.content_bytes(content)
+            if self.policy.path(root_id, path).exists():
+                raise ToolError("file_exists", "文件已存在，请读取后提出修改差异")
+            pid = "create-" + uuid.uuid4().hex[:12]
+            self.proposals[pid] = {"proposal_id": pid, "root_id": root_id, "path": path, "kind": "create",
+                                   "content": content, "bytes": len(raw), "task_id": task_id,
+                                   "generation_id": generation, "expires": time.time() + 1800,
+                                   "conversation_id": conversation_id}
+            return {k: v for k, v in self.proposals[pid].items() if k != "content"} | {"preview": content[:800]}
+
+    def commit_create(self, proposal_id, task_id, generation, cancelled, conversation_id=None):
+        with self.lock:
+            proposal = self.proposals.pop(proposal_id, None)
+            if (not proposal or proposal.get("kind") != "create" or proposal["task_id"] != task_id
+                    or proposal["generation_id"] != generation or proposal["expires"] < time.time()):
+                raise ToolError("expired_approval", "创建确认已过期或不属于当前任务")
+            raw = self.content_bytes(proposal["content"])
+            return self._write_new(proposal["root_id"], proposal["path"], raw, cancelled,
+                                   conversation_id or proposal.get("conversation_id"))
+
+    def propose(self, root_id, path, base_sha256, content, task_id, generation, conversation_id=None):
         with self.lock:
             self.policy.path(root_id, path, write=True)
             current = self.read(root_id, path)
@@ -174,12 +203,13 @@ class FileTools:
             proposal = {"proposal_id": pid, "root_id": root_id, "path": path,
                         "base_sha256": base_sha256, "new_sha256": digest(raw), "content": content,
                         "task_id": task_id, "generation_id": generation, "expires": time.time() + 1800,
+                        "conversation_id": conversation_id,
                         "diff": "".join(difflib.unified_diff(current["content"].splitlines(True), content.splitlines(True),
                                                             fromfile=path, tofile=path))}
             self.proposals[pid] = proposal
             return {k: v for k, v in proposal.items() if k != "content"}
 
-    def apply(self, proposal_id, task_id, generation, cancelled):
+    def apply(self, proposal_id, task_id, generation, cancelled, conversation_id=None):
         with self.lock:
             proposal = self.proposals.pop(proposal_id, None)
             if not proposal or proposal["task_id"] != task_id or proposal["generation_id"] != generation or proposal["expires"] < time.time():
@@ -213,12 +243,13 @@ class FileTools:
                     verified = self.read(root_id, path)
                     if verified["sha256"] != digest(raw):
                         raise ToolError("verification_failed", "修改后的内容发生变化，请检查")
-                    return self._record(root_id, path, raw, backup)
+                    return self._record(root_id, path, raw, backup,
+                                        conversation_id or proposal.get("conversation_id"))
                 finally:
                     if temp:
                         temp.unlink(missing_ok=True)
 
-    def restore(self, artifact_id, task_id, generation):
+    def restore(self, artifact_id, task_id, generation, conversation_id=None):
         record = self.store.get_record("artifact", artifact_id)
         if not record or not record.get("backup"):
             raise ToolError("no_backup", "这个文件记录没有可恢复版本")
@@ -230,4 +261,5 @@ class FileTools:
         if not backup.is_file():
             raise ToolError("no_backup", "该恢复版本已超过保留范围")
         content = backup.read_bytes().decode("utf-8")
-        return self.propose(record["root_id"], record["path"], current["sha256"], content, task_id, generation)
+        return self.propose(record["root_id"], record["path"], current["sha256"], content, task_id, generation,
+                            conversation_id=conversation_id)

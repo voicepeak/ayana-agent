@@ -14,7 +14,10 @@ from packages.protocol.events import MAX_SPEECH_CHARS, speech_sentences
 from ..work import validate_report
 from ..prompts import CONTRACT, RETRY_INSTRUCTION, repair_instruction, style_from_messages
 
-EVENT_TYPES = {"speech", "translation", "evidence", "tool", "action", "task"}
+EVENT_TYPES = {"speech", "translation", "evidence", "tool", "action", "task", "silence"}
+# Protocol events that providers occasionally return as native function calls.
+# They are committed as events instead of being executed as unknown tools.
+EVENT_ALIASES = {"speech", "translation"}
 
 
 class ModelEventError(ValueError):
@@ -112,7 +115,16 @@ class OpenAIProvider:
                                     if not emitted and not length_or_sentences:
                                         raise ModelEventError("Model returned invalid Japanese speech") from None
                                     # Repair this event only, preserving every clause and its metadata.
-                                    expanded = await self._repair_sentence(event)
+                                    try:
+                                        expanded = await self._repair_sentence(event)
+                                    except ModelEventError:
+                                        if not emitted:
+                                            raise
+                                        # Committed speech outranks a later sentence
+                                        # whose bounded repair was unavailable: keep
+                                        # what was delivered and drop the broken tail.
+                                        self.output_repaired = True
+                                        break
                                     repaired_keys.add(event.get("key"))
                                     self.output_repaired = True
                             for output in expanded:
@@ -127,12 +139,20 @@ class OpenAIProvider:
                                 yield output
                 except IncompleteSubtitleError:
                     if accepted and accepted[-1].get("type") == "speech":
-                        subtitle = await self._repair_sentence(accepted[-1], subtitle=True)
-                        accepted.append(subtitle)
-                        yield subtitle
-                    elif not (accepted and accepted[-1].get("type") == "translation" and repaired_keys):
+                        try:
+                            subtitle = await self._repair_sentence(accepted[-1], subtitle=True)
+                        except ModelEventError:
+                            # The sentence is already committed and playing; a
+                            # missing subtitle must not fail the delivered turn.
+                            self.output_repaired = True
+                        else:
+                            accepted.append(subtitle)
+                            yield subtitle
+                            self.output_repaired = True
+                    elif accepted and accepted[-1].get("type") == "translation" and repaired_keys:
+                        self.output_repaired = True
+                    else:
                         raise ModelEventError("No committed sentence for subtitle repair") from None
-                    self.output_repaired = True
                 # A valid response containing only task reports is still useful
                 # when continuing a task after its audio budget is exhausted.
                 for task in pending_tasks:
@@ -250,6 +270,7 @@ class OpenAIProvider:
         client = self.client or httpx.AsyncClient(timeout=httpx.Timeout(75, connect=12), trust_env=False)
         parser = SpeechParser()
         event_count = 0
+        committed_any = False
         native: dict[int, dict] = {}
         last_event = None
         try:
@@ -303,6 +324,8 @@ class OpenAIProvider:
                                 event = {**event, "name": (tool_names or {}).get(event["name"], event["name"])}
                             event_count += 1
                             last_event = event
+                            if kind != "task":
+                                committed_any = True
                             yield event
                     for call in delta.get("tool_calls") or []:
                         index = call.get("index", 0) if isinstance(call, dict) else 0
@@ -330,8 +353,12 @@ class OpenAIProvider:
                     if (last_event and last_event.get("type") == "speech" and not native
                             and re.match(r'^\{\s*"type"\s*:\s*"translation"\s*[,}]', parser.buffer.lstrip())):
                         raise IncompleteSubtitleError("Trailing subtitle requires repair") from None
-                    else:
+                    if not committed_any:
                         raise ModelEventError("Model application events were incomplete or malformed") from None
+                    # Parsed events and native tool calls are still valid; the
+                    # truncated trailing annotation is dropped instead of
+                    # failing the whole turn after speech was already committed.
+                    self.output_repaired = True
                 for index in sorted(native):
                     slot = native[index]
                     arguments = {}
@@ -346,9 +373,17 @@ class OpenAIProvider:
                         except json.JSONDecodeError:
                             argument_error = "工具参数不是完整有效的 JSON；请更正这一条调用"
                     call_id = slot["id"] or ("call-" + str(abs(hash((url, slot["name"], index))))[:12])
+                    internal = (tool_names or {}).get(slot["name"], slot["name"])
+                    if internal in EVENT_ALIASES and not argument_error:
+                        # A protocol event returned as a native call: commit the
+                        # event instead of executing an unknown tool.
+                        event = {"type": internal, **arguments}
+                        self.response_text += ("" if not self.response_text else "\n") + json.dumps(event, ensure_ascii=False)
+                        event_count += 1
+                        yield event
+                        continue
                     if argument_error:
                         self.tool_errors[call_id] = argument_error
-                    internal = (tool_names or {}).get(slot["name"], slot["name"])
                     self.tool_calls.append({"call_id": call_id, "name": internal,
                                             "api_name": slot["name"], "arguments": arguments,
                                             "raw_arguments": slot["arguments"] or "{}"})

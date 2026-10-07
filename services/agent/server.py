@@ -61,18 +61,8 @@ def create_app(token: str, settings=None, runtime=None):
     async def asset(asset_id: str, request: Request):
         if not authenticated(request.headers.get("authorization")):
             raise HTTPException(401)
-        import json
-        mapping = json.loads((settings.root / "characters/ayana/avatar-map.json").read_text(encoding="utf-8"))
-        item = mapping["assets"].get(asset_id)
-        if not item:
-            raise HTTPException(404)
-        root = (settings.root / settings.values["avatar_root"]).resolve()
-        file = (root / item["file"]).resolve()
-        if not file.is_relative_to(root):
-            raise HTTPException(404)
-        if not file.exists():
-            file = root / "neutral.png"
-        if file.exists():
+        file = runtime.avatars.asset_file(settings.root, asset_id)
+        if file is not None:
             return FileResponse(file, media_type="image/png")
         raise HTTPException(404, "Character resource is not installed")
 

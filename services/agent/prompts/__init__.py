@@ -80,10 +80,10 @@ def repair_instruction(style, *, subtitle=False):
 
 def expression_prompt(catalog, costume):
     choices = {item["source_expression"] for item in catalog.mapping["assets"].values()
-               if item.get("costume", "校服") == costume}
+               if item.get("costume", "校服") == costume and not item.get("alias")}
     descriptions = "\n".join(f"- {label}: {text}" for label, text in catalog.guide.items() if label in choices)
-    root = catalog.character_root.parents[1]
-    return (character_text(root, "expression-rules.md") + "\n全部可用表情及区别：\n" + descriptions
+    rules = (catalog.character_root / "expression-rules.md").read_text(encoding="utf-8").strip()
+    return (rules + "\n全部可用表情及区别：\n" + descriptions
             + "\n每句 speech 后仍按协议发出对应的 translation 事件。")
 
 
@@ -129,7 +129,7 @@ class PromptAssembler:
               for name, file in [("work", "work-policy.md"), ("events", "event-protocol.md"), ("tasks", "task-protocol.md")]],
             {"name": "permissions", "source": "characters/ayana/" + policy, "text": character_text(self.root, policy)},
             {"name": "tools", "source": "runtime tool catalog", "text": tools},
-            {"name": "expressions", "source": "characters/ayana/expression-rules.md + expression-guide.json",
+            {"name": "expressions", "source": f"characters/{self.catalog.character_root.name}/expression-rules.md + expression-guide.json",
              "text": self.catalog.prompt(costume)},
         ]))
 

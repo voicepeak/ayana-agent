@@ -84,6 +84,24 @@ def test_read_evidence_can_verify_an_already_completed_goal_without_repeating_a_
     assert not task.effects and task.outcome() == "succeeded"
 
 
+def test_answer_that_also_wrote_a_supporting_file_stays_reportable():
+    task = TaskRunner("search and save a note", {})
+    task.report(plan("answer", ()))
+    # The same turn later writes a supporting file after the answer kind was agreed.
+    task.results["write"] = {"value": {"result": {"path": "note.md"}}, "signature": "sig"}
+    task.effects.append("write")
+    task.report(complete("保存指定内容", "write", "/path", "note.md"))
+    assert task.outcome() == "succeeded"
+
+
+def test_effect_without_an_agreed_kind_cannot_be_reported_as_answer():
+    task = TaskRunner("open the app", {})
+    task.results["write"] = {"value": {"result": {"path": "x"}}, "signature": "sig"}
+    task.effects.append("write")
+    with pytest.raises(ValueError, match="不能改成"):
+        task.report(plan("answer", ()))
+
+
 def test_repeated_read_digest_ignores_volatile_fields_and_counts_no_progress():
     first = {"snapshot_id": "a", "captured_at_monotonic_ms": 1, "content_sha256": "same"}
     second = {"snapshot_id": "b", "captured_at_monotonic_ms": 2, "content_sha256": "same"}
@@ -144,6 +162,8 @@ async def test_unfinished_action_continues_once_and_verifies_real_file(tmp_path)
                                  "arguments": {"root_id": "output", "path": "result.txt", "content": "actual content"}}])
         return sse_response([complete("保存指定内容", "save", "/path", "result.txt"), speech("s2")])
     runtime = make_runtime(tmp_path, respond)
+    # File creation is exercised directly; the confirmation path has its own tests.
+    runtime.settings.values['full_access'] = True
     try:
         await runtime.handle({"type": "turn.start", "text": "保存结果", "mode": "execute"})
         await runtime.task
@@ -170,6 +190,7 @@ async def test_partial_completion_never_replays_successful_writes(tmp_path):
         assert "do not repeat successful writes" in body["messages"][-1]["content"]
         return sse_response([{"type": "task", "status": "blocked", "reason": "指定应用尚未安装。"}, speech("s2")])
     runtime = make_runtime(tmp_path, respond)
+    runtime.settings.values['full_access'] = True
     try:
         await runtime.handle({"type": "turn.start", "text": "保存并打开", "mode": "execute"})
         await runtime.task
@@ -246,6 +267,7 @@ async def test_exhausted_speech_budget_continues_tools_and_verified_completion(t
         return sse_response([speech("s4"), complete("保存指定内容", "read", "/content", "saved")])
     runtime = make_runtime(tmp_path, respond)
     runtime.settings.values["max_utterances"] = 2
+    runtime.settings.values['full_access'] = True
     try:
         await runtime.handle({"type": "turn.start", "text": "保存并核实内容", "mode": "execute"})
         await runtime.task

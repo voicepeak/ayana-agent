@@ -58,7 +58,7 @@ class ConversationStore:
         # source records, not another full transcript on every refresh.
         if kind not in {"audio.ready", "snapshot.ready", "playback.progress", "history.ready",
                         "conversations.ready", "conversation.changed", "context.state",
-                        "conversation.review", "conversation.search-results", "memory.ready"}:
+                        "conversation.review", "conversation.search-results", "memory.ready", "attention.state"}:
             payload = without_media(event)
             event_id = self.db.execute('UPDATE event_sequence SET value=value+1 WHERE id=1 RETURNING value').fetchone()[0]
             self.db.execute("INSERT INTO events(id,created,session_id,generation_id,type,payload) VALUES(?,?,?,?,?,?)",
@@ -245,9 +245,19 @@ class ConversationStore:
     @locked
     def delete_conversation(self, cid):
         scope = "conversation:" + cid
+        self.db.execute("PRAGMA secure_delete=ON")
         with self.db:
             task_ids = [row[0] for row in self.db.execute("""SELECT DISTINCT json_extract(payload,'$.task.task_id')
                 FROM events WHERE type='task.updated' AND json_extract(payload,'$.conversation_id')=?""", (cid,))]
+            for kind in ("source", "artifact"):
+                path = f"$.{kind}.{kind}_id"
+                exclusive = self.db.execute("""SELECT DISTINCT json_extract(payload,?) FROM events
+                    WHERE json_extract(payload,'$.conversation_id')=? AND json_extract(payload,?) IS NOT NULL
+                    AND json_extract(payload,?) NOT IN (SELECT json_extract(payload,?) FROM events
+                        WHERE json_extract(payload,'$.conversation_id')<>? AND json_extract(payload,?) IS NOT NULL)""",
+                    (path, cid, path, path, path, cid, path)).fetchall()
+                self.db.executemany("DELETE FROM capability_records WHERE kind=? AND key=?",
+                                    [(kind, row[0]) for row in exclusive])
             self.db.execute("""DELETE FROM utterances WHERE utterance_id IN (SELECT json_extract(payload,'$.utterance_id')
                 FROM events WHERE json_extract(payload,'$.conversation_id')=?)""", (cid,))
             self.db.execute("DELETE FROM events WHERE json_extract(payload,'$.conversation_id')=?", (cid,))
@@ -255,6 +265,11 @@ class ConversationStore:
             self.db.execute("DELETE FROM context_summaries WHERE scope=?", (scope,))
             self.db.execute("DELETE FROM capability_records WHERE kind='conversation' AND key=?", (cid,))
             self.db.executemany("DELETE FROM capability_records WHERE kind='task' AND key=?", [(tid,) for tid in task_ids if tid])
+            self.db.execute("DELETE FROM capability_records WHERE json_extract(payload,'$.conversation_id')=?", (cid,))
+            self.db.execute("DELETE FROM capability_records WHERE kind='memory' AND json_extract(payload,'$.source.conversation_id')=?", (cid,))
+        # Reclaim deleted pages now, rather than retaining them in the database/WAL.
+        self.db.execute("VACUUM")
+        self.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
     @locked
     def subtitle_sources(self, conversation_id, utterance_ids):

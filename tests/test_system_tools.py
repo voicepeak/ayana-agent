@@ -136,17 +136,22 @@ def test_cancel_before_launch_does_not_open_anything(system):
 
 
 class Windows(Desktop):
+    status = {'available': True}
     def __init__(self):
         self.window = {'hwnd': 123, 'process_id': 42, 'process_created': 99, 'class_name': 'Test',
                        'title': '示例应用', 'executable': 'C:/Example App.exe', 'window_state': 'visible', 'elevated': False}
         self.binds = []
     def list_windows(self):
         return [dict(self.window)]
+    def foreground(self):
+        return dict(self.window)
     def bind(self, hwnd):
         self.binds.append(hwnd)
         return {**self.window, 'target_id': 'bound-window'}
     def capture(self, target):
         return {'snapshot_id': 'new-window', 'png_base64': 'image-of-new-window', 'target': {'target_id': target}}
+    def observe_controls(self, target_id):
+        return [{'control_id': 'control-0', 'name': self.window['title']}]
 
 
 @pytest.mark.asyncio
@@ -171,16 +176,13 @@ async def test_open_app_with_long_history_keeps_search_and_launch_results(tmp_pa
         messages = json.loads(request.content)['messages']
         requests.append(messages)
         if len(requests) == 1:
-            return call('apps.search', 'find-app', {'query': '示例'}, [plan])
+            return call('open', 'open-app', {'target': '示例'}, [plan])
         content = messages[-1]['content']
         if not native:
             from services.agent.prompts import TOOL_RESULT_PREFIX
             content = content[len(TOOL_RESULT_PREFIX):]
         previous = json.loads(content)
         previous = previous if native else previous[0]
-        if len(requests) == 2:
-            app_id = previous['result'][0]['app_id']
-            return call('apps.open', 'open-app', {'app_id': app_id})
         assert previous['result']['status'] == 'window_observed'
         assert previous['result']['windows'][0]['title'] == '示例应用'
         return sse_response([{'type': 'task', 'status': 'complete', 'checks': [{
@@ -197,34 +199,30 @@ async def test_open_app_with_long_history_keeps_search_and_launch_results(tmp_pa
         await agent.handle({'type': 'turn.start', 'text': '打开示例应用', 'mode': 'execute'})
         await agent.task
         assert agent.active_task.state == 'succeeded'
-        assert len(requests) == 3 and len(launches) == 1
+        assert len(requests) == 2 and len(launches) == 1
         assert max(len(json.dumps(messages, ensure_ascii=False)) for messages in requests) <= agent.prompt_history.max_chars
     finally:
         await agent.close()
 
 
 @pytest.mark.asyncio
-async def test_native_model_search_open_select_receives_real_tool_result_and_new_image(tmp_path, system):
+async def test_native_model_open_and_observe_receives_real_tool_result_and_new_image(tmp_path, system):
     tools, requests = system
     calls = []
     def respond(request):
         body = json.loads(request.content)
         messages = body['messages']
         names = {item['function']['name'] for item in body['tools']}
-        if len(calls) < 3:
-            assert 'capture_target' not in names and 'observe_controls' not in names
-        else:
-            assert 'capture_target' in names and 'observe_controls' in names
+        assert {'desktop__observe', 'open'} <= names
         assert 'Registered tools (' not in messages[0]['content']
         calls.append(messages)
         if len(calls) == 1:
-            return native_tool_sse('find-app', 'apps__search', json.dumps({'query': '示例'}))
+            return native_tool_sse('open-app', 'open', json.dumps({'target': '示例'}))
         previous = json.loads(messages[-1]['content']) if messages[-1]['role'] == 'tool' else None
         if len(calls) == 2:
-            return native_tool_sse('open-app', 'apps__open', json.dumps({'app_id': previous['result'][0]['app_id']}))
-        if len(calls) == 3:
             assert previous['result']['status'] == 'window_observed'
-            return native_tool_sse('select-window', 'windows__select', json.dumps({'window_id': previous['result']['windows'][0]['window_id']}))
+            return native_tool_sse('look-window', 'desktop__observe',
+                                   json.dumps({'scope': 'window', 'window_id': previous['result']['windows'][0]['window_id']}))
         assert messages[-1]['content'][1]['image_url']['url'].endswith('image-of-new-window')
         return sse_response([speech()])
     desktop = Windows()
@@ -249,14 +247,14 @@ async def test_teaching_mode_rejects_open_and_call_replay_never_opens_twice(tmp_
     agent.active_task = TaskRunner('open app', {})
     app_id = tools.apps.search('示例')[0]['app_id']
     try:
-        denied = await agent._dispatch_tool({'name': 'apps.open', 'call_id': 'denied', 'arguments': {'app_id': app_id}})
+        denied = await agent._dispatch_tool({'name': 'open', 'call_id': 'denied', 'arguments': {'target': '示例', 'app_id': app_id}})
         assert denied['code'] == 'execution_mode_required' and not requests
         agent.mode = 'execute'
-        call = {'name': 'apps.open', 'call_id': 'once', 'arguments': {'app_id': app_id}}
+        call = {'name': 'open', 'call_id': 'once', 'arguments': {'target': '示例', 'app_id': app_id}}
         first = await agent._dispatch_tool(call)
         assert await agent._dispatch_tool(call) == first and len(requests) == 1
         with pytest.raises(ToolError):
-            await agent._dispatch_tool({**call, 'arguments': {'app_id': 'different'}})
+            await agent._dispatch_tool({**call, 'arguments': {'target': '示例', 'app_id': 'different'}})
     finally:
         await agent.close()
 
@@ -271,7 +269,7 @@ async def test_window_id_cannot_bind_a_reused_hwnd(tmp_path):
     try:
         choices = await agent._windows_list()
         desktop.window['process_created'] = 100
-        result = await agent._dispatch_tool({'name': 'windows.select', 'arguments': {'window_id': choices[0]['window_id']}})
+        result = await agent._dispatch_tool({'name': 'desktop.observe', 'arguments': {'scope': 'window', 'window_id': choices[0]['window_id']}})
         assert result['code'] == 'window_changed' and not desktop.binds
     finally:
         await agent.close()

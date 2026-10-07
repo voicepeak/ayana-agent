@@ -31,6 +31,7 @@ class TaskRunner:
     repair_requested: bool = False
     continues_task_id: str | None = None
     observations: dict = field(default_factory=dict)
+    failures: dict = field(default_factory=dict)
 
     def note_observation(self, signature, digest):
         """Count identical read results so a stuck repeat can be broken.
@@ -43,10 +44,19 @@ class TaskRunner:
         self.observations[signature] = {"digest": digest, "repeats": repeats}
         return repeats
 
+    def note_failure(self, signature):
+        """Count identical failures; the second one stops the retry loop."""
+        repeats = self.failures.get(signature, 0) + 1
+        self.failures[signature] = repeats
+        return repeats
+
     def report(self, event):
         event = validate_report(event)
         kind = event.get("kind", self.kind)
-        if self.effects and kind != "action":
+        # An executed effect no longer allows the report to become an unrelated
+        # chat/answer, but keeping the already-agreed kind (an answer that also
+        # wrote a supporting file) must stay reportable.
+        if self.effects and kind not in {self.kind, "action"}:
             raise ValueError("已经执行操作，不能改成闲聊或知识回答")
         if self.kind != "unknown" and kind != self.kind:
             raise ValueError("同一轮不能更换任务类型")

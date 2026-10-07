@@ -223,6 +223,12 @@ class ConversationRuntime:
             if not isinstance(cid,str) or cid not in self.conversations.records:
                 raise ValueError('找不到这段对话')
             active = self.conversations.current_id == cid
+            # Stop background writers before removing their source conversation.
+            for job in (self.memory_task, self.context_job, *tuple(self.subtitle_jobs)):
+                if job and not job.done():
+                    job.cancel()
+            await asyncio.gather(*(job for job in (self.memory_task, self.context_job, *tuple(self.subtitle_jobs)) if job), return_exceptions=True)
+            self.memory_state = 'ready'
             if active:
                 await self.cancel('conversation_deleted')
                 self.active_task = None
@@ -230,7 +236,7 @@ class ConversationRuntime:
                 self.last_reply_keys = {}
                 self.turn_id = ''
                 self.target = self.snapshot = self.repository = None
-                self.watching = False
+                self.observation = None
                 await self.emit('repository.cleared')
                 await self.emit('snapshot.invalidated')
                 await self.emit('session.started',target=None,provider=self.settings.values['provider'])
@@ -250,7 +256,8 @@ class ConversationRuntime:
                         await self.emit('error',source='repository',message=f'记录已删除，前一段对话的仓库无法恢复：{error}'[:500])
             self.prompt_trace.clear()
             self.utterances = {uid:record for uid,record in self.utterances.items() if record.get('conversation_id')!=cid}
-            await self.emit('conversation.deleted',deleted_id=cid)
+            self.recent_observations = [item for item in self.recent_observations if item['conversation_id'] != cid]
+            await self.emit('conversation.deleted',deleted_id=cid,request_id=cmd.get('request_id'))
             await self._conversation_snapshot(changed=active)
             await self._history_snapshot()
             await self._memory_snapshot()

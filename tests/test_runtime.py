@@ -176,34 +176,35 @@ async def test_transcript_waits_for_review_and_late_cancelled_result_is_dropped(
 
 
 @pytest.mark.asyncio
-async def test_summon_does_not_bind_a_window_and_watch_can_be_released(tmp_path):
+async def test_summon_does_not_bind_a_window_and_observation_is_on_demand(tmp_path):
     class ForegroundDesktop(Desktop):
+        def __init__(self):
+            self.calls = 0
         def foreground(self):
-            return {"target_id": "front", "title": "Home / X", "bounds": {"left": 1, "top": 2, "right": 3, "bottom": 4}}
+            return {"target_id": "front", "title": "Home / X"}
         def capture(self, target):
-            return {"snapshot_id": "fresh", "target": {"title": "Home / X"}}
-    runtime = AgentRuntime(settings(tmp_path), desktop=ForegroundDesktop(), tts=Tts())
+            self.calls += 1
+            return {"snapshot_id": "fresh", "target": {"target_id": "front", "title": "Home / X"}}
+    desktop = ForegroundDesktop()
+    runtime = AgentRuntime(settings(tmp_path), desktop=desktop, tts=Tts())
     ws = Ws()
     runtime.clients.add(ws)
-    runtime.target = {"target_id": "old"}
-    runtime.snapshot = {"snapshot_id": "old"}
-    await runtime.handle({"type": "session.start"})
-    assert runtime.target is None and runtime.snapshot is None
-    started = next(event for event in ws.events if event["type"] == "session.started")
-    assert started["target"] is None and "watching" not in started
-    await runtime.handle({"type": "session.watch"})
-    assert runtime.target["target_id"] == "front" and runtime.snapshot["snapshot_id"] == "fresh"
-    watched = [event for event in ws.events if event["type"] == "session.started"][-1]
-    assert watched["watching"] is True
-    await runtime.handle({"type": "session.unwatch"})
-    assert runtime.target is None and runtime.snapshot is None
-    released = [event for event in ws.events if event["type"] == "session.started"][-1]
-    assert released["watching"] is False
-    await runtime.close()
+    try:
+        runtime.target = {"target_id": "old"}
+        runtime.snapshot = {"snapshot_id": "old"}
+        await runtime.handle({"type": "session.start"})
+        assert runtime.target is None and runtime.snapshot is None and runtime.companion_visible
+        assert desktop.calls == 0
+        await runtime._desktop_observe()
+        assert desktop.calls == 1 and runtime.snapshot["snapshot_id"] == "fresh"
+        await runtime.handle({"type": "session.close"})
+        assert not runtime.companion_visible and not runtime._attention_idle()
+    finally:
+        await runtime.close()
 
 
 @pytest.mark.asyncio
-async def test_hidden_window_does_not_stop_chat_and_watch_refresh_fails_once(tmp_path):
+async def test_chat_expires_stale_image_without_capturing_hidden_window(tmp_path):
     import httpx
     import time
     from native.windows.desktop import DesktopError
@@ -232,7 +233,8 @@ async def test_hidden_window_does_not_stop_chat_and_watch_refresh_fails_once(tmp
     await runtime.handle({"type": "turn.start", "text": "我错了"})
     await runtime.task
     context = json.loads(calls[0][-1]["content"][0]["text"])
-    assert context["observation"]["code"] == "window_unavailable" and context["snapshot_id"] is None
+    assert context["observation"]["code"] == "stale_snapshot" and context["snapshot_id"] is None
+    assert desktop.calls == 0
     assert "stale-image" not in json.dumps(calls[0])
     assert any(event["type"] == "utterance.ready" for event in ws.events)
     assert not any(event["type"] == "error" for event in ws.events)
@@ -240,7 +242,7 @@ async def test_hidden_window_does_not_stop_chat_and_watch_refresh_fails_once(tmp
     await runtime.handle({"type": "target.capture", "watch": True})
     await runtime.handle({"type": "target.capture", "watch": True})
     assert desktop.calls == before + 2
-    assert sum(event["type"] == "observation.unavailable" for event in ws.events) == 3
+    assert sum(event["type"] == "observation.unavailable" for event in ws.events) == 2
     assert not any(event["type"] == "error" for event in ws.events)
     runtime.settings.values["send_screenshot"] = False
     await runtime.handle({"type": "target.capture", "watch": True})
@@ -424,7 +426,7 @@ async def test_tool_rounds_and_interrupted_output_keep_factual_context(tmp_path)
     def respond(request):
         calls.append(json.loads(request.content)["messages"])
         if len(calls) == 1:
-            return sse_response([{"type": "tool", "name": "files.list", "arguments": {"recursive": True, "text_only": True}}])
+            return sse_response([{"type": "tool", "name": "files.find", "arguments": {"recursive": True, "text_only": True}}])
         speech = {"type": "speech", "key": "s1", "speech_ja": "一緒に見よう。"}
         if len(calls) == 3:
             return sse_response([speech, {"type": "unknown"}])
@@ -466,7 +468,7 @@ async def test_repeated_speech_key_across_tool_rounds_keeps_both_sentences(tmp_p
         calls.append(json.loads(request.content)["messages"])
         if len(calls) == 1:
             return sse_response([{"type": "speech", "key": "s1", "speech_ja": "まず入口を見よう。"},
-                                 {"type": "tool", "name": "files.list", "arguments": {"recursive": True, "text_only": True}}])
+                                 {"type": "tool", "name": "files.find", "arguments": {"recursive": True, "text_only": True}}])
         return sse_response([{"type": "speech", "key": "s1", "speech_ja": "次に進もう。"},
                              {"type": "translation", "key": "s1", "display_zh": "接着往下。"}])
     runtime.model_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
@@ -513,6 +515,33 @@ async def test_late_model_failure_does_not_discard_committed_audio(tmp_path):
     assert len(speeches) == 2
     assert [e["utterance_id"] for e in audio] == [e["utterance_id"] for e in speeches]
     assert any(e["type"] == "error" and e["source"] == "turn" for e in ws.events)
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_unavailable_subtitle_repair_completes_turn_with_committed_speech(tmp_path):
+    import httpx
+    from tests.test_model import sse_response, VALID
+    cfg = Settings(root=Path(__file__).resolve().parents[1], data_root=tmp_path)
+    cfg.values.update(provider="openai", model="test", send_screenshot=False)
+    cfg.key = lambda: "test-key"
+    runtime = AgentRuntime(cfg, desktop=Desktop(), tts=Tts())
+    ws = Ws()
+    runtime.clients.add(ws)
+    def respond(request):
+        if json.loads(request.content)["stream"]:
+            raw = sse_response([VALID]).text
+            chunk = {"choices": [{"delta": {"content": '{"type":"translation","key":"s1","display_zh":"未完'}, "finish_reason": None}]}
+            raw = raw.replace("data: [DONE]", "data: " + json.dumps(chunk) + "\n\ndata: [DONE]")
+            return httpx.Response(200, text=raw)
+        return httpx.Response(503, text="unavailable")
+    runtime.model_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    await runtime.handle({"type": "turn.start", "text": "hello"})
+    await runtime.task
+    assert any(event["type"] == "utterance.ready" for event in ws.events)
+    assert not any(event["type"] == "error" for event in ws.events)
+    assert not any(event["type"] == "subtitle.ready" for event in ws.events)
+    assert any(event["type"] == "task.state" and event["state"] == "idle" for event in ws.events)
     await runtime.close()
 
 

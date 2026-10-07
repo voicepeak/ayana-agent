@@ -88,6 +88,8 @@ async def test_failed_turn_seals_already_read_tool_evidence(tmp_path):
         assert len(calls) == 2
         sealed = json.dumps(runtime.prompt_history.turns, ensure_ascii=False)
         assert marker in sealed  # the real tool result survived the failure
+        failed = next(e for e in next(iter(runtime.clients)).events if e["type"] == "error")
+        assert "模型服务暂时不可用" in failed["message"]
     finally:
         await runtime.close()
 
@@ -96,14 +98,15 @@ async def test_failed_turn_seals_already_read_tool_evidence(tmp_path):
 async def test_tool_rounds_stay_within_the_project_budget(tmp_path):
     artifacts = tmp_path / "artifacts"
     artifacts.mkdir(exist_ok=True)
-    (artifacts / "big.txt").write_text("z" * 16000, encoding="utf-8")
+    for index in range(6):
+        (artifacts / f"big{index}.txt").write_text("z" * 16000, encoding="utf-8")
     calls = []
     def respond(request):
         body = json.loads(request.content)
         calls.append(len(json.dumps(body["messages"], ensure_ascii=False)))
         if len(calls) <= 6:
             return sse_response([{"type": "tool", "name": "files.read",
-                                  "arguments": {"root_id": "output", "path": "big.txt"}}])
+                                  "arguments": {"root_id": "output", "path": f"big{len(calls) - 1}.txt"}}])
         return sse_response([{"type": "speech", "key": "s1", "speech_ja": "読んだよ。"}])
     runtime = make_runtime(tmp_path, respond)
     try:

@@ -277,6 +277,26 @@ class WindowsDesktop:
         target = self._target(target_id)
         return self._uia.observe(target["hwnd"], target["bounds"])
 
+    def capture_desktop(self):
+        """Read the virtual desktop; this overview cannot authorize window input."""
+        self._require()
+        from PIL import ImageGrab
+        self._api.dpi_context()
+        captured = time.monotonic()
+        picture = ImageGrab.grab(all_screens=True)
+        display, png = _fit_capture(picture)
+        origin_x = self._api.user.GetSystemMetrics(76)  # SM_XVIRTUALSCREEN
+        origin_y = self._api.user.GetSystemMetrics(77)
+        return {"snapshot_id": f"desk-{uuid.uuid4().hex[:12]}", "target": None,
+                "scope": "desktop", "actionable": False,
+                "captured_at_monotonic_ms": captured * 1000,
+                "observed_at": time.time(),
+                "image_size_px": {"width": display.width, "height": display.height},
+                "png_base64": base64.b64encode(png).decode("ascii"),
+                "content_sha256": hashlib.sha256(picture.tobytes()).hexdigest(),
+                "transform": {"origin_x": origin_x, "origin_y": origin_y,
+                              "scale_x": picture.width / display.width, "scale_y": picture.height / display.height}}
+
     def _validate(self, action, snapshot_id):
         if action.get("cancelled"):
             raise DesktopError("cancelled", "Action was cancelled")

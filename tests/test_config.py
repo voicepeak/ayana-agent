@@ -80,6 +80,16 @@ def test_failed_settings_write_keeps_memory_and_disk_consistent(tmp_path, monkey
     assert Settings(root=ROOT, data_root=tmp_path).values == previous
 
 
+def test_removed_watch_shortcut_does_not_reserve_old_profile_key(tmp_path):
+    config = tmp_path / "config/local.json"
+    config.parent.mkdir()
+    config.write_text('{"watch_hotkey":"Control+Alt+W"}', encoding="utf-8")
+    settings = Settings(root=ROOT, data_root=tmp_path)
+    assert "watch_hotkey" not in settings.public()
+    settings.update({"hotkey": "Control+Alt+W"})
+    assert "watch_hotkey" not in Settings(root=ROOT, data_root=tmp_path).values
+
+
 @pytest.mark.parametrize("patch", [
     {"save_history": "false"}, {"subtitles": 1}, {"send_screenshot": None},
     {"voice": {"voice_mode": "missing"}}, {"stt": []}, {"stt": {"language": None}},

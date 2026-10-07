@@ -41,6 +41,18 @@ def native_tool_sse(call_id, name, arguments, finish="tool_calls"):
     return httpx.Response(200, text="".join(lines), headers={"Content-Type": "text/event-stream"})
 
 
+def native_calls_sse(calls, finish="tool_calls"):
+    """Stream multiple native function calls in order, one chunk per call."""
+    lines = []
+    for index, (call_id, name, arguments) in enumerate(calls):
+        head = {"choices": [{"delta": {"tool_calls": [{"index": index, "id": call_id, "type": "function",
+                "function": {"name": name, "arguments": arguments}}]}, "finish_reason": None}]}
+        lines.append("data: " + json.dumps(head, ensure_ascii=False) + "\n\n")
+    lines.append("data: " + json.dumps({"choices": [{"delta": {}, "finish_reason": finish}]}) + "\n\n")
+    lines.append("data: [DONE]\n\n")
+    return httpx.Response(200, text="".join(lines), headers={"Content-Type": "text/event-stream"})
+
+
 @pytest.mark.asyncio
 async def test_ndjson_tool_api_names_normalize_only_using_current_schema_mapping():
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: sse_response([
@@ -327,7 +339,39 @@ async def test_truncated_trailing_subtitle_is_rebuilt_from_committed_speech():
 
 
 @pytest.mark.asyncio
-async def test_invalid_sentence_repair_fails_closed_without_raw_response():
+async def test_truncated_trailing_annotation_keeps_committed_events_and_drops_tail():
+    tool = {"type": "tool", "name": "files.create", "arguments": {"path": "note.md", "content": "hi"}}
+    def respond(request):
+        raw = sse_response([VALID, tool]).text
+        chunk = {"choices": [{"delta": {"content": '{"type":"task","kind":"action","status":"runni'}, "finish_reason": None}]}
+        raw = raw.replace("data: [DONE]", "data: " + json.dumps(chunk) + "\n\ndata: [DONE]")
+        return httpx.Response(200, text=raw)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        provider = OpenAIProvider(Settings(), client)
+        events = [event async for event in provider.stream_reply([])]
+    assert [event["type"] for event in events] == ["speech", "tool"]
+    assert "runni" not in provider.response_text
+
+
+@pytest.mark.asyncio
+async def test_truncated_first_event_still_fails_without_committed_output():
+    calls = []
+    def respond(request):
+        calls.append(request)
+        raw = sse_response([]).text
+        chunk = {"choices": [{"delta": {"content": '{"type":"speech","speech_ja":"未完'}, "finish_reason": None}]}
+        raw = raw.replace("data: [DONE]", "data: " + json.dumps(chunk) + "\n\ndata: [DONE]")
+        return httpx.Response(200, text=raw)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        committed = []
+        with pytest.raises(ModelEventError):
+            async for event in OpenAIProvider(Settings(), client).stream_reply([]):
+                committed.append(event)
+    assert committed == [] and len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_unrepairable_later_sentence_keeps_committed_speech_without_raw_response():
     calls = []
     def respond(request):
         body = json.loads(request.content)
@@ -336,12 +380,47 @@ async def test_invalid_sentence_repair_fails_closed_without_raw_response():
             return sse_response([VALID, {**VALID, "key": "s2", "speech_ja": "你好。"}])
         return repaired_response({"speech_ja": "private-model-key"})
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
-        committed = []
-        with pytest.raises(ModelEventError) as caught:
-            async for event in OpenAIProvider(Settings(), client).stream_reply([]):
-                committed.append(event)
-    assert committed == [VALID] and len(calls) == 2
-    assert "private-model-key" not in str(caught.value)
+        provider = OpenAIProvider(Settings(), client)
+        events = [event async for event in provider.stream_reply([])]
+    assert events == [VALID] and len(calls) == 2
+    assert "private-model-key" not in provider.response_text
+    assert json.loads(provider.assistant_message()["content"]) == VALID
+
+
+@pytest.mark.asyncio
+async def test_unavailable_subtitle_repair_keeps_committed_speech():
+    calls = []
+    def respond(request):
+        body = json.loads(request.content)
+        calls.append(body)
+        if body["stream"]:
+            raw = sse_response([VALID]).text
+            chunk = {"choices": [{"delta": {"content": '{"type":"translation","key":"s1","display_zh":"未完'}, "finish_reason": None}]}
+            raw = raw.replace("data: [DONE]", "data: " + json.dumps(chunk) + "\n\ndata: [DONE]")
+            return httpx.Response(200, text=raw)
+        return httpx.Response(503, text="repair unavailable")
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        provider = OpenAIProvider(Settings(), client)
+        events = [event async for event in provider.stream_reply([])]
+    assert events == [VALID] and len(calls) == 2
+    assert "未完" not in provider.response_text
+
+
+@pytest.mark.asyncio
+async def test_native_protocol_events_are_committed_instead_of_unknown_tools():
+    speech = {"key": "s1", "speech_ja": "一緒に見よう。", "intent": "explain"}
+    translation = {"key": "s1", "display_zh": "一起看吧。"}
+    def respond(request):
+        return native_calls_sse([
+            ("call_1", "speech", json.dumps(speech, ensure_ascii=False)),
+            ("call_2", "translation", json.dumps(translation, ensure_ascii=False))])
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        provider = OpenAIProvider(Settings(), client)
+        events = [event async for event in provider.stream_reply([{"role": "user", "content": "q"}])]
+    assert events == [{"type": "speech", **speech}, {"type": "translation", **translation}]
+    assert provider.tool_calls == [] and provider.used_native_tools is False
+    content = provider.assistant_message()["content"]
+    assert [json.loads(line)["type"] for line in content.splitlines()] == ["speech", "translation"]
 
 
 @pytest.mark.asyncio

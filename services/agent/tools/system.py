@@ -203,7 +203,7 @@ class SystemTools:
             raise ToolError("file_missing", "要打开的文件或目录不存在")
         is_directory = target.is_dir()
         if not is_directory and not is_openable(target):
-            raise ToolError("unsupported_open", "仅支持文本、文档、图片、影音和目录；启动应用请使用 apps.open")
+            raise ToolError("unsupported_open", "仅支持文本、文档、图片、影音和目录；启动应用请使用 open")
         app = None
         if app_id:
             app = self.apps.get(app_id)

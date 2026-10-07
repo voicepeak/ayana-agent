@@ -12,7 +12,7 @@ import httpx
 
 from packages.protocol import PROTOCOL_VERSION, validate_speech
 from .providers.model import LocalProvider, OpenAIProvider
-from .prompts import PromptAssembler, update_budget, completion_feedback, subtitle_language_instruction
+from .prompts import PromptAssembler, character_text, update_budget, completion_feedback, subtitle_language_instruction
 from .prompts import TOOL_RESULT_PREFIX, INTERRUPTED_PREFIX, USER_MEMORY_PREFIX
 from .prompts.trace import PromptTrace
 from .storage import ConversationStore, without_media
@@ -31,6 +31,7 @@ from .conversations import Conversations
 from .conversation_runtime import ConversationRuntime
 from .work import local_clock
 from .memory import PersonalMemory, extract_memories
+from .attention import AttentionRuntime
 
 
 def identifier(prefix):
@@ -40,15 +41,19 @@ def identifier(prefix):
 # Older tool evidence inside one in-flight turn is replaced by this notice so
 # the project's own budget also constrains tool rounds, not just history.
 COMPRESSED_TOOL_NOTICE = "Tool result omitted to stay within the context budget; re-read if still needed. "
+BUDGET_FINAL_NOTICE = ("This is the final round of the turn: no further tool calls will run. "
+                       "Answer with the evidence you already have — a short factual speech and a task report "
+                       "with status complete/blocked/needs_input. Never claim unverified results as success.")
 
 
-class AgentRuntime(CapabilityRuntime, ConversationRuntime):
+class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
     def __init__(self, settings, desktop=None, tts=None, store=None):
         self.settings = settings
         from .avatars import AvatarCatalog
-        self.avatars = AvatarCatalog(settings.root)
+        self.avatars = AvatarCatalog(settings.root, character=settings.values.get("character"),
+                                     avatar_root=settings.values.get("avatar_root"))
         self.prompts = PromptAssembler(settings.root, self.avatars)
-        self.search_identity = (self.avatars.character_root / "persona.md").read_text(encoding="utf-8").splitlines()[0].lstrip("# ").split("（")[0].strip()
+        self.search_identity = character_text(settings.root, "persona.md").splitlines()[0].lstrip("# ").split("（")[0].strip()
         self.prompt_trace = PromptTrace()
         if desktop is None:
             from native.windows.desktop import WindowsDesktop
@@ -74,6 +79,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
         self.target = None
         self.snapshot = None
         self.observation = None
+        self._init_attention()
         self.repository = None
         self.task = None
         self.action_task = None
@@ -182,6 +188,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
 
     async def start(self):
         self.start_task = asyncio.create_task(self._prepare_voice())
+        self.attention_runner = asyncio.create_task(self._attention_loop())
         root = self.conversations.current.get("repository_root")
         if root:
             try:
@@ -276,19 +283,6 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                             "message": "目标窗口当前无法截图。对话可以继续；查看或操作前请恢复窗口。"}
         await self.emit("observation.unavailable", target=self.target, **self.observation)
 
-    async def _refresh_conversation_snapshot(self):
-        if not (self.target and self.settings.values.get("send_screenshot")):
-            self.observation = None
-            return
-        captured = (self.snapshot or {}).get("captured_at_monotonic_ms")
-        if self.snapshot and (not isinstance(captured, (int, float)) or time.monotonic() * 1000 - captured <= 30000):
-            self.observation = {"available": True}
-            return
-        try:
-            await self.capture()
-        except Exception as error:
-            await self._mark_unobserved(error)
-
     async def handle(self, cmd: dict):
         async with self.command_lock:
             if self.closed:
@@ -309,41 +303,15 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
         elif kind == "session.start":
             # Opening the companion is not a request to watch a window.
             await self.cancel("summon")
+            self.companion_visible = True
             self.target = None
             self.snapshot = None
             self.actions.clear()
             await self.emit("snapshot.invalidated")
             self.observation = None
             await self.emit("session.started", target=None, provider=self.settings.values["provider"])
-        elif kind == "session.watch":
-            await self.cancel("watch")
-            target = await asyncio.to_thread(self.desktop.foreground)
-            self.target = target
-            self.snapshot = None
-            self.observation = None
-            self.actions.clear()
-            await self.emit("session.started", target=target, watching=bool(target), provider=self.settings.values["provider"])
-            if target:
-                await self.emit("target.bound", target=target)
-                if self.settings.values.get("send_screenshot"):
-                    try:
-                        await self.capture()
-                    except Exception as e:
-                        await self._mark_unobserved(e)
-                else:
-                    await self.emit("snapshot.invalidated")
-            else:
-                await self.emit("snapshot.invalidated")
-                await self.emit("observation.unavailable", available=False, code="no_target",
-                                message="没有可注视的前台窗口。对话可以继续。")
-        elif kind == "session.unwatch":
-            self.target = None
-            self.snapshot = None
-            self.observation = None
-            self.actions.clear()
-            await self.emit("snapshot.invalidated")
-            await self.emit("session.started", target=None, watching=False, provider=self.settings.values["provider"])
         elif kind == "session.close":
+            self.companion_visible = False
             await self.cancel("session_closed")
             await self.emit("session.closed")
         elif kind == "generation.cancel":
@@ -395,6 +363,13 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             if not isinstance(text, str) or not 1 <= len(text.strip()) <= 4000:
                 raise ValueError("请输入 1–4000 字的问题")
             await self.cancel("new_turn")
+            # Immediate, literal attention controls also work without an online model.
+            import re
+            attention_text = re.sub(r"[，。！!？?\s]", "", text)
+            if attention_text in {"别看了", "不要偷看", "暂停偷看", "停止偷看", "彩名别看了"}:
+                await self._attention_configure(False)
+            elif attention_text in {"继续看", "可以偷看", "恢复偷看", "彩名继续看"}:
+                await self._attention_configure(True)
             self.turn_id = identifier("turn")
             self.mode = cmd.get("mode", "teach")
             if self.mode not in {"teach", "execute"}:
@@ -432,12 +407,18 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             validated = self.settings.validate(patch)
             # Presentation changes can be applied while a reply is playing.
             # Persist first: a failed write must not stop a task or voice.
-            presentation = {"companion_ui", "avatar_costume", "volume", "subtitles", "sentence_motion", "hotkey", "cancel_hotkey", "watch_hotkey", "remember_user"}
+            presentation = {"companion_ui", "avatar_costume", "volume", "subtitles", "sentence_motion", "hotkey", "cancel_hotkey", "ambient_attention", "remember_user"}
             interrupt = any(key not in presentation and value != self.settings.values.get(key)
                             for key, value in validated.items())
             previous_voice = self.settings.values.get("voice", {})
+            previous_character = self.settings.values.get("character")
             previous_history = self.settings.values.get("save_history", True)
             self.settings.update(patch)
+            if self.settings.values.get("character") != previous_character:
+                from .avatars import AvatarCatalog
+                self.avatars = AvatarCatalog(self.settings.root, character=self.settings.values.get("character"),
+                                             avatar_root=self.settings.values.get("avatar_root"))
+                self.prompts = PromptAssembler(self.settings.root, self.avatars)
             if 'remember_user' in patch or 'save_history' in patch:
                 self.memory.revision += 1
                 await self._memory_snapshot()
@@ -457,7 +438,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             if "stt" in patch and self.stt:
                 await self.stt.close()
                 self.stt = None
-            if "voice" in patch and self.settings.values["voice"] != previous_voice:
+            if self.settings.values["voice"] != previous_voice:
                 if self.start_task and not self.start_task.done():
                     self.start_task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
@@ -632,7 +613,13 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 streams = [LocalProvider().stream_reply(text, self.repository, self.target)]
                 messages = None
             else:
-                await self._refresh_conversation_snapshot()
+                # Observations are requested through tools. Expire old images instead
+                # of making an unrelated chat message trigger another capture.
+                if self.snapshot and time.monotonic() * 1000 - self.snapshot.get("captured_at_monotonic_ms", time.monotonic() * 1000) > 30000:
+                    self.snapshot = None
+                    self.actions.clear()
+                    self.observation = {"available": False, "code": "stale_snapshot", "message": "上一次观察已过期，需要时可以重新看看。"}
+                    await self.emit("snapshot.invalidated")
                 bundle = self.prompts.build(full_access=self.full_access,
                                             costume=self.settings.values.get("avatar_costume", "校服"),
                                             tools=self._tool_prompt())
@@ -642,6 +629,9 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 evidence_prefix = repository_message(self.repository)
                 context = {"mode": "execute" if self._execution_enabled() else "teach", "full_access": self.full_access, "target": self.target,
                            "observation": self.observation or {"available": bool(self.snapshot)},
+                           "ambient_attention": self.settings.values.get("ambient_attention", True),
+                           "recent_observations": [item for item in self.recent_observations
+                                                   if item["conversation_id"] == self.conversations.current_id],
                            "local_clock": local_clock(), "work_context": self._prompt_work_context(),
                            "speech_budget": self._speech_budget(audio_count),
                            "directories": self.policy.public(include_repository=True),
@@ -667,10 +657,16 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             report_repair_requested = False
             report_only_round = False
             repair_allow_speech = False
-            for tool_round in range(self.settings.values.get("task_limits", {}).get("rounds", 12)):
+            final_round = self.settings.values.get("task_limits", {}).get("rounds", 12)
+            # One extra iteration after the tool rounds stays tools-free so the
+            # model can summarize the results it already has instead of losing
+            # them to a hard budget error.
+            for tool_round in range(final_round + 1):
+                wrap_up = tool_round >= final_round
                 await self._checkpoint()
                 if self.active_task:
-                    self.active_task.next_round()
+                    if not wrap_up:
+                        self.active_task.next_round()
                     await self._task_event()
                 requests = []
                 round_keys = {}
@@ -792,7 +788,16 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                         "Each check: description,evidence. Each fact: call_id,pointer,operator,value. "
                         + json.dumps({"issues": issues, "current_task": self.active_task.public() if self.active_task else None}, ensure_ascii=False)}
                     if not requests:
+                        if wrap_up:
+                            # The final round cannot repair the report; keep the
+                            # factual speech and let the turn end here.
+                            break
                         if report_repair_requested:
+                            if count or keys:
+                                # Committed speech outranks report metadata: keep
+                                # the reply and finish as needs_verification
+                                # instead of dropping it on a second repair miss.
+                                break
                             raise ToolError("invalid_task_report", "任务报告校验仍未通过，已有工具结果已保留；请重新发起这一步")
                         report_repair_requested = True
                         report_only_round = True
@@ -817,10 +822,14 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                         continue
                 if not requests or messages is None:
                     break
+                if wrap_up:
+                    # No tools were offered in the wrap-up round, so a late NDJSON
+                    # tool request is out of budget and is not executed.
+                    break
                 results = await self._dispatch_tools(requests, provider.tool_errors)
                 # Keep native assistant tool calls adjacent to their results.
                 update_budget(messages, self._speech_budget(audio_count))
-                include_image = any(r.get("name") in {"capture_target", "windows.select", "desktop.step"} and "error" not in r for r in results)
+                include_image = any(r.get("name") in {"desktop.observe", "desktop.step"} and "error" not in r for r in results)
                 if provider.used_native_tools:
                     native_ids = {call["call_id"] for call in provider.tool_calls}
                     unhandled = []
@@ -841,6 +850,8 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                     messages.append(self._tool_message(results, include_image))
                 if report_feedback:
                     if report_repair_requested:
+                        if count or keys:
+                            break
                         raise ToolError("invalid_task_report", "任务报告校验仍未通过，已有工具结果已保留；请重新发起这一步")
                     report_repair_requested = True
                     report_only_round = True
@@ -851,9 +862,14 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                     continue
                 if self.approvals:
                     break
-                tool_schemas, tool_names = self._model_tools(messages)
-                self._cap_request(messages, prefix_length, reserve)
-                streams.append(provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names))
+                if tool_round + 1 >= final_round:
+                    messages.append({"role": "system", "content": BUDGET_FINAL_NOTICE})
+                    self._cap_request(messages, prefix_length, reserve)
+                    streams.append(provider.stream_reply(messages))
+                else:
+                    tool_schemas, tool_names = self._model_tools(messages)
+                    self._cap_request(messages, prefix_length, reserve)
+                    streams.append(provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names))
             else:
                 raise ToolError("round_budget", "任务工具往返已达到上限")
             await self._checkpoint()
@@ -862,7 +878,9 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 raise RuntimeError("模型没有返回可播放的完整日语语句")
             if waiting and messages is not None:
                 self.continuation = {"messages": messages, "prefix_length": prefix_length, "keys": keys,
-                                     "audio_count": audio_count, "reserve": reserve}
+                                     "audio_count": audio_count, "reserve": reserve,
+                                     "native_tool_ids": [call.get("call_id") for call in (provider.tool_calls or [])]
+                                                         if provider.used_native_tools else []}
                 sealed = True
             elif messages is not None:
                 self.prompt_history.append(self.turn_id, messages[prefix_length:], keys,
@@ -891,11 +909,12 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                 self.files.proposals.clear()
                 self.actions.clear()
                 self.continuation = None
+                message = self._display_error(e)
                 if self.active_task:
-                    self.active_task.reason = str(e)[:500]
+                    self.active_task.reason = message
                     self.active_task.transition("failed")
                     await self._task_event()
-                await self.emit("error", source="turn", message=str(e)[:500])
+                await self.emit("error", source="turn", message=message)
                 await self.emit("task.state", state="failed")
                 # A later malformed model event must not cut off valid speech
                 # already committed to the queue. A new turn/cancel still
@@ -914,6 +933,24 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             # persist the confirmed exchange so tool evidence is not lost.
             if messages is not None and not sealed:
                 self._seal_interrupted_turn(messages, prefix_length)
+
+    @staticmethod
+    def _display_error(error):
+        """Map provider or transport failures to ordinary language for the note."""
+        text = str(error)
+        if text.startswith(("Model application events", "Model returned malformed",
+                            "Model returned no application events", "No committed sentence",
+                            "Model returned invalid Japanese speech", "Japanese sentence repair")):
+            return "这次的回答格式不完整，已经说出的内容会保留；再说一次或换个说法就好。"
+        if text.startswith("Model stream ended early"):
+            return "模型的回答被截断了，请再试一次，或把事情拆小一点。"
+        if text.startswith("Model stream disconnected"):
+            return "模型连接中断了，请稍后再试。"
+        if text.startswith("Model API returned HTTP"):
+            return f"模型服务暂时不可用（{text.rsplit(' ', 1)[-1]}），请稍后再试。"
+        if text.startswith("Model declined"):
+            return "模型这次没有回答，换个说法试试。"
+        return text[:500]
 
     def _seal_interrupted_turn(self, messages, prefix_length):
         if not self.turn_id:
@@ -1235,6 +1272,9 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
         if self.closed:
             return
         await self.cancel("shutdown")
+        if self.attention_runner:
+            self.attention_runner.cancel()
+            await asyncio.gather(self.attention_runner, return_exceptions=True)
         for job in (self.memory_task,self.context_job):
             if job and not job.done():
                 job.cancel()

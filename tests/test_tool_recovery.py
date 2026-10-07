@@ -12,6 +12,7 @@ from services.agent.tools.registry import ToolError
 from services.agent.tools.web import WebTools
 from services.agent.tools.search_terms import restore_search_terms
 from test_capabilities import runtime, speech
+from test_runtime import Desktop
 from test_model import sse_response, VALID
 
 
@@ -267,9 +268,30 @@ async def test_report_repair_cannot_execute_ndjson_tools_or_loop_forever(tmp_pat
     try:
         await agent.handle({"type": "turn.start", "text": "Please write something", "mode": "execute"})
         await agent.task
-        assert len(calls) == 2 and agent.active_task.state == "failed"
+        # The second repair miss keeps the committed speech and finishes as a
+        # plain reply instead of failing the whole turn.
+        assert len(calls) == 2 and agent.active_task.state == "replied"
         assert agent.active_task.calls == 0 and not (tmp_path / "artifacts/do-not-write.md").exists()
         assert len([e for e in next(iter(agent.clients)).events if e["type"] == "utterance.ready"]) == 1
+    finally:
+        await agent.close()
+
+
+@pytest.mark.asyncio
+async def test_second_report_repair_miss_keeps_committed_speech_without_error(tmp_path):
+    calls = []
+    bad = {"type": "task", "kind": "answer", "status": "complete", "extra_field": 1}
+    def respond(request):
+        calls.append(request)
+        return sse_response([VALID, bad])
+    agent = runtime(tmp_path, respond)
+    try:
+        await agent.handle({"type": "turn.start", "text": "Explain this"})
+        await agent.task
+        events = next(iter(agent.clients)).events
+        assert len(calls) == 2
+        assert not [e for e in events if e["type"] == "error"]
+        assert len([e for e in events if e["type"] == "utterance.ready"]) == 1
     finally:
         await agent.close()
 
@@ -311,7 +333,9 @@ async def test_report_repair_cannot_change_the_agreed_task_kind_or_checks(tmp_pa
     try:
         await agent.handle({"type": "turn.start", "text": "Open this page"})
         await agent.task
-        assert len(calls) == 2 and agent.active_task.state == "failed"
+        # An unrepaired kind change keeps the agreed action and its checks; the
+        # reply stays and the task simply needs verification.
+        assert len(calls) == 2 and agent.active_task.state == "needs_verification"
         assert agent.active_task.kind == "action" and agent.active_task.checks == plan["checks"]
     finally:
         await agent.close()
@@ -393,23 +417,25 @@ async def test_network_error_is_typed_and_other_call_succeeds(tmp_path):
 
 @pytest.mark.asyncio
 async def test_repeated_observation_without_new_information_breaks_the_loop(tmp_path):
-    agent = runtime(tmp_path, lambda r: sse_response([speech()]))
+    class Visual(Desktop):
+        status = {"available": True}
+    agent = runtime(tmp_path, lambda r: sse_response([speech()]), Visual())
     agent.target = {"target_id": "win"}
-    async def observe():
+    async def observe(**args):
         return [{"name": "新标签页 - Google Chrome"}]
-    agent.registry.tools["observe_controls"].handler = observe
+    agent.registry.tools["desktop.observe"].handler = observe
     try:
         await agent.handle({"type": "turn.start", "text": "打开网页给我看看"})
         await agent.task
-        first = await agent._dispatch_tool({"type": "tool", "name": "observe_controls", "arguments": {}, "call_id": "obs-1"})
+        first = await agent._dispatch_tool({"type": "tool", "name": "desktop.observe", "arguments": {"scope": "list"}, "call_id": "obs-1"})
         assert first["result"][0]["name"].startswith("新标签页")
-        second = await agent._dispatch_tool({"type": "tool", "name": "observe_controls", "arguments": {}, "call_id": "obs-2"})
+        second = await agent._dispatch_tool({"type": "tool", "name": "desktop.observe", "arguments": {"scope": "list"}, "call_id": "obs-2"})
         assert second["code"] == "repeated_no_progress"
         assert second["receipt"]["retryable"] is False
-        async def changed():
+        async def changed(**args):
             return [{"name": "音无彩名 - 萌娘百科 - Google Chrome"}]
-        agent.registry.tools["observe_controls"].handler = changed
-        third = await agent._dispatch_tool({"type": "tool", "name": "observe_controls", "arguments": {}, "call_id": "obs-3"})
+        agent.registry.tools["desktop.observe"].handler = changed
+        third = await agent._dispatch_tool({"type": "tool", "name": "desktop.observe", "arguments": {"scope": "list"}, "call_id": "obs-3"})
         assert third["result"][0]["name"].startswith("音无彩名")
         assert [e["type"] for e in next(iter(agent.clients)).events].count("tool.failed") == 1
     finally:
@@ -434,5 +460,71 @@ async def test_repeated_searches_stop_network_and_feedback_is_task_local(tmp_pat
         await agent.task
         fresh = await agent._dispatch_tool({**request, "call_id": "fresh"})
         assert "result" in fresh and len(calls) == 3
+    finally:
+        await agent.close()
+
+
+@pytest.mark.asyncio
+async def test_repeated_read_of_an_unchanged_file_is_blocked(tmp_path):
+    agent = runtime(tmp_path, lambda r: sse_response([speech()]))
+    (tmp_path / "artifacts").mkdir(exist_ok=True)
+    (tmp_path / "artifacts/evidence.txt").write_text("stable evidence", encoding="utf-8")
+    try:
+        await agent.handle({"type": "turn.start", "text": "Read the evidence"})
+        await agent.task
+        request = {"type": "tool", "name": "files.read",
+                   "arguments": {"root_id": "output", "path": "evidence.txt"}}
+        first = await agent._dispatch_tool({**request, "call_id": "read-1"})
+        second = await agent._dispatch_tool({**request, "call_id": "read-2"})
+        assert "result" in first and second["code"] == "repeated_no_progress"
+        assert second["receipt"]["retryable"] is False
+    finally:
+        await agent.close()
+
+
+@pytest.mark.asyncio
+async def test_identical_failing_call_stops_after_one_retry(tmp_path):
+    calls = []
+    agent = runtime(tmp_path, lambda r: sse_response([speech()]))
+    async def fetch(url):
+        calls.append(url)
+        raise ToolError("web_http_error", "网页服务返回 HTTP 403")
+    agent.registry.tools["web.fetch"].handler = fetch
+    try:
+        await agent.handle({"type": "turn.start", "text": "Fetch it"})
+        await agent.task
+        request = {"type": "tool", "name": "web.fetch", "arguments": {"url": "https://example.com/blocked"}}
+        first = await agent._dispatch_tool({**request, "call_id": "fetch-1"})
+        second = await agent._dispatch_tool({**request, "call_id": "fetch-2"})
+        third = await agent._dispatch_tool({**request, "call_id": "fetch-3"})
+        assert first["code"] == "web_http_error"
+        assert second["code"] == "repeated_failure" and len(calls) == 2
+        assert third["code"] == "repeated_failure" and len(calls) == 2
+    finally:
+        await agent.close()
+
+
+@pytest.mark.asyncio
+async def test_tool_round_budget_ends_with_a_tools_free_summary(tmp_path):
+    calls = []
+    def respond(request):
+        body = json.loads(request.content)
+        calls.append(body)
+        if "tools" in body:
+            index = len([body for body in calls if "tools" in body])
+            return native_calls([(f"call-{index}", "web__fetch", json.dumps({"url": f"https://example.com/{index}"}))])
+        return sse_response([speech(), {"type": "task", "kind": "answer", "status": "complete"}])
+    agent = runtime(tmp_path, respond)
+    agent.settings.values["task_limits"] = {"rounds": 2, "calls": 24, "seconds": 180}
+    async def fetch(url):
+        return {"content": f"page {url}"}
+    agent.registry.tools["web.fetch"].handler = fetch
+    try:
+        await agent.handle({"type": "turn.start", "text": "Fetch two pages"})
+        await agent.task
+        events = next(iter(agent.clients)).events
+        assert len(calls) == 3 and "tools" not in calls[-1]
+        assert not [e for e in events if e["type"] == "error"]
+        assert agent.active_task.state == "succeeded"
     finally:
         await agent.close()

@@ -31,7 +31,7 @@ def pointer(value, path):
 
 # Volatile tool fields change on every call without adding information; they
 # must not make a repeated observation look like progress.
-_VOLATILE_RESULT_KEYS = {"snapshot_id", "captured_at_monotonic_ms", "captured_at", "timestamp",
+_VOLATILE_RESULT_KEYS = {"snapshot_id", "captured_at_monotonic_ms", "captured_at", "observed_at", "timestamp",
                          "at", "duration_ms", "expires", "png_base64", "request_id", "log_cursor"}
 
 
