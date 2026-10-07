@@ -23,6 +23,8 @@ const commands = new Set([
   'approval.resolve', 'artifact.get', 'artifact.open', 'artifact.restore', 'source.open',
   'computer.start',
   'conversations.get', 'conversation.create', 'conversation.select', 'conversation.rename', 'conversation.materials.clear', 'subtitles.translate',
+  'conversation.history', 'conversation.search', 'conversation.export', 'conversation.delete',
+  'memory.get', 'memory.update', 'memory.forget',
 ]);
 app.setName('Ayana');
 const playbackTypes = new Set(['playback.started', 'playback.progress', 'playback.ended', 'playback.cancelled', 'playback.error']);
@@ -164,7 +166,8 @@ function diagnostic(value: string) {
 }
 
 function broadcast(event: Event, remember = true) {
-  if (remember && !event.type.startsWith('audio.') && !event.type.startsWith('playback.')) {
+  if (remember && !event.type.startsWith('audio.') && !event.type.startsWith('playback.')
+      && !['conversation.review', 'conversation.search-results', 'conversation.exported'].includes(event.type)) {
     if (event.type === 'conversation.changed') {
       const retained = new Set(['settings.ready', 'service.state', 'desktop.service', 'desktop.shortcuts', 'capabilities.ready']);
       recentEvents = recentEvents.filter(previous => retained.has(previous.type));
@@ -178,11 +181,12 @@ function broadcast(event: Event, remember = true) {
     if (event.type === 'snapshot.invalidated') {
       recentEvents = recentEvents.filter(previous => previous.type !== 'snapshot.ready');
     }
-    if (['snapshot.ready', 'repository.inspected', 'settings.ready', 'history.ready', 'conversations.ready', 'context.state'].includes(event.type)) {
+    if (event.type === 'conversation.deleted') recentEvents = recentEvents.filter(previous => previous.conversation_id !== event.deleted_id);
+    if (['snapshot.ready', 'repository.inspected', 'settings.ready', 'history.ready', 'conversations.ready', 'context.state', 'memory.ready'].includes(event.type)) {
       recentEvents = recentEvents.filter(previous => previous.type !== event.type);
     }
     recentEvents.push(event);
-    const snapshots = new Set(['snapshot.ready', 'repository.inspected', 'settings.ready', 'history.ready', 'conversations.ready', 'conversation.changed', 'context.state']);
+    const snapshots = new Set(['snapshot.ready', 'repository.inspected', 'settings.ready', 'history.ready', 'conversations.ready', 'conversation.changed', 'context.state', 'memory.ready']);
     recentEvents = recentEvents.filter((previous, index) => snapshots.has(previous.type) || index >= recentEvents.length - 160);
   }
   for (const window of [chat, settingsWindow, designWindow, highlight]) {
@@ -405,6 +409,11 @@ async function watchForeground() {
 
 function receive(event: Event) {
   if (event.protocol_version !== 1 || typeof event.type !== 'string') return;
+  if (event.type === 'conversation.exported') {
+    const file = String(event.path || '');
+    const directory = path.join(app.getPath('userData'), 'artifacts', 'conversations');
+    if (path.dirname(file) === directory && /\.(md|json)$/.test(file) && existsSync(file)) shell.showItemInFolder(file);
+  }
   // Historical translations keep their original generation. They must not
   // make a desktop cancel reject newer audio from this running session.
   if (!['subtitle.translated', 'subtitle.translation-failed'].includes(event.type)

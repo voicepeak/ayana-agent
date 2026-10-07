@@ -18,6 +18,13 @@ export interface Conversation {
   conversation_id: string; title: string; preview: string; created: number; updated: number;
   repository_root?: string;
 }
+export interface PersonalMemory {
+  memory_id: string; content: string; edited?: boolean; updated: number;
+  source?: { id: number; quote: string; conversation_id: string; created: number };
+}
+export interface RecordPage {
+  items: Record<string, unknown>[]; has_more: boolean; before?: number; request_id?: string; review_id?: string;
+}
 export interface ModelState {
   connected: boolean; service: string; generation: number; cancelledGeneration: number;
   task: string; voice: string; mode: 'teach' | 'execute'; target?: Target;
@@ -30,7 +37,7 @@ export interface ModelState {
   progress: number; repository?: Repository; settings: Record<string, unknown>;
   history: Record<string, unknown>[]; windows: Target[]; evidence: Evidence[];
   actions: RuntimeEvent[]; tools: RuntimeEvent[]; error?: string; shortcuts?: RuntimeEvent;
-  questions: { text: string; generation: number; id: string; order?: number }[];
+  questions: { text: string; generation: number; id: string; order?: number; startedAt?: number }[];
   modelUsage?: RuntimeEvent;
   activeTask?: Record<string, unknown>; taskHistory: Record<string, unknown>[];
   approvals: Record<string, unknown>[]; artifacts: Record<string, unknown>[];
@@ -39,6 +46,8 @@ export interface ModelState {
   conversation?: Conversation; conversations: Conversation[]; persistentHistory: boolean;
   contextSummary: string; contextState: string; retainedTurns: number;
   historyConversationId?: string; historyHasMore: boolean; historyBefore?: number;
+  review?: RecordPage; searchResults?: RecordPage; exportPath?: string; exportRequest?: string;
+  memories: PersonalMemory[]; memoryEnabled: boolean; memoryState: string;
 }
 export const initialState: ModelState = {
   connected: false, service: 'starting', generation: 0, cancelledGeneration: -1,
@@ -47,6 +56,7 @@ export const initialState: ModelState = {
   approvals: [], artifacts: [], sources: [], directories: [], taskHistory: [], searchConfigured: false,
   computerProgress: [],
   conversations: [], persistentHistory: true, contextSummary: '', contextState: 'ready', retainedTurns: 0, historyHasMore: false,
+  memories: [], memoryEnabled: true, memoryState: 'ready',
 };
 
 export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState {
@@ -55,7 +65,8 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
   // Late receipts belong to the original topic. They may update its stored record,
   // but must never replace the active topic's visible reply or task.
   if (event.conversation_id && state.conversation && event.conversation_id !== state.conversation.conversation_id
-      && !['conversation.changed', 'conversations.ready', 'history.ready'].includes(event.type)) return state;
+      && !['conversation.changed', 'conversations.ready', 'history.ready', 'conversation.review',
+        'conversation.search-results', 'conversation.exported', 'conversation.deleted', 'memory.ready'].includes(event.type)) return state;
   // Runtime acknowledgments are persistence confirmations. They can arrive after
   // the next segment starts, so only immediate player receipts drive presentation.
   if (event.type.startsWith('playback.') && typeof event.seq === 'number') return state;
@@ -75,6 +86,27 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
   if (output.includes(event.type) && generation <= state.cancelledGeneration) return state;
   let next = { ...state, generation: Math.max(state.generation, generation) };
   switch (event.type) {
+    case 'conversation.review': {
+      const page = event as unknown as RecordPage;
+      const previous = state.review;
+      next.review = { ...page, items: event.prepend && previous && previous.review_id === page.review_id
+        ? [...page.items, ...previous.items.filter(old => !page.items.some(item => item.id === old.id))] : page.items };
+      break;
+    }
+    case 'conversation.search-results': {
+      const page = event as unknown as RecordPage;
+      const previous = state.searchResults;
+      next.searchResults = { ...page, items: event.prepend && previous && previous.request_id === page.request_id
+        ? [...previous.items, ...page.items.filter(item => !previous.items.some(old => old.id === item.id))] : page.items };
+      break;
+    }
+    case 'conversation.exported': next.exportPath = String(event.path); next.exportRequest = String(event.request_id || ''); break;
+    case 'conversation.deleted':
+      if (state.review?.review_id === event.deleted_id) next.review = undefined;
+      next.searchResults = undefined; break;
+    case 'memory.ready':
+      next.memories = (event.memories ?? []) as PersonalMemory[];
+      next.memoryEnabled = Boolean(event.enabled); next.memoryState = String(event.state || 'ready'); break;
     case 'conversation.changed':
     case 'conversations.ready': {
       const current = event.current as Conversation;
@@ -197,7 +229,7 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
     }
     case 'user.message':
     case 'desktop.question':
-      next.questions = [...state.questions, { text: String(event.text), generation, id: String(event.turn_id || event.id || generation), order: Number(event.seq || generation * 1000 + state.questions.length + state.speeches.length) }];
+      next.questions = [...state.questions, { text: String(event.text), generation, id: String(event.turn_id || event.id || generation), startedAt: Date.now(), order: Number(event.seq || generation * 1000 + state.questions.length + state.speeches.length) }];
       next.error = undefined; next.task = 'thinking'; break;
     case 'utterance.ready':
       if (!state.speeches.some(s => s.id === event.utterance_id)) {
@@ -247,9 +279,11 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
     }
     case 'action.proposed': next.actions = [...state.actions, event]; break;
     case 'tool.started':
+    case 'tool.progress':
     case 'tool.completed':
     case 'tool.failed':
-      next.tools = [...state.tools, event].slice(-30); break;
+      // Keep starts for slow parallel calls through the bounded task's receipts.
+      next.tools = [...state.tools, event].slice(-150); break;
     case 'error':
       // Correlated command errors are shown by the initiating form. They must
       // neither duplicate its feedback nor mark an unrelated live task failed.
