@@ -16,7 +16,7 @@ from tests.test_runtime import Desktop, Tts, Ws
 
 def make_runtime(tmp_path, respond=None, persist=True):
     settings = Settings(root=Path(__file__).resolve().parents[1], data_root=tmp_path)
-    settings.values.update(provider="openai", model="one", send_screenshot=False, save_history=persist,
+    settings.values.update(provider="openai", model="one", send_screenshot=False, save_history=persist, remember_user=False,
                            voice={"voice_mode": "silent"})
     settings.key = lambda: "test-key"
     tts = Tts()

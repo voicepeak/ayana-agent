@@ -49,11 +49,29 @@ class Conversations:
         self.current["updated"] = time.time()
         self.save()
 
-    def rename(self, title):
+    def rename(self, title, cid=None):
         if not isinstance(title, str) or not 1 <= len(title.strip()) <= 60:
             raise ValueError("话题名称需要 1–60 字")
-        self.current.update(title=title.strip(), auto_title=False)
-        self.save()
+        cid = cid or self.current_id
+        if cid not in self.records:
+            raise ValueError("找不到这个话题")
+        self.records[cid].update(title=title.strip(), auto_title=False)
+        if self.persist:
+            self.store.put_record('conversation', cid, self.records[cid])
+
+    def delete(self, cid):
+        if cid not in self.records:
+            raise ValueError("找不到这个话题")
+        if self.persist:
+            self.store.delete_conversation(cid)
+        self.records.pop(cid)
+        self.live.pop(cid, None)
+        if self.current_id == cid:
+            self.current_id = next(iter(sorted(self.records, key=lambda key:self.records[key]['updated'], reverse=True)), None)
+            if not self.current_id:
+                self.create()
+            else:
+                self.save()
 
     def observe(self, event):
         cid = event.get("conversation_id")

@@ -18,6 +18,17 @@ def text_messages(messages):
     for message in result:
         if isinstance(message.get("content"), list):
             message["content"] = [part for part in message["content"] if part.get("type") == "text"]
+            # Personal memory is a current snapshot, never another historical
+            # statement. Editing or forgetting it must affect the next request.
+            if message.get('role') == 'user':
+                for part in message['content']:
+                    try:
+                        payload = json.loads(part.get('text', ''))
+                    except (ValueError, TypeError):
+                        continue
+                    if isinstance(payload, dict) and 'user_memory' in payload:
+                        payload.pop('user_memory')
+                        part['text'] = json.dumps(payload, ensure_ascii=False)
     return result
 
 
@@ -157,7 +168,7 @@ def summary_batches(turns, budget=SUMMARY_INPUT_BUDGET):
     return batches
 
 
-async def summarize_history(settings, client, previous, turns, request_observer=None):
+async def summarize_history(settings, client, previous, turns, request_observer=None, usage_observer=None):
     """An occasional plain-text request, separate from speech and tool execution."""
     turns = [{**turn, "messages": text_messages(turn["messages"])} for turn in turns]
     content = json.dumps({"previous_summary": previous, "older_turns": turns}, ensure_ascii=False)
@@ -176,6 +187,8 @@ async def summarize_history(settings, client, previous, turns, request_observer=
     if response.status_code >= 400:
         raise RuntimeError("摘要服务暂时不可用，原始上下文已保留。请稍后重试。")
     value = response.json()
+    if usage_observer and isinstance(value.get('usage'),dict):
+        await usage_observer(value['usage'])
     choices = value.get("choices") or []
     summary = (choices[0].get("message") or {}).get("content") if choices else None
     if not isinstance(summary, str) or not summary.strip() or len(summary) > 4000:

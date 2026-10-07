@@ -37,11 +37,15 @@ class ConversationStore:
             WHERE type IN ('user.message','utterance.ready');
           CREATE TABLE IF NOT EXISTS utterances(utterance_id TEXT PRIMARY KEY, session_id TEXT, turn_id TEXT, generation_id INTEGER, speech_ja TEXT, display_zh TEXT DEFAULT '', status TEXT DEFAULT 'generated', played_samples INTEGER DEFAULT 0, total_samples INTEGER DEFAULT 0, sample_rate INTEGER DEFAULT 0, displayed INTEGER DEFAULT 0);
           CREATE TABLE IF NOT EXISTS preferences(key TEXT PRIMARY KEY, value TEXT);
+          CREATE TABLE IF NOT EXISTS event_sequence(id INTEGER PRIMARY KEY CHECK(id=1), value INTEGER NOT NULL);
           CREATE TABLE IF NOT EXISTS model_turns(id INTEGER PRIMARY KEY, scope TEXT, payload TEXT);
           CREATE INDEX IF NOT EXISTS model_turns_scope ON model_turns(scope, id);
           CREATE TABLE IF NOT EXISTS context_summaries(scope TEXT PRIMARY KEY, summary TEXT);
           CREATE TABLE IF NOT EXISTS capability_records(kind TEXT, key TEXT, payload TEXT, updated REAL, PRIMARY KEY(kind,key));
         """)
+        self.db.execute('INSERT OR IGNORE INTO event_sequence VALUES(1,0)')
+        self.db.execute('UPDATE event_sequence SET value=max(value,(SELECT coalesce(max(id),0) FROM events)) WHERE id=1')
+        self.db.commit()
         columns = {row[1] for row in self.db.execute("PRAGMA table_info(utterances)")}
         if "display_en" not in columns:
             self.db.execute("ALTER TABLE utterances ADD COLUMN display_en TEXT DEFAULT ''")
@@ -53,10 +57,12 @@ class ConversationStore:
         # Derived UI snapshots contain copies of historical data. Persist their
         # source records, not another full transcript on every refresh.
         if kind not in {"audio.ready", "snapshot.ready", "playback.progress", "history.ready",
-                        "conversations.ready", "conversation.changed", "context.state"}:
+                        "conversations.ready", "conversation.changed", "context.state",
+                        "conversation.review", "conversation.search-results", "memory.ready"}:
             payload = without_media(event)
-            self.db.execute("INSERT INTO events(created,session_id,generation_id,type,payload) VALUES(?,?,?,?,?)",
-                            (time.time(), event.get("session_id"), event.get("generation_id", 0), kind, json.dumps(payload, ensure_ascii=False)))
+            event_id = self.db.execute('UPDATE event_sequence SET value=value+1 WHERE id=1 RETURNING value').fetchone()[0]
+            self.db.execute("INSERT INTO events(id,created,session_id,generation_id,type,payload) VALUES(?,?,?,?,?,?)",
+                            (event_id,time.time(), event.get("session_id"), event.get("generation_id", 0), kind, json.dumps(payload, ensure_ascii=False)))
         uid = event.get("utterance_id")
         if kind == "utterance.ready":
             self.db.execute("INSERT INTO utterances(utterance_id,session_id,turn_id,generation_id,speech_ja) VALUES(?,?,?,?,?)",
@@ -201,6 +207,54 @@ class ConversationStore:
             items.append(item)
         return {"items": items, "has_more": len(rows) > limit,
                 "before": items[0]["id"] if items else None}
+
+    @locked
+    def search_history(self, query, before=None, start=None, end=None, conversation_id=None, limit=40):
+        # instr treats %, _, quotes and SQL-like user input as literal text.
+        rows = self.db.execute("""
+            SELECT e.id,e.created,e.type,e.payload,u.speech_ja,u.display_zh,u.display_en
+            FROM events e LEFT JOIN utterances u ON e.type='utterance.ready'
+              AND u.utterance_id=json_extract(e.payload,'$.utterance_id')
+            WHERE e.type IN ('user.message','utterance.ready')
+              AND (? IS NULL OR e.id<?) AND (? IS NULL OR e.created>=?) AND (? IS NULL OR e.created<?)
+              AND (? IS NULL OR json_extract(e.payload,'$.conversation_id')=?)
+              AND (?='' OR instr(lower(coalesce(json_extract(e.payload,'$.text'),'') || ' ' ||
+                coalesce(u.speech_ja,'') || ' ' || coalesce(u.display_zh,'') || ' ' || coalesce(u.display_en,'')),lower(?))>0)
+            ORDER BY e.id DESC LIMIT ?
+        """, (before,before,start,start,end,end,conversation_id,conversation_id,query,query,limit+1)).fetchall()
+        items = []
+        for row in rows[:limit]:
+            event = json.loads(row[3])
+            items.append({"id":row[0],"created":row[1],"conversation_id":event.get("conversation_id"),
+                          "role":"user" if row[2]=='user.message' else "assistant",
+                          "text":event.get("text", "") if row[2]=='user.message' else row[5] or row[4] or ""})
+        return {"items":items,"has_more":len(rows)>limit,"before":items[-1]["id"] if items else None}
+
+    @locked
+    def user_memory_sources(self, after=0, limit=12):
+        # Bootstrap from recent messages. Once started, consume every new batch
+        # in order so a burst of messages cannot fall behind the watermark.
+        order = 'ASC' if after else 'DESC'
+        rows = self.db.execute(f"""SELECT id,created,payload FROM events
+            WHERE type='user.message' AND id>? ORDER BY id {order} LIMIT ?""", (after,limit)).fetchall()
+        if not after:
+            rows.reverse()
+        return [{"id":row[0],"created":row[1],"conversation_id":json.loads(row[2]).get("conversation_id"),
+                 "text":json.loads(row[2]).get("text", "")} for row in rows]
+
+    @locked
+    def delete_conversation(self, cid):
+        scope = "conversation:" + cid
+        with self.db:
+            task_ids = [row[0] for row in self.db.execute("""SELECT DISTINCT json_extract(payload,'$.task.task_id')
+                FROM events WHERE type='task.updated' AND json_extract(payload,'$.conversation_id')=?""", (cid,))]
+            self.db.execute("""DELETE FROM utterances WHERE utterance_id IN (SELECT json_extract(payload,'$.utterance_id')
+                FROM events WHERE json_extract(payload,'$.conversation_id')=?)""", (cid,))
+            self.db.execute("DELETE FROM events WHERE json_extract(payload,'$.conversation_id')=?", (cid,))
+            self.db.execute("DELETE FROM model_turns WHERE scope=?", (scope,))
+            self.db.execute("DELETE FROM context_summaries WHERE scope=?", (scope,))
+            self.db.execute("DELETE FROM capability_records WHERE kind='conversation' AND key=?", (cid,))
+            self.db.executemany("DELETE FROM capability_records WHERE kind='task' AND key=?", [(tid,) for tid in task_ids if tid])
 
     @locked
     def subtitle_sources(self, conversation_id, utterance_ids):

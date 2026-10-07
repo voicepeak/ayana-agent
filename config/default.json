@@ -56,5 +56,6 @@
     "theme": "ink",
     "background_zoom": 100
   },
-  "save_history": true
+  "save_history": true,
+  "remember_user": true
 }

@@ -34,10 +34,10 @@ class Settings:
         return clean(self.values)
 
     def validate(self, patch: dict):
-        allowed = {"hotkey", "cancel_hotkey", "watch_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "detailed_max_utterances", "avatar_costume", "sentence_motion", "volume", "task_limits", "model_max_tokens", "native_tools", "full_access", "search_proxy", "search_provider", "companion_ui"}
+        allowed = {"hotkey", "cancel_hotkey", "watch_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "remember_user", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "detailed_max_utterances", "avatar_costume", "sentence_motion", "volume", "task_limits", "model_max_tokens", "native_tools", "full_access", "search_proxy", "search_provider", "companion_ui"}
         if not isinstance(patch, dict) or set(patch) - allowed:
             raise ValueError("Unsupported settings field")
-        for key in ("send_screenshot", "subtitles", "save_history"):
+        for key in ("send_screenshot", "subtitles", "save_history", "remember_user"):
             if key in patch and type(patch[key]) is not bool:
                 raise ValueError(f"{key} must be boolean")
         if "native_tools" in patch and type(patch["native_tools"]) is not bool:

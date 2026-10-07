@@ -13,7 +13,7 @@ import httpx
 from packages.protocol import PROTOCOL_VERSION, validate_speech
 from .providers.model import LocalProvider, OpenAIProvider
 from .prompts import PromptAssembler, update_budget, completion_feedback, subtitle_language_instruction
-from .prompts import TOOL_RESULT_PREFIX, INTERRUPTED_PREFIX
+from .prompts import TOOL_RESULT_PREFIX, INTERRUPTED_PREFIX, USER_MEMORY_PREFIX
 from .prompts.trace import PromptTrace
 from .storage import ConversationStore, without_media
 from .context import PromptHistory, repository_message
@@ -30,6 +30,7 @@ from .computer_use import ComputerUse
 from .conversations import Conversations
 from .conversation_runtime import ConversationRuntime
 from .work import local_clock
+from .memory import PersonalMemory, extract_memories
 
 
 def identifier(prefix):
@@ -47,6 +48,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
         from .avatars import AvatarCatalog
         self.avatars = AvatarCatalog(settings.root)
         self.prompts = PromptAssembler(settings.root, self.avatars)
+        self.search_identity = (self.avatars.character_root / "persona.md").read_text(encoding="utf-8").splitlines()[0].lstrip("# ").split("（")[0].strip()
         self.prompt_trace = PromptTrace()
         if desktop is None:
             from native.windows.desktop import WindowsDesktop
@@ -57,6 +59,11 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
         self.desktop, self.tts = desktop, tts
         self.store = store or ConversationStore(settings.data_root / ".runtime/history.sqlite3")
         self.prompt_history = PromptHistory(self.store)
+        self.memory = PersonalMemory(self.store)
+        self.memory_task = None
+        self.context_job = None
+        self.memory_retry_at = 0
+        self.memory_state = 'ready'
         self.conversations = Conversations(self.store, settings.values.get("save_history", True))
         self.model_client = None
         self.session_id = identifier("session")
@@ -202,6 +209,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             await self.emit("snapshot.ready", **self.snapshot)
         await self._capabilities_snapshot()
         await self._conversation_snapshot()
+        await self._memory_snapshot()
 
     async def cancel(self, reason="user"):
         self.write_cancel.set()
@@ -424,12 +432,15 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
             validated = self.settings.validate(patch)
             # Presentation changes can be applied while a reply is playing.
             # Persist first: a failed write must not stop a task or voice.
-            presentation = {"companion_ui", "avatar_costume", "volume", "subtitles", "sentence_motion", "hotkey", "cancel_hotkey", "watch_hotkey"}
+            presentation = {"companion_ui", "avatar_costume", "volume", "subtitles", "sentence_motion", "hotkey", "cancel_hotkey", "watch_hotkey", "remember_user"}
             interrupt = any(key not in presentation and value != self.settings.values.get(key)
                             for key, value in validated.items())
             previous_voice = self.settings.values.get("voice", {})
             previous_history = self.settings.values.get("save_history", True)
             self.settings.update(patch)
+            if 'remember_user' in patch or 'save_history' in patch:
+                self.memory.revision += 1
+                await self._memory_snapshot()
             if interrupt:
                 await self.cancel("settings_changed")
             if self.settings.values.get("save_history", True) != previous_history:
@@ -638,19 +649,24 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                            "snapshot_id": self.snapshot.get("snapshot_id") if self.snapshot else None,
                            "previous_reply_reception": self.prompt_history.last_reception(self.utterances),
                            "previous_interrupted_reply": self._interrupted_reply(), "question": text}
+                memories = self.memory.prompt() if self._memory_enabled() else []
+                memory_prefix = [{'role': 'system', 'content': USER_MEMORY_PREFIX + json.dumps(memories,ensure_ascii=False)}] if memories else []
                 content = [{"type": "text", "text": json.dumps(context, ensure_ascii=False)}]
                 if self.snapshot and self.settings.values.get("send_screenshot"):
                     content.append({"type": "image_url", "image_url": {"url": "data:image/png;base64," + self.snapshot["png_base64"]}})
-                reserve = len(system) + len(json.dumps(evidence_prefix, ensure_ascii=False)) + len(content[0]["text"]) + 8800
+                reserve = len(system) + len(json.dumps(evidence_prefix, ensure_ascii=False)) + len(content[0]["text"]) + len(json.dumps(memory_prefix,ensure_ascii=False)) + 8800
                 await self._compact_history(reserve, gen)
                 previous = self.prompt_history.messages(reserve_chars=reserve)
-                messages = [{"role": "system", "content": system}, *evidence_prefix, *previous, {"role": "user", "content": content}]
+                messages = [{"role": "system", "content": system}, *evidence_prefix, *previous, {"role": "user", "content": content}, *memory_prefix]
                 prefix_length = 1 + len(evidence_prefix) + len(previous)
                 if self.model_client is None:
                     self.model_client = httpx.AsyncClient(timeout=httpx.Timeout(75, connect=12), trust_env=False)
                 provider = OpenAIProvider(self.settings, self.model_client)
                 provider.request_observer = self._record_prompt
                 streams = [provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names)]
+            report_repair_requested = False
+            report_only_round = False
+            repair_allow_speech = False
             for tool_round in range(self.settings.values.get("task_limits", {}).get("rounds", 12)):
                 await self._checkpoint()
                 if self.active_task:
@@ -662,6 +678,9 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                     if gen != self.generation:
                         return
                     kind = event.get("type")
+                    if report_only_round and kind != "task" and not (repair_allow_speech and kind in {"speech", "translation"}):
+                        provider.report_errors.append({"issue": "报告修复只能返回任务报告，不能重复语音或调用工具"})
+                        continue
                     if kind == "speech":
                         speech = validate_speech(event)
                         # Narration limits must not abort tools, final reports or
@@ -729,13 +748,17 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                         requests.append(event)
                     elif kind == "task":
                         if self.active_task:
-                            if "continues_task_id" in event:
-                                context = self._work_context()
-                                known = [*context.get("pending_tasks", []), context.get("last_task", {})]
-                                if not any(item.get("task_id") == event["continues_task_id"] for item in known):
-                                    raise ValueError("接续任务 ID 不属于当前话题的已知任务")
-                            self.active_task.report(event)
-                            await self._task_event()
+                            try:
+                                if "continues_task_id" in event:
+                                    context = self._work_context()
+                                    known = [*context.get("pending_tasks", []), context.get("last_task", {})]
+                                    if not any(item.get("task_id") == event["continues_task_id"] for item in known):
+                                        raise ValueError("接续任务 ID 不属于当前话题的已知任务")
+                                self.active_task.report(event)
+                            except (ValueError, TypeError) as error:
+                                provider.report_errors.append({"issue": str(error)[:300]})
+                            else:
+                                await self._task_event()
                     elif kind == "action":
                         await self._checkpoint()
                         if self.full_access:
@@ -754,12 +777,38 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                     # Preserve original content, event keys and JSON formatting.
                     # Playback receipts are sent only with the next user message.
                     messages = [*provider.request_messages, provider.assistant_message()]
+                report_feedback = None
+                if messages is not None and provider.report_errors:
+                    issues = [item["issue"] for item in provider.report_errors]
+                    await self.emit("model.validation", issues=issues, phase="task_report")
+                    self._record_prompt({"issues": provider.report_errors}, phase="task_report_validation")
+                    report_feedback = {"role": "system", "content":
+                        "Correct only the invalid task report. Already emitted speech and tool results are committed; "
+                        "do not repeat speech, tools or operations. Preserve task kind, goal and agreed check descriptions. "
+                        "Use only real current-task call_ids and factual result pointers; never invent completion evidence. "
+                        + ("No speech was committed yet; also supply a brief factual speech and its translation. " if not (count or keys) else "") +
+                        "Return one valid task NDJSON event (running/complete/blocked/needs_input; reason required for "
+                        "blocked/needs_input). Report fields: type,kind,goal,detail,status,reason,checks,continues_task_id. "
+                        "Each check: description,evidence. Each fact: call_id,pointer,operator,value. "
+                        + json.dumps({"issues": issues, "current_task": self.active_task.public() if self.active_task else None}, ensure_ascii=False)}
+                    if not requests:
+                        if report_repair_requested:
+                            raise ToolError("invalid_task_report", "任务报告校验仍未通过，已有工具结果已保留；请重新发起这一步")
+                        report_repair_requested = True
+                        report_only_round = True
+                        repair_allow_speech = not (count or keys)
+                        messages.append(report_feedback)
+                        self._cap_request(messages, prefix_length, reserve)
+                        # A metadata correction cannot request tools or replay operations.
+                        streams.append(provider.stream_reply(messages))
+                        continue
                 if not requests and messages is not None and self.active_task:
                     task = self.active_task
                     if (task.kind == "action" and task.outcome() == "needs_verification"
                             and not task.repair_requested and not self.approvals
                             and tool_round + 1 < self.settings.values.get("task_limits", {}).get("rounds", 12)):
                         task.repair_requested = True
+                        report_only_round = False
                         messages.append({"role": "system", "content": completion_feedback(
                             task.completion_feedback(), self._speech_budget(audio_count)["remaining"])})
                         tool_schemas, tool_names = self._model_tools(messages)
@@ -768,9 +817,7 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                         continue
                 if not requests or messages is None:
                     break
-                results = []
-                for request in requests:
-                    results.append(await self._read_tool(request))
+                results = await self._dispatch_tools(requests, provider.tool_errors)
                 # Keep native assistant tool calls adjacent to their results.
                 update_budget(messages, self._speech_budget(audio_count))
                 include_image = any(r.get("name") in {"capture_target", "windows.select", "desktop.step"} and "error" not in r for r in results)
@@ -792,6 +839,16 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                             messages.append(image_message)
                 else:
                     messages.append(self._tool_message(results, include_image))
+                if report_feedback:
+                    if report_repair_requested:
+                        raise ToolError("invalid_task_report", "任务报告校验仍未通过，已有工具结果已保留；请重新发起这一步")
+                    report_repair_requested = True
+                    report_only_round = True
+                    repair_allow_speech = not (count or keys)
+                    messages.append(report_feedback)
+                    self._cap_request(messages, prefix_length, reserve)
+                    streams.append(provider.stream_reply(messages))
+                    continue
                 if self.approvals:
                     break
                 tool_schemas, tool_names = self._model_tools(messages)
@@ -822,6 +879,8 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                     self.active_task.transition(self.active_task.outcome())
                 await self._task_event()
             await self.emit("task.state", state="waiting_approval" if waiting else "idle", generated_utterances=count)
+            if not waiting and messages is not None:
+                self._queue_maintenance(reserve)
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -868,6 +927,34 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
                               if item.get("turn_id") == self.turn_id and item.get("role") == "assistant"],
                     "actual_tool_results": self.active_task.results if self.active_task else {}}
         factual = [message for message in messages[prefix_length:] if message.get("role") != "system"]
+        # A cancelled batch may have returned only some calls. Native APIs require
+        # a reply for every announced call before the next user turn. Preserve real
+        # receipts and explicitly mark missing ones as unknown, never successful.
+        completed = []
+        index = 0
+        while index < len(factual):
+            message = factual[index]
+            completed.append(message)
+            index += 1
+            if message.get("role") != "assistant" or not message.get("tool_calls"):
+                continue
+            replies = {}
+            while index < len(factual) and factual[index].get("role") == "tool":
+                replies[factual[index].get("tool_call_id")] = factual[index]
+                index += 1
+            for call in message["tool_calls"]:
+                cid = call["id"]
+                if cid in replies:
+                    completed.append(replies[cid])
+                    continue
+                entry = self.active_task.results.get(cid) if self.active_task else None
+                value = entry["value"] if entry else {"call_id": cid, "code": "interrupted",
+                    "error": "本次调用未取得完成回执；不要自动重复操作，请先核实当前状态",
+                    "receipt": {"execution": "uncertain", "verification": "unverified",
+                                "scope": "completion_receipt_missing", "retryable": False}}
+                completed.append({"role": "tool", "tool_call_id": cid,
+                                  "content": json.dumps(value, ensure_ascii=False)})
+        factual = completed
         if not factual and goal:
             factual = [{"role": "user", "content": goal}]
         sealed_messages = [*factual, {"role": "user", "content": INTERRUPTED_PREFIX + json.dumps(
@@ -884,6 +971,94 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
 
     async def _read_tool(self, request):
         return await self._dispatch_tool(request)
+
+    def _memory_enabled(self):
+        return bool(self.settings.values.get('save_history', True) and self.settings.values.get('remember_user', True))
+
+    async def _memory_snapshot(self, request_id=None):
+        await self.emit('memory.ready',memories=self.memory.public(),enabled=self._memory_enabled(),state=self.memory_state,request_id=request_id)
+
+    def _queue_maintenance(self, reserve):
+        if self.closed or self.settings.values['provider'] == 'local':
+            return
+        if self._memory_enabled() and (not self.memory_task or self.memory_task.done()) and time.monotonic()>=self.memory_retry_at:
+            sources = self.store.user_memory_sources(self.memory.watermark)
+            if len(sources)>=4:
+                self.memory_task = asyncio.create_task(self._learn_memories(sources))
+        if (not self.settings.values.get('save_history',True) or self.context_job and not self.context_job.done()):
+            return
+        # Start before pressure reaches the hard ceiling, while the user reads
+        # or hears the reply. Never change the visible conversation ID.
+        budget = self.prompt_history.max_chars - reserve
+        turns = self.prompt_history.turns
+        size = sum(len(json.dumps(turn,ensure_ascii=False)) for turn in turns)+len(self.prompt_history.summary)
+        if len(turns)>6 and size>max(8000,budget*.85):
+            count = 0
+            sizes = [len(json.dumps(turn,ensure_ascii=False)) for turn in turns]
+            while count<len(turns)-6 and sum(sizes[count:])>budget*.65:
+                count += 1
+            if count:
+                from copy import deepcopy
+                self.context_job = asyncio.create_task(self._background_summary(
+                    self.conversations.current_id,self.prompt_history.scope,deepcopy(turns[:count]),self.prompt_history.summary))
+
+    async def _learn_memories(self, sources):
+        revision = self.memory.revision
+        self.memory_state = 'learning'
+        model = self.settings.values['model']
+        async def usage(value):
+            await self.emit('maintenance.usage',phase='personal_memory',model=model,usage=value)
+        try:
+            await self._memory_snapshot()
+            value = await extract_memories(self.settings,self.model_client,sources,self.memory.records(),
+                                           request_observer=self._record_prompt,usage_observer=usage)
+            async with self.command_lock:
+                if self._memory_enabled() and self.conversations.persist:
+                    self.memory.apply(value,sources,revision)
+            self.memory_state = 'ready'
+        except asyncio.CancelledError:
+            self.memory_state = 'ready'
+            raise
+        except Exception:
+            # Memory extraction must never fail or delay the user's turn.
+            self.memory_state = 'failed'
+            self.memory_retry_at = time.monotonic()+300
+        finally:
+            if not self.closed:
+                await self._memory_snapshot()
+
+    async def _background_summary(self, cid, scope, turns, previous):
+        model = self.settings.values['model']
+        def trace(body, *, phase):
+            self.prompt_trace.record(body,phase=phase,conversation_id=cid)
+        async def usage(value):
+            await self.emit('maintenance.usage',phase='history_summary',model=model,usage=value)
+        try:
+            from .context import summarize_history, summary_batches
+            for turn in turns:
+                turn['reply_reception'] = self.store.reception(turn['turn_id'],turn['keys'])
+            summary = previous
+            async with asyncio.timeout(48):
+                for batch in summary_batches(turns):
+                    summary = await summarize_history(self.settings,self.model_client,summary,batch,
+                                                       request_observer=trace,usage_observer=usage)
+            async with self.command_lock:
+                if not self.conversations.persist or cid not in self.conversations.records:
+                    return
+                active = self.prompt_history.scope == scope
+                current = self.prompt_history.turns if active else self.store.model_turns(scope)
+                if [turn['turn_id'] for turn in current[:len(turns)]] != [turn['turn_id'] for turn in turns]:
+                    return
+                remaining = current[len(turns):]
+                if active:
+                    self.prompt_history.compact(len(turns),summary)
+                    await self._conversation_snapshot()
+                else:
+                    self.store.compact_context(scope,remaining,summary)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            pass  # Keep the complete original history when background maintenance fails.
 
     def _cap_request(self, messages, prefix_length, reserve_chars):
         """Keep an in-flight request, including tool rounds, within budget.
@@ -1060,6 +1235,10 @@ class AgentRuntime(CapabilityRuntime, ConversationRuntime):
         if self.closed:
             return
         await self.cancel("shutdown")
+        for job in (self.memory_task,self.context_job):
+            if job and not job.done():
+                job.cancel()
+        await asyncio.gather(*(job for job in (self.memory_task,self.context_job) if job),return_exceptions=True)
         for job in tuple(self.subtitle_jobs):
             job.cancel()
         await asyncio.gather(*tuple(self.subtitle_jobs), return_exceptions=True)
