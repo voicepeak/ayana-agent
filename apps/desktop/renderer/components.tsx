@@ -20,6 +20,8 @@ export function Icon({ name, size = 18 }: { name: string; size?: number }) {
     folder: <path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>,
     monitor: <><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/></>,
     history: <><path d="M3 11a9 9 0 1 1 2 7M3 3v8h8"/><path d="M12 7v5l4 2"/></>,
+    search: <><circle cx="10.5" cy="10.5" r="7"/><path d="m16 16 5 5"/></>,
+    plus: <path d="M12 5v14M5 12h14"/>,
     settings: <><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></>,
     arrow: <><path d="M5 12h14m-6-6 6 6-6 6"/></>,
     stop: <rect x="6" y="6" width="12" height="12" rx="2"/>,

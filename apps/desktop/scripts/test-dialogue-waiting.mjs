@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 
 const compiled = await build({ entryPoints: ['renderer/dialogueWaiting.ts'], bundle: true, format: 'esm', write: false });
-const { dialogueWaiting } = await import('data:text/javascript;base64,' + Buffer.from(compiled.outputFiles[0].text).toString('base64'));
+const { dialogueWaiting, activeWaitingTool } = await import('data:text/javascript;base64,' + Buffer.from(compiled.outputFiles[0].text).toString('base64'));
 const state = { connected: true, generation: 7, cancelledGeneration: 6, task: 'thinking',
-  questions: [{ id: 'question', generation: 7 }], speeches: [], approvals: [] };
+  questions: [{ id: 'question', generation: 7 }], speeches: [], approvals: [], tools: [], settings: {} };
 assert(dialogueWaiting(state), 'An unanswered question displays the waiting effect.');
 const queued = { id: 'reply', generation: 7, state: 'generated' };
 assert(dialogueWaiting({ ...state, task: 'idle', speeches: [queued] }), 'Audio preparation still needs a waiting effect after generation ends.');
@@ -23,3 +23,43 @@ assert(!dialogueWaiting({ ...state, task: 'idle' }));
 assert(!dialogueWaiting({ ...state, questions: [] }));
 assert(!dialogueWaiting({ ...state, generation: 8 }));
 console.log('PASS: waiting follows unanswered turns and audio preparation; presentation, cancellation, errors and approvals clear it.');
+
+const started = { type: 'tool.started', generation_id: 7, call_id: 'slow-work', tool: 'shell.run' };
+const finished = { ...started, type: 'tool.completed' };
+const working = { ...state, speeches: [{ ...queued, state: 'played' }], presented: 'reply', tools: [started] };
+assert(dialogueWaiting(working), 'A spoken acknowledgment must not hide ongoing tool work.');
+assert(dialogueWaiting({ ...working, tools: [started, finished] }), 'After a receipt, answer preparation still needs a visible waiting state.');
+assert(!dialogueWaiting({ ...working, task: 'idle', tools: [started, finished] }), 'The finished turn clears work after a presented answer.');
+assert(!dialogueWaiting({ ...working, task: 'idle' }), 'Finished turns cannot leave a stale tool waiting indicator.');
+assert(!dialogueWaiting({ ...working, task: 'paused' }));
+assert(!dialogueWaiting({ ...working, cancelledGeneration: 7 }));
+assert(!activeWaitingTool({ ...working, generation: 8 }), 'Old tools cannot label a new question.');
+const concurrent = { ...started, tool: 'files.read', call_id: 'read-first' };
+assert.equal(activeWaitingTool({ ...working, tools: [concurrent, started, finished] }).call_id, 'read-first', 'A receipt finishes its own call, not another active call.');
+assert(!activeWaitingTool({ ...working, tools: [started, { ...finished, type: 'tool.failed' }] }));
+assert(dialogueWaiting({ ...working, task: 'idle', tools: [started, finished], speeches: [...working.speeches, { ...queued, id: 'final-pending' }] }), 'Preparing a final answer after an acknowledgment remains visible.');
+assert(dialogueWaiting({ ...working, tools: [], activeTask: { state: 'running' } }), 'A running task stays visible between its calls.');
+
+const activityCompiled = await build({ entryPoints: ['renderer/waitingActivity.ts'], bundle: true, format: 'esm', write: false });
+const { waitingActivity, waitingDuration } = await import('data:text/javascript;base64,' + Buffer.from(activityCompiled.outputFiles[0].text).toString('base64'));
+assert.equal(waitingActivity(state).stage, 'thinking');
+assert.equal(waitingActivity({ ...state, tools: [concurrent] }).stage, 'reading');
+assert.equal(waitingActivity(working).stage, 'working');
+assert(!waitingActivity(working).title.includes('shell'));
+assert.equal(waitingActivity({ ...state, tools: [started, finished] }).stage, 'organizing');
+assert.equal(waitingActivity({ ...state, tools: [started, finished, { ...finished, type: 'tool.failed', call_id: 'failed-later' }] }).stage, 'thinking', 'The latest failed receipt cannot claim an earlier successful result.');
+assert.equal(waitingActivity({ ...state, speeches: [queued] }).stage, 'voice');
+assert.notEqual(waitingActivity({ ...state, speeches: [queued], settings: { voice: { voice_mode: 'silent' } } }).stage, 'voice');
+assert.notEqual(waitingActivity({ ...state, speeches: [{ ...queued, audioEnabled: false }] }).stage, 'voice');
+assert.equal(waitingDuration(72), '1 分 12 秒');
+assert.equal(waitingDuration(12.9), '12 秒');
+console.log('PASS: friendly work labels follow real calls, parallel receipts, voice preparation and post-acknowledgment work.');
+
+const searchStart = { ...started, tool: 'web.search', call_id: 'search' };
+const fallback = { ...searchStart, type: 'tool.progress', stage: 'search_fallback', message: '搜索服务返回异常，正在换一种方式查找' };
+assert.equal(waitingActivity({ ...state, tools: [searchStart, fallback] }).detail, fallback.message);
+assert.equal(activeWaitingTool({ ...state, tools: [searchStart, fallback] }).call_id, 'search');
+assert(!activeWaitingTool({ ...state, tools: [searchStart, fallback, { ...searchStart, type: 'tool.failed' }, fallback] }), 'Late progress cannot revive a finished call.');
+assert(!activeWaitingTool({ ...state, tools: [fallback] }), 'Progress without a real start cannot invent activity.');
+assert.equal(waitingActivity({ ...state, tools: [searchStart, fallback, concurrent, { ...concurrent, type: 'tool.completed' }] }).detail, fallback.message, 'A sibling receipt preserves the active search progress.');
+console.log('PASS: search fallback progress follows its real call and cannot revive completed work.');

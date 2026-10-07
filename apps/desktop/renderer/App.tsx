@@ -3,7 +3,8 @@ import { Button, Character, Icon, Input } from './components';
 import { bridge, useRuntime, nextTextSpeech } from './state';
 import { Settings, settingsSections, type SettingsSection } from './SettingsPanel';
 import { TaskPanel } from './TaskPanel';
-import { ConversationHistory } from './Conversations';
+import { ConversationManager } from './ConversationManager';
+import { ConversationSwitcher } from './ConversationSwitcher';
 import { CompanionWorkspace } from './CompanionWorkspace';
 import { dialogueReadTime } from './cinematic';
 import desktopPackage from '../package.json';
@@ -29,6 +30,7 @@ export default function App() {
   const [actionKey, setActionKey] = useState('enter');
   const [localError, setLocalError] = useState('');
   const [composerOpen, setComposerOpen] = useState(false);
+  const [conversationsOpen, setConversationsOpen] = useState(false);
   const [designOpen, setDesignOpen] = useState(false);
   const { portraitEditing, changePortraitEditing } = usePortraitEditing(kind, designOpen);
   const { draft: design, setDraft: setDesign, patch: designPatch } = useCompanionDesign(state.settings);
@@ -42,12 +44,17 @@ export default function App() {
   const designDirty = Object.keys(designPatch).length > 0;
   const companion = useRef<HTMLElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const conversationDrafts = useRef(new Map<string, string>());
   const targetDialog = useRef<HTMLDialogElement>(null);
   const current = state.speeches.find(speech => speech.id === state.current);
   const captionsOccupyScene = design.show_subtitles && (captionVisible || state.questions.length > 0
     || state.history.some(record => record.role === 'user' || record.displayed === true || ['played', 'partial'].includes(String(record.status))));
 
   function openComposer() { setComposerOpen(true); textarea.current?.focus({ preventScroll: true }); }
+  function changeText(value: string) {
+    conversationDrafts.current.set(state.conversation?.conversation_id || 'initial', value);
+    setText(value);
+  }
   function changeDesign(patch: Partial<CompanionDesign>) {
     setDesign(value => ({ ...value, ...patch })); setDesignMessage('');
     if (kind === 'design' || kind === 'chat') bridge.previewDesign(patch);
@@ -106,14 +113,15 @@ export default function App() {
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       event.preventDefault();
-      if (designOpen) { void bridge.closeDesign(); textarea.current?.focus({ preventScroll: true }); }
+      if (conversationsOpen) setConversationsOpen(false);
+      else if (designOpen) { void bridge.closeDesign(); textarea.current?.focus({ preventScroll: true }); }
       else if (composerOpen) {
         setComposerOpen(false);
         companion.current?.querySelector<HTMLButtonElement>('.portrait-stage')?.focus({ preventScroll: true });
       } else void bridge.hide();
     };
     window.addEventListener('keydown', escape); return () => window.removeEventListener('keydown', escape);
-  }, [kind, composerOpen, designOpen]);
+  }, [kind, composerOpen, designOpen, conversationsOpen]);
 
   useEffect(() => {
     if (kind !== 'chat') return;
@@ -126,7 +134,7 @@ export default function App() {
     const onWindowFocus = () => { if (pendingFocus) focusInput(); };
     const off = bridge.onEvent(event => {
       if (event.type === 'desktop.focus-input') focusInput();
-      if (event.type === 'desktop.hidden') { pendingFocus = false; setComposerOpen(false); setDesignOpen(false); }
+      if (event.type === 'desktop.hidden') { pendingFocus = false; setComposerOpen(false); setDesignOpen(false); setConversationsOpen(false); }
       if (event.type === 'desktop.new-topic') { setComposerOpen(true); void send({ type: 'conversation.create', keep_materials: false }); }
     });
     window.addEventListener('focus', onWindowFocus);
@@ -149,7 +157,15 @@ export default function App() {
     document.documentElement.classList.toggle('overlay-root', kind !== 'settings');
     document.body.classList.toggle('overlay-body', kind !== 'settings');
   }, [kind]);
-  useEffect(() => { setText(''); }, [state.conversation?.conversation_id]);
+  useEffect(() => {
+    const cid = state.conversation?.conversation_id;
+    if (!cid) return;
+    if (conversationDrafts.current.has('initial')) {
+      conversationDrafts.current.set(cid, conversationDrafts.current.get('initial') || '');
+      conversationDrafts.current.delete('initial');
+    }
+    setText(conversationDrafts.current.get(cid) || '');
+  }, [state.conversation?.conversation_id]);
   useEffect(() => { player.current?.setVolume(Number(state.settings.volume ?? 1)); }, [state.settings.volume, player]);
   useEffect(() => { setMode(state.mode); }, [state.mode]);
   useEffect(() => { if (targetOpen) targetDialog.current?.showModal(); else targetDialog.current?.close(); }, [targetOpen]);
@@ -172,7 +188,7 @@ export default function App() {
     dispatch({ protocol_version: 1, type: 'desktop.cancelled', cancelled_generation_id: state.generation });
     await player.current?.unlock();
     if (await send({ type: 'turn.start', text: question.trim(), repository_root: state.repository?.root || undefined, mode })) {
-      setText(''); setTab('chat'); setComposerOpen(false);
+      changeText(''); setTab('chat'); setComposerOpen(false);
     }
   }
   async function setTaskMode(next: 'teach' | 'execute') {
@@ -210,7 +226,9 @@ export default function App() {
     <section className="companion-frame companion-note is-visible" data-theme={design.theme} data-tone={designTone(design)} data-bubbles={design.show_bubbles} data-background={design.background_mode} data-portrait-side={design.portrait_side} data-speaking={captionVisible} aria-label="彩名便签" data-companion-interactive>
     {['minimal', 'solid'].includes(design.background_mode) && <div className="note-surface" aria-hidden="true"/>}
     {design.background_mode === 'image' && <div className="note-background-image" aria-hidden="true"><img alt="" src={`ayana-background://custom/?image=${design.background_image}&v=${backgroundRevision}`} style={{ objectPosition: `${design.background_x}% ${design.background_y}%`, transform: `scale(${design.background_zoom / 100})`, transformOrigin: `${design.background_x}% ${design.background_y}%` }}/></div>}
-    <header className="companion-frame-heading" title="拖动标题栏移动窗口"><div className="companion-heading-start"><div className="companion-signature"><strong>彩名</strong></div><button className="companion-appearance-button" type="button" aria-label="打开设计控件" aria-expanded={designOpen} title="调整外观" onClick={() => { if (designOpen) void bridge.closeDesign(); else void bridge.openDesign(); }}><Icon name="settings" size={14}/></button></div><span className="companion-title-drag-area" aria-hidden="true"/><div className="companion-frame-actions">
+    <header className="companion-frame-heading" title="拖动标题栏移动窗口"><div className="companion-heading-start"><div className="companion-signature"><strong>彩名</strong></div><button className="companion-appearance-button" type="button" aria-label="打开设计控件" aria-expanded={designOpen} title="调整外观" onClick={() => { if (designOpen) void bridge.closeDesign(); else void bridge.openDesign(); }}><Icon name="settings" size={14}/></button>
+      <ConversationSwitcher state={state} open={conversationsOpen} onOpenChange={setConversationsOpen} onContinue={openComposer}/>
+    </div><span className="companion-title-drag-area" aria-hidden="true"/><div className="companion-frame-actions">
       <button type="button" aria-label="输入回复" title="输入回复" onMouseDown={event => event.preventDefault()} onClick={openComposer}><Icon name="message" size={15}/></button>
       <button type="button" aria-label="更多操作" title="话题、任务与设置" onClick={() => void bridge.openCompanionMenu()}>···</button>
       <button type="button" aria-label="隐藏彩名" title="隐藏彩名" onClick={() => void bridge.hide()}><Icon name="close" size={14}/></button>
@@ -223,7 +241,7 @@ export default function App() {
     <form className="floating-input" data-companion-interactive onSubmit={event => { event.preventDefault(); void ask(); }} onBlur={event => {
       if (!companion.current?.contains(event.relatedTarget as Node | null)) setComposerOpen(false);
     }}>
-      <textarea ref={textarea} value={text} maxLength={4000} rows={1} onFocus={() => setComposerOpen(true)} onChange={event => setText(event.target.value)} placeholder="写下一句话…" aria-label="输入问题" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void ask(); } }}/>
+      <textarea ref={textarea} value={text} maxLength={4000} rows={1} onFocus={() => setComposerOpen(true)} onChange={event => changeText(event.target.value)} placeholder="写下一句话…" aria-label="输入问题" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void ask(); } }}/>
       <button type="submit" aria-label="发送" title="发送 · Enter" disabled={!text.trim() || !state.connected}><Icon name="arrow" size={19}/></button>
     </form>
     </section>
@@ -242,7 +260,7 @@ export default function App() {
         <span className="nav-group-label">偏好设置</span>
         {settingsSections.filter(item => item.id !== 'advanced').map(item => <button key={item.id} className={`nav-item ${tab === 'chat' && settingsSection === item.id ? 'active' : ''}`} aria-current={tab === 'chat' && settingsSection === item.id ? 'page' : undefined} onClick={() => { setSettingsSection(item.id); setTab('chat'); if (item.id === 'access') void send({ type: 'capabilities.get' }); }}><Icon name={item.icon}/>{item.title}</button>)}
         <span className="nav-group-label">管理</span>
-        {([['tasks', 'file', '任务与结果'], ['history', 'history', '对话记录']] as const).map(([id, icon, label]) => <button key={id} className={`nav-item ${tab === id ? 'active' : ''}`} aria-current={tab === id ? 'page' : undefined} onClick={() => { setTab(id); if (id === 'history') { void send({ type: 'history.get' }); void send({ type: 'conversations.get' }); } else void send({ type: 'capabilities.get' }); }}><Icon name={icon}/>{label}</button>)}
+        {([['tasks', 'file', '任务与结果'], ['history', 'history', '对话与记忆']] as const).map(([id, icon, label]) => <button key={id} className={`nav-item ${tab === id ? 'active' : ''}`} aria-current={tab === id ? 'page' : undefined} onClick={() => { setTab(id); if (id === 'history') { void send({ type: 'history.get' }); void send({ type: 'conversations.get' }); } else void send({ type: 'capabilities.get' }); }}><Icon name={icon}/>{label}</button>)}
       </nav>
       <div className="sidebar-bottom">
         <button className={`nav-item ${tab === 'chat' && settingsSection === 'advanced' ? 'active' : ''}`} aria-current={tab === 'chat' && settingsSection === 'advanced' ? 'page' : undefined} onClick={() => { setSettingsSection('advanced'); setTab('chat'); }}><Icon name="settings"/>高级设置</button>
@@ -252,7 +270,7 @@ export default function App() {
     </aside>
 
     <main className="main-panel">
-      <header className="main-header"><h1>{tab === 'chat' ? settingsSections.find(item => item.id === settingsSection)?.title : tab === 'tasks' ? '任务与结果' : '对话记录'}</h1><Button variant="light" aria-label="关闭设置" onClick={() => void bridge.hideSettings()}><Icon name="close" size={18}/></Button></header>
+      <header className="main-header"><h1>{tab === 'chat' ? settingsSections.find(item => item.id === settingsSection)?.title : tab === 'tasks' ? '任务与结果' : '对话与记忆'}</h1><Button variant="light" aria-label="关闭设置" onClick={() => void bridge.hideSettings()}><Icon name="close" size={18}/></Button></header>
       {(localError || state.error) && <div className="error-banner" role="alert"><span>{localError || state.error}</span><button aria-label="关闭错误提示" onClick={() => { setLocalError(''); dispatch({ protocol_version: 1, type: 'desktop.dismiss-error' }); }}>×</button></div>}
       <div className="settings-host" hidden={tab !== 'chat'}><Settings state={state} section={settingsSection}/></div>
       {tab === 'tasks' && <>
@@ -270,7 +288,7 @@ export default function App() {
 
       </>}/>
       </>}
-      {tab === 'history' && <ConversationHistory state={state} send={send}/>}
+      {tab === 'history' && <ConversationManager state={state} send={send}/>}
       <footer className="main-status"><span><i className={current ? 'pulsing' : ''}/>{statusText}</span>{tab === 'tasks' && state.target && <span>{state.target.title}</span>}</footer>
     </main>
 

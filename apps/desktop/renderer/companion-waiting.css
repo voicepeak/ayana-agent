@@ -1,0 +1,43 @@
+/* A quiet processing rhythm beside the fixed waiting message. */
+.companion-note .companion-waiting {
+  top: 50%; height: auto; min-height: 112px; padding: 22px 20px; gap: 17px;
+  align-items: center; border-radius: 14px; color: var(--bubble-text);
+  background: var(--bubble-color); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--bubble-text) 8%, transparent), 0 8px 24px #00000012;
+  max-height: calc(var(--stack-height, 340px) - 16px); overflow-y: auto; scrollbar-width: thin; pointer-events: auto;
+}
+.waiting-motion { display: flex; align-items: center; justify-content: center; gap: 5px; flex: 0 0 36px; height: 28px; color: var(--chrome-accent); }
+.waiting-motion span { width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .45; animation: waiting-drift 1600ms ease-in-out infinite; }
+.waiting-motion span:nth-child(2) { animation-delay: 180ms; }
+.waiting-motion span:nth-child(3) { animation-delay: 360ms; }
+.waiting-copy { min-width: 0; flex: 1; }
+.waiting-title { margin: 0; font: 400 17px/1.65 'Noto Serif SC', 'SimSun', serif; letter-spacing: .035em; overflow-wrap: anywhere; }
+.waiting-detail { margin: 5px 0 0; color: var(--bubble-secondary); font: 12px/1.7 'Microsoft YaHei', sans-serif; overflow-wrap: anywhere; }
+.waiting-time { display: block; margin-top: 11px; color: var(--bubble-secondary); font: 11px/1.5 'Microsoft YaHei', sans-serif; font-variant-numeric: tabular-nums; }
+.waiting-controls { display: flex; align-items: baseline; gap: 12px; }
+.waiting-stop { border: 0; background: transparent; color: inherit; padding: 3px 6px; font: 11px/1.5 'Microsoft YaHei', sans-serif; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; opacity: .7; }
+.waiting-stop:hover, .waiting-stop:focus-visible { opacity: 1; }
+.waiting-stop:disabled { cursor: wait; opacity: .5; }
+/* Browsing or reading a current reply keeps a compact waiting note below it. */
+.cinematic-memory:is([data-reading=true], [data-waiting-continuation=true]) .companion-waiting {
+  top: auto; bottom: 8px; left: 22px; right: 104px; width: auto; min-height: 0;
+  transform: none; padding: 8px 10px; gap: 10px; border-radius: 8px;
+  background: var(--chrome-surface); color: var(--chrome-text); box-shadow: none;
+}
+.cinematic-memory:is([data-reading=true], [data-waiting-continuation=true]) .waiting-motion { flex-basis: 24px; gap: 3px; }
+.cinematic-memory:is([data-reading=true], [data-waiting-continuation=true]) .waiting-motion span { width: 4px; height: 4px; }
+.cinematic-memory:is([data-reading=true], [data-waiting-continuation=true]) .waiting-message .waiting-detail { display: none; }
+.cinematic-memory:is([data-reading=true], [data-waiting-continuation=true]) .waiting-title { font-size: 12px; line-height: 1.5; }
+.cinematic-memory:is([data-reading=true], [data-waiting-continuation=true]) .waiting-time { color: var(--chrome-muted); margin-top: 2px; font-size: 11px; }
+.companion-note[data-bubbles=false] .companion-waiting { background: transparent; box-shadow: none; }
+.companion-note[data-bubbles=false] .waiting-title { color: var(--bare-text); }
+.companion-note[data-bubbles=false] :is(.waiting-detail,.waiting-time) { color: var(--bare-secondary); }
+@keyframes waiting-drift {
+  0%, 65%, 100% { transform: translateY(0); opacity: .35; }
+  30% { transform: translateY(-4px); opacity: .9; }
+}
+@container (max-width: 500px) {
+  .companion-note .companion-waiting { padding: 16px 14px; gap: 12px; min-height: 96px; }
+  .waiting-title { font-size: 15px; }
+  .cinematic-memory:is([data-reading=true], [data-waiting-continuation=true]) .companion-waiting { left: 12px; right: 90px; padding: 6px 8px; min-height: 0; gap: 6px; }
+}
+@media (prefers-reduced-motion: reduce) { .waiting-motion span { animation: none; opacity: .6; } }

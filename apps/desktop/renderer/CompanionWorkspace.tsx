@@ -7,6 +7,7 @@ import type { DialogueLanguage } from './dialogueLanguages';
 import type { CaptionLayout } from './captionLayout';
 import { captionLayer, captionStep } from './captionStack';
 import { dialogueWaiting } from './dialogueWaiting';
+import { CompanionWaiting } from './CompanionWaiting';
 
 export function CompanionWorkspace(props: {
   state: ModelState; speech?: Speech; textOnly: boolean; show: boolean; primaryLanguage: DialogueLanguage;
@@ -65,6 +66,8 @@ function DialogueScene({ state, speech, textOnly, show, primaryLanguage, transla
   const selectedId = entries[selectedIndex]?.id;
   const reading = Boolean(selectedId && selectedId !== activeId);
   const waiting = dialogueWaiting(state);
+  const waitingContinuation = state.speeches.some(item => item.generation === state.generation
+    && (item.id === state.presented || ['playing', 'played', 'partial'].includes(item.state)));
   const previousSelection = useRef<{ id?: string; index: number }>({ index: selectedIndex });
   useLayoutEffect(() => {
     const previous = previousSelection.current;
@@ -79,7 +82,8 @@ function DialogueScene({ state, speech, textOnly, show, primaryLanguage, transla
     return () => animations.forEach(animation => animation.cancel());
   }, [selectedId]);
   function latest() { setBrowsedId(undefined); wheel.current.amount = 0; }
-  useLayoutEffect(latest, [state.questions.at(-1)?.id, state.summonVersion, speech?.id]);
+  // New replies follow automatically unless the user is browsing an earlier sentence.
+  useLayoutEffect(latest, [state.questions.at(-1)?.id, state.summonVersion]);
   useLayoutEffect(() => {
     const pending = older.current;
     if (!pending || pending.history === state.history) return;
@@ -131,7 +135,7 @@ function DialogueScene({ state, speech, textOnly, show, primaryLanguage, transla
   const touch = useRef<number | undefined>(undefined);
   return <section className="companion-workspace cinematic-stack-workspace" aria-label="对话与工作区" data-companion-interactive
     data-caption-layout={layout?.mode} style={layout && { left: layout.x, top: layout.y, width: layout.width, height: layout.height }}>
-    <div className="cinematic-memory cinematic-stack" aria-label="彩名的台词，滚轮或方向键切换前景台词" tabIndex={0} ref={list} data-reading={reading} data-waiting={waiting} hidden={!show && !waiting}
+    <div className="cinematic-memory cinematic-stack" aria-label="彩名的台词，滚轮或方向键切换前景台词" tabIndex={0} ref={list} data-reading={reading} data-waiting={waiting} data-waiting-continuation={show && waitingContinuation} hidden={!show && !waiting}
       onTouchStart={event => { touch.current = event.touches[0]?.clientY; }}
       onTouchEnd={event => { const y = event.changedTouches[0]?.clientY; if (touch.current !== undefined && y !== undefined && Math.abs(y - touch.current) > 45) navigate(y > touch.current ? -1 : 1); touch.current = undefined; }}
       onKeyDown={event => {
@@ -152,10 +156,7 @@ function DialogueScene({ state, speech, textOnly, show, primaryLanguage, transla
           </article>;
         })}
       </div>
-      {waiting && <div className="cinematic-waiting" role="status" aria-label="彩名正在思考" title="彩名正在思考">
-        <span className="cinematic-waiting-light" aria-hidden="true"/>
-        <span className="cinematic-waiting-dots" aria-hidden="true"><i/><i/><i/></span>
-      </div>}
+      {waiting && <CompanionWaiting key={state.questions.at(-1)?.id} state={state}/>}
       {show && entries.length > 0 && <nav className="cinematic-stack-navigation" aria-label="浏览对白" aria-busy={loading}>
         {reading && <button type="button" className="cinematic-stack-latest" aria-label="回到最新台词" title="回到最新台词" onClick={latest}>
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 8v5a6 6 0 0 0 12 0V5m-4 4 4-4 4 4"/></svg>
