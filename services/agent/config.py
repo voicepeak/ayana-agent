@@ -57,10 +57,10 @@ class Settings:
         return options
 
     def validate(self, patch: dict):
-        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "remember_user", "ambient_attention", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "detailed_max_utterances", "character", "avatar_costume", "sentence_motion", "volume", "task_limits", "model_max_tokens", "native_tools", "full_access", "search_proxy", "search_provider", "companion_ui"}
+        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "remember_user", "ambient_attention", "ambient_speech", "ambient_interval_min", "ambient_interval_max", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "detailed_max_utterances", "character", "avatar_costume", "sentence_motion", "volume", "task_limits", "model_max_tokens", "native_tools", "full_access", "search_proxy", "search_provider", "companion_ui"}
         if not isinstance(patch, dict) or set(patch) - allowed:
             raise ValueError("Unsupported settings field")
-        for key in ("send_screenshot", "subtitles", "save_history", "remember_user", "ambient_attention"):
+        for key in ("send_screenshot", "subtitles", "save_history", "remember_user", "ambient_attention", "ambient_speech"):
             if key in patch and type(patch[key]) is not bool:
                 raise ValueError(f"{key} must be boolean")
         if "native_tools" in patch and type(patch["native_tools"]) is not bool:
@@ -147,6 +147,12 @@ class Settings:
         for key, low, high in (("max_utterances", 1, 12), ("detailed_max_utterances", 12, 64), ("max_audio_ahead_ms", 2000, 15000)):
             if key in patch and (type(patch[key]) is not int or not low <= patch[key] <= high):
                 raise ValueError(f"{key} out of range")
+        for key in ("ambient_interval_min", "ambient_interval_max"):
+            if key in patch and (type(patch[key]) is not int or not 15 <= patch[key] <= 600):
+                raise ValueError(f"{key} 需在 15–600 秒之间")
+        ambient = {**self.values, **patch}
+        if ambient.get("ambient_interval_min", 45) > ambient.get("ambient_interval_max", 90):
+            raise ValueError("偷看间隔的最小值不能大于最大值")
         if "model_max_tokens" in patch and (type(patch["model_max_tokens"]) is not int or not 1000 <= patch["model_max_tokens"] <= 12000):
             raise ValueError("model_max_tokens out of range")
         if "task_limits" in patch:

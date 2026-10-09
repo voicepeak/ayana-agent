@@ -70,7 +70,7 @@ export function Settings({ state, section }: { state: ModelState; section: Setti
     try { const path = await bridge.chooseDirectory(); if (path) await directory({ type: 'directory.grant', path, write }); }
     catch (reason) { setError(String(reason)); }
   }
-  const count = (key: 'max_utterances' | 'detailed_max_utterances' | 'model_max_tokens', title: string, min: number, max: number) =>
+  const count = (key: 'max_utterances' | 'detailed_max_utterances' | 'model_max_tokens' | 'ambient_interval_min' | 'ambient_interval_max', title: string, min: number, max: number) =>
     <label>{title}<Input type="number" min={min} max={max} step={1} required value={draft[key]} onChange={event => update(key, Number(event.target.value))}/></label>;
   return <section className="settings-workspace" aria-label="设置中心">
     <form className="settings-form" onSubmit={event => { event.preventDefault(); void save(); }}>
@@ -101,7 +101,7 @@ export function Settings({ state, section }: { state: ModelState; section: Setti
             <div className="agent-buttons"><Button type="button" disabled={!state.connected} onClick={() => void choose(false)}>添加只读目录</Button><Button type="button" disabled={!state.connected} onClick={() => void choose(true)}>添加可读写目录</Button></div>
           </details>
         </div>
-        <div className="form-section"><h3>隐私</h3><Toggle checked={draft.send_screenshot} onChange={value => update('send_screenshot', value)} note="需要看屏幕时，将窗口或桌面截图发送给模型。">允许屏幕观察</Toggle><Toggle checked={draft.ambient_attention} onChange={value => update('ambient_attention', value)} note="空闲时偶尔看看前台窗口，有值得聊的事情才搭话；也可以说“别看了”。">允许彩名偶尔偷看</Toggle><Toggle checked={draft.save_history} onChange={value => update('save_history', value)} note="切换会新建话题；关闭不会删除已有记录。">保存对话记录</Toggle></div>
+        <div className="form-section"><h3>隐私</h3><Toggle checked={draft.send_screenshot} onChange={value => update('send_screenshot', value)} note="需要看屏幕时，将窗口或桌面截图发送给模型。">允许屏幕观察</Toggle><Toggle checked={draft.ambient_attention} onChange={value => update('ambient_attention', value)} note="空闲时偶尔看看前台窗口；也可以说“别看了”。">允许彩名偶尔偷看</Toggle>{draft.ambient_attention && <><div className="form-grid">{count('ambient_interval_min', '偷看间隔最小（秒）', 15, 600)}{count('ambient_interval_max', '偷看间隔最大（秒）', 15, 600)}</div><p className="form-hint">空闲时在这个随机区间里挑一个时间点看一眼前台窗口，修改后立即生效。</p><Toggle checked={draft.ambient_speech} onChange={value => update('ambient_speech', value)} note="看到值得聊的内容时才允许主动说一句；关闭后只看不说。">偷看时允许搭话</Toggle></>}<Toggle checked={draft.save_history} onChange={value => update('save_history', value)} note="切换会新建话题；关闭不会删除已有记录。">保存对话记录</Toggle></div>
       </>}
       {section === 'advanced' && <>
         <details className="preference-advanced"><summary>快捷键</summary><div className="form-grid"><label>呼出 Ayana<Input required value={draft.hotkey} onChange={event => update('hotkey', event.target.value)}/></label><label>立即打断<Input required value={draft.cancel_hotkey} onChange={event => update('cancel_hotkey', event.target.value)}/></label></div>{state.shortcuts && (!state.shortcuts.summon_ok || !state.shortcuts.cancel_ok) && <p className="shortcut-error" role="alert">快捷键注册失败，请更换组合。</p>}</details>

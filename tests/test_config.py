@@ -67,6 +67,15 @@ def test_public_settings_keeps_output_budget_but_redacts_nested_credentials(tmp_
     assert "access_token" not in public["voice"]
 
 
+def test_ambient_speech_and_interval_round_trip(tmp_path):
+    settings = Settings(root=ROOT, data_root=tmp_path)
+    settings.update({"ambient_speech": False, "ambient_interval_min": 60, "ambient_interval_max": 120})
+    loaded = Settings(root=ROOT, data_root=tmp_path)
+    assert loaded.values["ambient_speech"] is False
+    assert loaded.values["ambient_interval_min"] == 60
+    assert loaded.values["ambient_interval_max"] == 120
+
+
 def test_failed_settings_write_keeps_memory_and_disk_consistent(tmp_path, monkeypatch):
     settings = Settings(root=ROOT, data_root=tmp_path)
     settings.update({"volume": .5})
@@ -94,6 +103,8 @@ def test_removed_watch_shortcut_does_not_reserve_old_profile_key(tmp_path):
     {"save_history": "false"}, {"subtitles": 1}, {"send_screenshot": None},
     {"voice": {"voice_mode": "missing"}}, {"stt": []}, {"stt": {"language": None}},
     {"task_limits": {"seconds": 601}}, {"max_utterances": 0},
+    {"ambient_speech": "no"}, {"ambient_interval_min": 5}, {"ambient_interval_max": 601},
+    {"ambient_interval_min": 120, "ambient_interval_max": 60},
     {"provider": "openai", "model": " "}, {"hotkey": " "},
     {"hotkey": "Control+A", "cancel_hotkey": "control+a"},
     {"watch_hotkey": "CommandOrControl+Alt+A"},

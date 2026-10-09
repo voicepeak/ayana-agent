@@ -407,13 +407,15 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
             validated = self.settings.validate(patch)
             # Presentation changes can be applied while a reply is playing.
             # Persist first: a failed write must not stop a task or voice.
-            presentation = {"companion_ui", "avatar_costume", "volume", "subtitles", "sentence_motion", "hotkey", "cancel_hotkey", "ambient_attention", "remember_user"}
+            presentation = {"companion_ui", "avatar_costume", "volume", "subtitles", "sentence_motion", "hotkey", "cancel_hotkey", "ambient_attention", "ambient_speech", "ambient_interval_min", "ambient_interval_max", "remember_user"}
             interrupt = any(key not in presentation and value != self.settings.values.get(key)
                             for key, value in validated.items())
             previous_voice = self.settings.values.get("voice", {})
             previous_character = self.settings.values.get("character")
             previous_history = self.settings.values.get("save_history", True)
             self.settings.update(patch)
+            if any(key in validated for key in ("ambient_interval_min", "ambient_interval_max")):
+                self._attention_reschedule()
             if self.settings.values.get("character") != previous_character:
                 from .avatars import AvatarCatalog
                 self.avatars = AvatarCatalog(self.settings.root, character=self.settings.values.get("character"),

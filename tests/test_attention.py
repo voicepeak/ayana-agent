@@ -114,6 +114,41 @@ async def test_ambient_drops_unsolicited_speech_without_a_screenshot(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_disabled_ambient_speech_observes_but_never_records_or_plays_speech(tmp_path):
+    requests = []
+    def response(request):
+        requests.append(json.loads(request.content))
+        if len(requests) % 2:
+            return sse_response([{"type": "tool", "name": "desktop.observe", "arguments": {"scope": "foreground"}}])
+        return sse_response([{"type": "speech", "key": "s1", "speech_ja": "見えたよ。"},
+                             {"type": "translation", "key": "s1", "display_zh": "看到了。"}])
+    runtime = runtime_for(tmp_path, response)
+    runtime.settings.values["ambient_speech"] = False
+    try:
+        await runtime._attention_turn(runtime.desktop.front, runtime.conversations.current_id, runtime.generation)
+        assert runtime.desktop.calls == 1 and len(requests) == 2
+        assert "disabled proactive speaking" in requests[0]["messages"][0]["content"]
+        assert runtime.recent_observations[-1]["summary"] == ""
+        assert not runtime.store.history()
+        assert not runtime.store.db.execute("SELECT id FROM events WHERE type='utterance.ready'").fetchall()
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_attention_interval_follows_settings_and_reschedules(tmp_path):
+    runtime = runtime_for(tmp_path, lambda request: sse_response([{"type": "silence"}]))
+    try:
+        runtime.settings.values.update(ambient_interval_min=30, ambient_interval_max=30)
+        assert runtime._attention_interval() == 30
+        runtime.settings.values.update(ambient_interval_min=100, ambient_interval_max=100)
+        runtime._attention_reschedule()
+        assert 99 <= runtime.attention_next_at - time.monotonic() <= 101
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
 async def test_observe_overview_is_not_a_window_input_target_and_disabled_means_no_capture(tmp_path):
     runtime = runtime_for(tmp_path, lambda request: sse_response([{"type": "silence"}]))
     try:

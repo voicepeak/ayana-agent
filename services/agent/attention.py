@@ -28,17 +28,36 @@ After observing you may include a brief factual Chinese observation_summary in s
 The user is busy; choose silence unless speaking is useful. No task reports.
 """
 
+SILENT_ATTENTION_INSTRUCTION = """The user has disabled proactive speaking.
+Never emit speech or translation events. After an observation, reply with only
+{"type":"silence"} plus a brief factual Chinese observation_summary when useful.
+"""
+
 
 class AttentionRuntime:
     def _init_attention(self):
         self.attention_runner = None
         self.companion_visible = False
-        self.attention_next_at = time.monotonic() + random.uniform(45, 90)
+        self.attention_next_at = time.monotonic() + self._attention_interval()
         self.attention_last_key = None
         self.attention_last_probe = 0
         self.attention_last_spoke = -float("inf")
         self.attention_hashes = {}
         self.recent_observations = []
+
+    def _attention_interval(self):
+        values = self.settings.values
+        low = values.get("ambient_interval_min", 45)
+        high = values.get("ambient_interval_max", 90)
+        low = low if type(low) is int else 45
+        high = high if type(high) is int else 90
+        low, high = min(max(low, 15), 600), min(max(high, 15), 600)
+        if low > high:
+            low, high = high, low
+        return random.uniform(low, high)
+
+    def _attention_reschedule(self):
+        self.attention_next_at = time.monotonic() + self._attention_interval()
 
     def _attention_idle(self):
         return (not self.closed and self.companion_visible and bool(self.clients)
@@ -57,7 +76,7 @@ class AttentionRuntime:
             await asyncio.sleep(5)
             if time.monotonic() < self.attention_next_at or not self._attention_idle():
                 continue
-            self.attention_next_at = time.monotonic() + random.uniform(45, 90)
+            self.attention_next_at = time.monotonic() + self._attention_interval()
             try:
                 target = await asyncio.to_thread(self.desktop.foreground)
                 if not target:
@@ -141,7 +160,7 @@ class AttentionRuntime:
         self.settings.update({"ambient_attention": enabled})
         if not enabled:
             self.recent_observations.clear()
-        self.attention_next_at = time.monotonic() + random.uniform(45, 90)
+        self.attention_next_at = time.monotonic() + self._attention_interval()
         await self.emit("settings.ready", settings=self.settings.public(), api_key_configured=bool(self.settings.key()))
         return {"enabled": enabled}
 
@@ -156,8 +175,12 @@ class AttentionRuntime:
         bundle = self.prompts.build(full_access=False, costume=self.settings.values.get("avatar_costume", "校服"), tools="Only desktop.observe(scope='foreground') is available. All write tools are unavailable.")
         context = {"event": "ambient_attention", "window": {k: target.get(k) for k in ("title", "class_name")},
                    "conversation": self.conversations.current.get("preview", "")[:500],
+                   "expression_coverage": self._expression_coverage(),
                    "recent_observations": self.recent_observations[-3:], "observed_at": time.time()}
-        messages = [{"role": "system", "content": bundle.system + subtitle_language_instruction(self.settings.values) + "\n" + ATTENTION_INSTRUCTION},
+        instruction = ATTENTION_INSTRUCTION
+        if not self.settings.values.get("ambient_speech", True):
+            instruction = instruction + "\n" + SILENT_ATTENTION_INSTRUCTION
+        messages = [{"role": "system", "content": bundle.system + subtitle_language_instruction(self.settings.values) + "\n" + instruction},
                     {"role": "user", "content": json.dumps(context, ensure_ascii=False)}]
         snap, speech, translation, summary = None, None, None, ""
         attention_settings = SimpleNamespace(values={**self.settings.values, "model_max_tokens": 800}, key=self.settings.key)
@@ -177,7 +200,7 @@ class AttentionRuntime:
                             requests.append(event)
                         elif kind == "silence":
                             summary = str(event.get("observation_summary", ""))[:240] if snap else ""
-                        elif kind == "speech" and snap and speech is None:
+                        elif kind == "speech" and snap and speech is None and self.settings.values.get("ambient_speech", True):
                             speech = event
                         elif kind == "translation" and speech and event.get("key") == speech.get("key"):
                             translation = event
@@ -214,7 +237,8 @@ class AttentionRuntime:
             self.recent_observations.append({"title": target.get("title", ""), "at": snap["observed_at"],
                                              "summary": summary or str((translation or {}).get("display_zh", ""))[:240], "conversation_id": cid})
             self.recent_observations = self.recent_observations[-3:]
-            if not speech or time.monotonic() - self.attention_last_spoke < 300:
+            if (not speech or not self.settings.values.get("ambient_speech", True)
+                    or time.monotonic() - self.attention_last_spoke < 300):
                 return
             if not translation or not translation.get("display_zh"):
                 return
