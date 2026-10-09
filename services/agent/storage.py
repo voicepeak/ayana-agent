@@ -138,6 +138,19 @@ class ConversationStore:
                 for row in reversed(rows)]
 
     @locked
+    def displayed_expressions(self, conversation_id=None):
+        """Expressions the user actually saw in one conversation."""
+        rows = self.db.execute("""
+            SELECT DISTINCT json_extract(e.payload,'$.resolved_expression')
+            FROM events e JOIN utterances u ON u.utterance_id=json_extract(e.payload,'$.utterance_id')
+            WHERE e.type='utterance.ready' AND u.displayed=1
+              AND (u.status!='partial' OR u.played_samples>0)
+              AND json_extract(e.payload,'$.resolved_expression') IS NOT NULL
+              AND (? IS NULL OR json_extract(e.payload,'$.conversation_id')=?)
+        """, (conversation_id, conversation_id)).fetchall()
+        return [row[0] for row in rows if row[0]]
+
+    @locked
     def model_turns(self, scope):
         return [json.loads(row[0]) for row in self.db.execute(
             "SELECT payload FROM model_turns WHERE scope=? ORDER BY id", (scope,))]

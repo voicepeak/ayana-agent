@@ -77,6 +77,12 @@ class AvatarCatalog:
         return {"asset_id": asset, "resolved_expression": assets[asset]["source_expression"],
                 "resolved_pose": assets[asset]["pose"], "expression_source": source}
 
+    def labels(self, costume: str = "校服") -> list[str]:
+        """Available expression labels for one costume, in guide order."""
+        available = {item["source_expression"] for item in self.mapping["assets"].values()
+                     if item.get("costume", "校服") == costume and not item.get("alias")}
+        return [label for label in self.guide if label in available]
+
     def prompt(self, costume: str = "校服") -> str:
         from .prompts import expression_prompt
         return expression_prompt(self, costume)

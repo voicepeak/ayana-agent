@@ -186,6 +186,17 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                 if speech.get("conversation_id", self.conversations.current_id) == self.conversations.current_id]
         return self.avatars.recent_context([*saved, *live], self.settings.values.get("avatar_costume", "校服"))
 
+    def _expression_coverage(self):
+        """Faces the user has not seen yet in this conversation, in guide order."""
+        costume = self.settings.values.get("avatar_costume", "校服")
+        labels = self.avatars.labels(costume)
+        used = set(self.store.displayed_expressions(self.conversations.current_id)
+                   if self.settings.values.get("save_history", True) else [])
+        used.update(speech.get("resolved_expression") for speech in self.utterances.values()
+                    if speech.get("displayed") and speech.get("resolved_expression")
+                    and speech.get("conversation_id", self.conversations.current_id) == self.conversations.current_id)
+        return {"unused": [label for label in labels if label not in used]}
+
     async def start(self):
         self.start_task = asyncio.create_task(self._prepare_voice())
         self.attention_runner = asyncio.create_task(self._attention_loop())
@@ -638,6 +649,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                            "speech_budget": self._speech_budget(audio_count),
                            "directories": self.policy.public(include_repository=True),
                            "avatar_context": self._avatar_context(),
+                           "expression_coverage": self._expression_coverage(),
                            "snapshot_id": self.snapshot.get("snapshot_id") if self.snapshot else None,
                            "previous_reply_reception": self.prompt_history.last_reception(self.utterances),
                            "previous_interrupted_reply": self._interrupted_reply(), "question": text}

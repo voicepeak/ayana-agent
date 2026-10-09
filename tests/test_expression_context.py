@@ -73,6 +73,40 @@ def test_shown_expression_survives_restart_and_legacy_history(tmp_path):
     reopened.close()
 
 
+def test_displayed_expressions_track_receipts_per_conversation(tmp_path):
+    catalog = AvatarCatalog(ROOT)
+    store = ConversationStore(tmp_path / "history.sqlite3")
+    for conversation, uid, expression, receipt in [("chat-a", "a1", "担忧", "utterance.displayed"),
+                                                   ("chat-a", "a2", "哭", "playback.cancelled"),
+                                                   ("chat-b", "b1", "卖萌", "playback.started")]:
+        resolved = catalog.resolve({"expression": expression, "intent": "caution"})
+        store.commit({"type": "utterance.ready", "utterance_id": uid, "session_id": "s", "turn_id": "t",
+                      "generation_id": 1, "conversation_id": conversation, "speech_ja": "見ているよ。",
+                      "expression": expression, **resolved})
+        store.commit({"type": receipt, "utterance_id": uid, "played_samples": 0})
+    assert store.displayed_expressions("chat-a") == ["担忧"]
+    assert store.displayed_expressions("chat-b") == ["卖萌"]
+    store.close()
+
+
+def test_expression_coverage_lists_only_unshown_faces(tmp_path):
+    cfg = Settings(ROOT, data_root=tmp_path)
+    cfg.values["save_history"] = False
+    cfg.values["avatar_costume"] = "校服"
+    runtime = AgentRuntime(cfg, desktop=object(), tts=object())
+    labels = runtime.avatars.labels("校服")
+    assert labels == list(runtime.avatars.guide)
+    assert runtime._expression_coverage() == {"unused": labels}
+    runtime.utterances["shown"] = {"displayed": True, "conversation_id": runtime.conversations.current_id,
+                                   **runtime.avatars.resolve({"expression": "担忧", "intent": "caution"})}
+    runtime.utterances["queued"] = {"conversation_id": runtime.conversations.current_id,
+                                    **runtime.avatars.resolve({"expression": "哭", "intent": "caution"})}
+    try:
+        assert runtime._expression_coverage() == {"unused": [label for label in labels if label != "担忧"]}
+    finally:
+        runtime.store.close()
+
+
 def test_runtime_continuity_works_with_history_disabled(tmp_path):
     cfg = Settings(ROOT, data_root=tmp_path)
     cfg.values["save_history"] = False
@@ -108,7 +142,7 @@ async def test_model_choices_reach_display_and_next_turn_context(tmp_path, monke
     labels = list(AvatarCatalog(ROOT).guide)
     class Model:
         usage = None
-        def __init__(self, settings, client=None):
+        def __init__(self, settings, client=None, *, thinking=False):
             self.request_messages = []
             self.response_text = ""
         async def stream_reply(self, messages, tools=None, tool_names=None):
