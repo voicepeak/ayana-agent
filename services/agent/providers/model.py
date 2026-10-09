@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from contextlib import aclosing
 import json
 import re
@@ -20,6 +21,66 @@ EVENT_TYPES = {"speech", "translation", "evidence", "tool", "action", "task", "s
 EVENT_ALIASES = {"speech", "translation"}
 
 
+class _EventKeys:
+    """Assigns stable sentence keys and pairs translations inside one response.
+
+    The protocol identifies a sentence by the key shared between its speech
+    and translation events. Models occasionally omit or misnumber that key,
+    so the adapter normalizes each response before anything is committed:
+    keyless speech gets the next free sequential key, and a translation that
+    names no speech in this response is paired with the earliest speech still
+    missing a translation. Translations that name nothing are dropped, and
+    only normalized events are persisted, so a later request cannot imitate
+    a broken key.
+    """
+
+    def __init__(self):
+        self.used = set()
+        self.awaiting = deque()
+        self.serial = 0
+
+    def speech(self, event):
+        raw = event.get("key")
+        key = raw
+        if isinstance(key, (int, float)) and not isinstance(key, bool):
+            key = str(key)
+        elif isinstance(key, str):
+            key = key.strip()
+        if not isinstance(key, str) or not key:
+            key = self._next_key()
+        self.used.add(key)
+        self.awaiting.append(key)
+        return {**event, "key": key}, key != raw
+
+    def translation(self, event):
+        raw = event.get("key")
+        key = raw
+        if isinstance(key, (int, float)) and not isinstance(key, bool):
+            key = str(key)
+        elif isinstance(key, str):
+            key = key.strip()
+        if isinstance(key, str) and key in self.used:
+            if key in self.awaiting:
+                self.awaiting.remove(key)
+            return {**event, "key": key}, key != raw
+        if not self.awaiting:
+            return None, True
+        return {**event, "key": self.awaiting.popleft()}, True
+
+    def repaired(self, key):
+        # A bounded repair supplies its own translations; a later stray
+        # translation must not overwrite the already committed sentences.
+        if key in self.awaiting:
+            self.awaiting.remove(key)
+
+    def _next_key(self):
+        while True:
+            self.serial += 1
+            key = f"s{self.serial}"
+            if key not in self.used:
+                return key
+
+
 class ModelEventError(ValueError):
     """Invalid application events; never contains raw provider output."""
 
@@ -29,9 +90,12 @@ class IncompleteSubtitleError(ModelEventError):
 
 
 class OpenAIProvider:
-    def __init__(self, settings, client: httpx.AsyncClient | None = None):
+    def __init__(self, settings, client: httpx.AsyncClient | None = None, *, thinking=False):
         self.settings = settings
         self.client = client
+        self.thinking = thinking
+        self.thinking_applied = False
+        self.reasoning_text = ""
         self.response_text = ""
         self.request_messages = []
         self.usage = None
@@ -88,13 +152,27 @@ class OpenAIProvider:
             accepted = []
             pending_tasks = []
             repaired_keys = set()
+            keys = _EventKeys()
             try:
                 try:
                     async with aclosing(self._stream_once(attempt_messages, tools, tool_names)) as stream:
                         async for event in stream:
-                            if event.get("type") == "translation" and event.get("key") in repaired_keys:
-                                # Original subtitles no longer describe the repaired/split speech.
-                                continue
+                            kind = event.get("type")
+                            if kind == "speech":
+                                event, normalized = keys.speech(event)
+                                self.output_repaired = self.output_repaired or normalized
+                            elif kind == "translation":
+                                if event.get("key") in repaired_keys:
+                                    # Original subtitles no longer describe the repaired/split speech.
+                                    continue
+                                event, normalized = keys.translation(event)
+                                if event is None:
+                                    # Every committed sentence already has its subtitle; a
+                                    # translation that names no speech is stale or misnumbered.
+                                    # It must never abort a turn whose speech was delivered.
+                                    self.output_repaired = True
+                                    continue
+                                self.output_repaired = self.output_repaired or normalized
                             if event.get("type") == "task":
                                 try:
                                     validate_report(event)
@@ -125,7 +203,8 @@ class OpenAIProvider:
                                         # what was delivered and drop the broken tail.
                                         self.output_repaired = True
                                         break
-                                    repaired_keys.add(event.get("key"))
+                                    repaired_keys.add(event["key"])
+                                    keys.repaired(event["key"])
                                     self.output_repaired = True
                             for output in expanded:
                                 accepted.append(output)
@@ -203,7 +282,7 @@ class OpenAIProvider:
                     text = value["display_zh"]
                     if not isinstance(text, str) or not text.strip() or len(text) > 1200:
                         raise ValueError("Invalid subtitle")
-                    repaired = {"type": "translation", "key": event.get("key"), "display_zh": text.strip()}
+                    repaired = {"type": "translation", "key": event["key"], "display_zh": text.strip()}
                 else:
                     parts = value.get("sentences")
                     if not isinstance(parts, list) or not 1 <= len(parts) <= 64:
@@ -213,7 +292,7 @@ class OpenAIProvider:
                     for index, part in enumerate(parts):
                         if not isinstance(part, dict) or set(part) != {"speech_ja", "display_zh"}:
                             raise ValueError("Invalid repaired pair")
-                        key = event.get("key", "s1") if index == 0 else f"{str(event.get('key', 's1'))[:70]}-repair-{suffix}-{index}"
+                        key = event["key"] if index == 0 else f"{str(event['key'])[:70]}-repair-{suffix}-{index}"
                         sentence = {**event, "key": key, "speech_ja": part["speech_ja"]}
                         sentence.pop("display_zh", None)
                         validate_speech(sentence)
@@ -233,12 +312,16 @@ class OpenAIProvider:
     def assistant_message(self):
         """Replay the assistant turn exactly, including any native tool calls."""
         if self.used_native_tools:
-            return {"role": "assistant", "content": self.response_text or "",
-                    "tool_calls": [{"id": call["call_id"], "type": "function",
-                                    "function": {"name": call["api_name"],
-                                                 "arguments": call.get("raw_arguments", json.dumps(call["arguments"], ensure_ascii=False))}}
-                                   for call in self.tool_calls]}
-        return {"role": "assistant", "content": self.response_text}
+            message = {"role": "assistant", "content": self.response_text or "",
+                       "tool_calls": [{"id": call["call_id"], "type": "function",
+                                       "function": {"name": call["api_name"],
+                                                    "arguments": call.get("raw_arguments", json.dumps(call["arguments"], ensure_ascii=False))}}
+                                      for call in self.tool_calls]}
+        else:
+            message = {"role": "assistant", "content": self.response_text}
+        if self.thinking_applied:
+            message["reasoning_content"] = self.reasoning_text
+        return message
 
     async def _stream_once(self, messages: list[dict], tools: list[dict] | None = None,
                            tool_names: dict[str, str] | None = None):
@@ -250,6 +333,8 @@ class OpenAIProvider:
         self.report_errors = []
         self.used_native_tools = False
         self.output_repaired = False
+        self.thinking_applied = False
+        self.reasoning_text = ""
         started = time.monotonic()
         cfg = self.settings.values
         key = self.settings.key()
@@ -262,8 +347,13 @@ class OpenAIProvider:
             body["tool_choice"] = "auto"
         if urlparse(url).hostname == "api.deepseek.com":
             body["stream_options"] = {"include_usage": True}
-            body["thinking"] = {"type": "disabled"}
-            body["temperature"] = 0.3
+            if self.thinking:
+                body["thinking"] = {"type": "enabled", "reasoning_effort": "max"}
+                body["max_tokens"] = max(body["max_tokens"], 65536)
+                self.thinking_applied = True
+            else:
+                body["thinking"] = {"type": "disabled"}
+                body["temperature"] = 0.3
         if self.request_observer:
             self.request_observer(body, phase="main")
         owned = self.client is None
@@ -290,12 +380,14 @@ class OpenAIProvider:
                     if isinstance(obj.get("usage"), dict):
                         usage = obj["usage"]
                         details = usage.get("prompt_tokens_details") or {}
+                        completion_details = usage.get("completion_tokens_details") or {}
                         prompt = usage.get("prompt_tokens")
                         hit = usage.get("prompt_cache_hit_tokens", details.get("cached_tokens"))
                         self.usage = {key: value for key, value in {
                             "prompt_tokens": prompt, "completion_tokens": usage.get("completion_tokens"),
                             "total_tokens": usage.get("total_tokens"), "prompt_cache_hit_tokens": hit,
                             "prompt_cache_miss_tokens": usage.get("prompt_cache_miss_tokens"),
+                            "reasoning_tokens": completion_details.get("reasoning_tokens"),
                         }.items() if type(value) is int and value >= 0}
                         if type(prompt) is int and prompt > 0 and type(hit) is int and 0 <= hit <= prompt:
                             self.usage["cache_hit_ratio"] = hit / prompt
@@ -308,6 +400,9 @@ class OpenAIProvider:
                     if delta.get("refusal"):
                         raise RuntimeError("Model declined this request")
                     content = delta.get("content")
+                    reasoning = delta.get("reasoning_content")
+                    if isinstance(reasoning, str) and reasoning:
+                        self.reasoning_text += reasoning
                     if content:
                         self.response_text += content
                         try:

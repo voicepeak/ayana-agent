@@ -485,6 +485,33 @@ async def test_repeated_speech_key_across_tool_rounds_keeps_both_sentences(tmp_p
     await runtime.close()
 
 
+@pytest.mark.asyncio
+async def test_keyless_speech_with_stale_translation_key_delivers_turn(tmp_path):
+    # Regression: the model omitted the speech key and used an unrelated key
+    # for its Chinese subtitle; the turn must deliver both instead of failing.
+    import httpx
+    from tests.test_model import sse_response
+    root = Path(__file__).resolve().parents[1]
+    cfg = Settings(root=root, data_root=tmp_path)
+    cfg.values.update(provider="openai", model="test", send_screenshot=False)
+    cfg.key = lambda: "test-key"
+    runtime = AgentRuntime(cfg, desktop=Desktop(), tts=Tts())
+    ws = Ws()
+    runtime.clients.add(ws)
+    runtime.model_client = httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda request: sse_response([{"type": "speech", "speech_ja": "好きって言われても、困るな。", "intent": "playful"},
+                                      {"type": "translation", "key": "0", "display_zh": "就算你说喜欢我，我也会很为难。"}])))
+    await runtime.handle({"type": "turn.start", "text": "我喜欢你"})
+    await runtime.task
+    speech = next(event for event in ws.events if event["type"] == "utterance.ready")
+    subtitle = next(event for event in ws.events if event["type"] == "subtitle.ready")
+    assert subtitle["utterance_id"] == speech["utterance_id"]
+    assert subtitle["display_zh"] == "就算你说喜欢我，我也会很为难。"
+    assert not any(event["type"] == "error" for event in ws.events)
+    assert any(event["type"] == "task.state" and event["state"] == "idle" for event in ws.events)
+    await runtime.close()
+
+
 def test_computer_tool_is_hidden_until_available(tmp_path):
     runtime = AgentRuntime(settings(tmp_path), desktop=Desktop(), tts=Tts())
     names = [item["function"]["name"] for item in runtime.registry.openai_schemas()]

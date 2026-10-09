@@ -135,6 +135,50 @@ async def test_retry_missing_type_before_first_event_then_valid():
 
 
 @pytest.mark.asyncio
+async def test_conversation_thinking_uses_max_effort_with_output_headroom():
+    calls = []
+    def respond(request):
+        calls.append(json.loads(request.content))
+        return sse_response([VALID])
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        provider = OpenAIProvider(Settings(), client, thinking=True)
+        assert [event async for event in provider.stream_reply([])] == [VALID]
+    assert calls[0]["thinking"] == {"type": "enabled", "reasoning_effort": "max"}
+    assert "temperature" not in calls[0]
+    assert calls[0]["max_tokens"] == 65536
+
+
+@pytest.mark.asyncio
+async def test_thinking_reasoning_is_replayed_with_native_tool_calls():
+    lines = []
+    head = {"choices": [{"delta": {"reasoning_content": "先查目录", "tool_calls": [{"index": 0, "id": "call_1",
+            "type": "function", "function": {"name": "files__find", "arguments": '{"query":"note"}'}}]},
+            "finish_reason": None}]}
+    lines.append("data: " + json.dumps(head, ensure_ascii=False) + "\n\n")
+    lines.append('data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n')
+    lines.append("data: [DONE]\n\n")
+    def respond(request):
+        return httpx.Response(200, text="".join(lines), headers={"Content-Type": "text/event-stream"})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        provider = OpenAIProvider(Settings(), client, thinking=True)
+        events = [event async for event in provider.stream_reply([], tool_names={"files__find": "files.find"})]
+    assert [event["type"] for event in events] == ["tool"]
+    message = provider.assistant_message()
+    assert message["reasoning_content"] == "先查目录"
+    assert message["tool_calls"][0]["id"] == "call_1"
+
+
+@pytest.mark.asyncio
+async def test_thinking_reasoning_is_not_replayed_to_other_providers():
+    class OtherProviderSettings(Settings):
+        values = {"base_url": "https://api.openai.com/v1", "model": "configured-model"}
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: sse_response([VALID]))) as client:
+        provider = OpenAIProvider(OtherProviderSettings(), client, thinking=True)
+        assert [event async for event in provider.stream_reply([])] == [VALID]
+    assert "reasoning_content" not in provider.assistant_message()
+
+
+@pytest.mark.asyncio
 async def test_never_retry_after_any_committed_event():
     calls, committed = [], []
     def respond(request):
@@ -188,8 +232,7 @@ async def test_no_retry_for_model_refusal():
 
 @pytest.mark.asyncio
 async def test_all_committed_event_types_disable_retry():
-    for first in [VALID, {"type": "translation", "key": "s1", "display_zh": "一句"},
-                  {"type": "evidence", "path": "README.md", "line": 1},
+    for first in [VALID, {"type": "evidence", "path": "README.md", "line": 1},
                   {"type": "tool", "name": "capture_target", "arguments": {}},
                   {"type": "action", "action": {"kind": "highlight"}}]:
         calls, committed = [], []
@@ -204,10 +247,57 @@ async def test_all_committed_event_types_disable_retry():
 
 
 @pytest.mark.asyncio
+async def test_translation_without_speech_is_dropped_and_cannot_commit():
+    calls, committed = [], []
+    def respond(request):
+        calls.append(request)
+        return sse_response([TASK, {"type": "translation", "key": "s1", "display_zh": "一句"}, {"type": None}])
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(ModelEventError):
+            async for event in OpenAIProvider(Settings(), client).stream_reply([]):
+                committed.append(event)
+    # Nothing was committed, so the bounded format retry still ran before failing.
+    assert len(calls) == 2 and committed == []
+
+
+@pytest.mark.asyncio
+async def test_keyless_speech_and_stale_translation_key_are_normalized():
+    def respond(request):
+        return sse_response([{"type": "speech", "speech_ja": "おかえり、紀。", "intent": "acknowledge"},
+                             {"type": "translation", "key": "0", "display_zh": "欢迎回来，纪。"}])
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        provider = OpenAIProvider(Settings(), client)
+        events = [event async for event in provider.stream_reply([{"role": "user", "content": "hello"}])]
+    assert events == [{"type": "speech", "key": "s1", "speech_ja": "おかえり、紀。", "intent": "acknowledge"},
+                      {"type": "translation", "key": "s1", "display_zh": "欢迎回来，纪。"}]
+    # The stored history must not teach the next request the broken key.
+    stored = [json.loads(line) for line in provider.assistant_message()["content"].splitlines()]
+    assert stored == events
+
+
+@pytest.mark.asyncio
+async def test_repaired_keyless_speech_drops_stray_translations():
+    bad = {"type": "speech", "speech_ja": "高冷じゃないよ。ただ、言葉が少ないだけ。"}
+    def respond(request):
+        if json.loads(request.content)["stream"]:
+            return sse_response([bad, {"type": "translation", "key": "s2", "display_zh": "多余的字幕。"}])
+        return repaired_response({"sentences": [
+            {"speech_ja": "高冷じゃないよ。", "display_zh": "我不是高冷哦。"},
+            {"speech_ja": "ただ、言葉が少ないだけ。", "display_zh": "只是话比较少而已。"}]})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        provider = OpenAIProvider(Settings(), client)
+        events = [event async for event in provider.stream_reply([])]
+    assert [event["type"] for event in events] == ["speech", "translation", "speech", "translation"]
+    assert events[0]["key"] == "s1" and events[2]["key"].startswith("s1-repair-")
+    assert [event["key"] for event in events[1::2]] == [events[0]["key"], events[2]["key"]]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("usage_only", [False, True])
 async def test_usage_on_final_choice_or_separate_chunk_is_not_a_model_event(usage_only):
     usage = {"prompt_tokens": 1000, "completion_tokens": 70, "total_tokens": 1070,
-             "prompt_cache_hit_tokens": 896, "prompt_cache_miss_tokens": 104}
+             "prompt_cache_hit_tokens": 896, "prompt_cache_miss_tokens": 104,
+             "completion_tokens_details": {"reasoning_tokens": 42}}
     requests = []
     def respond(request):
         requests.append(json.loads(request.content))
@@ -221,6 +311,7 @@ async def test_usage_on_final_choice_or_separate_chunk_is_not_a_model_event(usag
         assert [event async for event in provider.stream_reply([])] == [VALID]
     assert provider.usage["cache_hit_ratio"] == .896
     assert provider.usage["prompt_cache_hit_tokens"] == 896
+    assert provider.usage["reasoning_tokens"] == 42
     assert json.loads(provider.response_text) == VALID
     assert requests[0]["stream_options"] == {"include_usage": True}
 

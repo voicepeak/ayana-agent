@@ -617,7 +617,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                 messages = continuation["messages"]
                 tool_schemas, tool_names = self._model_tools(messages)
                 prefix_length = continuation["prefix_length"]
-                provider = OpenAIProvider(self.settings, self.model_client)
+                provider = OpenAIProvider(self.settings, self.model_client, thinking=True)
                 provider.request_observer = self._record_prompt
                 self._cap_request(messages, prefix_length, reserve)
                 streams = [provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names)]
@@ -665,7 +665,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                 prefix_length = 1 + len(evidence_prefix) + len(previous)
                 if self.model_client is None:
                     self.model_client = httpx.AsyncClient(timeout=httpx.Timeout(75, connect=12), trust_env=False)
-                provider = OpenAIProvider(self.settings, self.model_client)
+                provider = OpenAIProvider(self.settings, self.model_client, thinking=True)
                 provider.request_observer = self._record_prompt
                 streams = [provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names)]
             report_repair_requested = False
@@ -693,6 +693,12 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                         continue
                     if kind == "speech":
                         speech = validate_speech(event)
+                        key = event.get("key")
+                        if not isinstance(key, str) or not key:
+                            # The provider adapter assigns a key to every speech
+                            # event before committing it; a keyless event here
+                            # is an internal contract violation.
+                            raise ValueError("Model speech event is missing its key")
                         # Narration limits must not abort tools, final reports or
                         # translations. Overflow sentences remain readable.
                         speech["audio_enabled"] = self._speech_budget(audio_count)["remaining"] > 0
@@ -703,11 +709,9 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                         if event.get("pose") not in {"crossed", "open"}:
                             issues.append("pose:missing_or_invalid")
                         if issues and messages is not None:
-                            await self.emit("model.validation", issues=issues,
-                                            key=str(event.get("key", count)),
+                            await self.emit("model.validation", issues=issues, key=key,
                                             resolved_expression=speech["resolved_expression"],
                                             resolved_pose=speech["resolved_pose"])
-                        key = str(event.get("key", count))
                         if key in round_keys:
                             raise ValueError("Model repeated a committed utterance key")
                         uid = identifier("u")
@@ -742,8 +746,8 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                             audio_count += 1
                         count += 1
                     elif kind == "translation":
-                        key = str(event.get("key"))
-                        uid = round_keys.get(key) or keys.get(key)
+                        key = event.get("key")
+                        uid = (round_keys.get(key) or keys.get(key)) if isinstance(key, str) and key else None
                         if not uid:
                             raise ValueError("Translation references an uncommitted sentence")
                         await self.emit("subtitle.ready", utterance_id=uid, display_zh=str(event.get("display_zh", ""))[:1200],
@@ -954,7 +958,8 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         text = str(error)
         if text.startswith(("Model application events", "Model returned malformed",
                             "Model returned no application events", "No committed sentence",
-                            "Model returned invalid Japanese speech", "Japanese sentence repair")):
+                            "Model returned invalid Japanese speech", "Japanese sentence repair",
+                            "Model speech event is missing its key", "Translation references an uncommitted sentence")):
             return "这次的回答格式不完整，已经说出的内容会保留；再说一次或换个说法就好。"
         if text.startswith("Model stream ended early"):
             return "模型的回答被截断了，请再试一次，或把事情拆小一点。"
@@ -1262,7 +1267,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                     else:
                         if self.model_client is None:
                             self.model_client = httpx.AsyncClient(timeout=httpx.Timeout(75, connect=12), trust_env=False)
-                        provider = OpenAIProvider(self.settings, self.model_client)
+                        provider = OpenAIProvider(self.settings, self.model_client, thinking=True)
                         provider.request_observer = self._record_prompt
                         translations = await provider.translate_subtitles(missing)
                     for uid, text in translations.items():
