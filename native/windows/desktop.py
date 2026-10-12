@@ -1,8 +1,8 @@
-"""A standalone, conservative single-step Windows desktop executor.
+"""Standalone, conservative Windows window capture.
 
-Call blocking methods through asyncio.to_thread in the agent runtime. Every
-action must reference a fresh snapshot; this adapter never runs an action on
-its own and never elevates the process or restores a minimized window.
+Call blocking methods through asyncio.to_thread in the agent runtime. This
+adapter only observes windows: it captures screenshots and never injects
+keyboard or mouse input.
 """
 from __future__ import annotations
 
@@ -15,26 +15,12 @@ import queue
 import threading
 import time
 import uuid
-from dataclasses import dataclass
 
 
 class DesktopError(RuntimeError):
     def __init__(self, code, message):
         super().__init__(message)
         self.code = code
-
-
-def image_point_to_screen(point, image_size, transform):
-    """Map snapshot image pixels into physical screen pixels, including negatives."""
-    if not isinstance(point, dict):
-        raise DesktopError("invalid_action", "Action point is missing")
-    try:
-        x, y = float(point["x"]), float(point["y"])
-    except (KeyError, TypeError, ValueError):
-        raise DesktopError("invalid_action", "Action coordinates must be finite numbers")
-    if not math.isfinite(x) or not math.isfinite(y) or not 0 <= x < image_size["width"] or not 0 <= y < image_size["height"]:
-        raise DesktopError("out_of_bounds", "Action point is outside the referenced screenshot")
-    return round(transform["origin_x"] + x * transform["scale_x"]), round(transform["origin_y"] + y * transform["scale_y"])
 
 
 def _identity_key(target):
@@ -46,43 +32,11 @@ def _same_geometry(first, second):
             and first.get("client_bounds_image_px") == second.get("client_bounds_image_px"))
 
 
-def _same_content(first, second, client_bounds=None, dpi=96):
-    """Ignore frame activation and only a narrow blinking insertion caret.
-
-    Everything else, including very small button text changes, invalidates
-    the old action. This intentionally requires re-observation for animation.
-    """
-    from PIL import ImageChops
-    if first.size != second.size:
-        return False
-    width, height = first.size
-    if client_bounds is not None:
-        # Native captions can be >36 physical pixels at high DPI. Compare all
-        # application client pixels using measured Win32 geometry, rather than
-        # treating a hardcoded slice of the caption as application content.
-        crop = tuple(client_bounds[key] for key in ("left", "top", "right", "bottom"))
-        if not 0 <= crop[0] < crop[2] <= width or not 0 <= crop[1] < crop[3] <= height:
-            return False
-    else:
-        # For old/fake snapshots without native client geometry only.
-        crop = (min(8, width//10), min(36, height//5), max(width-8, width//2), max(height-8, height//2))
-    difference = ImageChops.difference(first.crop(crop), second.crop(crop))
-    # Small compositor rounding differences should not trigger re-observation.
-    mask = difference.convert("L").point(lambda value: 255 if value > 2 else 0)
-    bounds = mask.getbbox()
-    if bounds is None:
-        return True
-    left, top, right, bottom = bounds
-    scale = max(1, dpi / 96)
-    return right-left <= math.ceil(2 * scale) and bottom-top <= math.ceil(32 * scale)  # insertion caret only
-
-
 def _fit_capture(image, max_pixels=8_000_000, max_bytes=6 * 1024 * 1024):
     """Scale a capture into the observation budget instead of refusing it.
 
     The window may be larger than the budget on high-DPI displays. Shrinking the
-    public snapshot keeps the model input bounded; action coordinates stay
-    correct because the returned transform records the applied scale.
+    public snapshot keeps the model input bounded.
     """
     from PIL import Image
     scale = 1.0
@@ -103,37 +57,22 @@ def _fit_capture(image, max_pixels=8_000_000, max_bytes=6 * 1024 * 1024):
     raise DesktopError("capture_size", "Target image is too large to observe; reduce the window size")
 
 
-@dataclass
-class _Snapshot:
-    public: dict
-    image: object
-    input_epoch: int
-    captured: float
-    focused_hwnd: int | None
-
-
 class WindowsDesktop:
-    def __init__(self, *, max_snapshot_age=30.0, capture_timeout=3.0, uia_timeout=2.0):
+    def __init__(self, *, capture_timeout=3.0):
         self.available = os.name == "nt"
-        self.max_snapshot_age = max_snapshot_age
         self.capture_timeout = capture_timeout
-        self._targets, self._snapshots = {}, {}
+        self._targets = {}
         self._assistant_windows = set()
         self._lock = threading.RLock()
         self._capture_slot = threading.Lock()
         self._closed = False
-        self._cancel_epoch = 0
-        self._active_cancel_epoch = None
-        self._api, self._monitor, self._uia = None, None, None
+        self._api = None
         self._detail = "Windows desktop APIs are unavailable on this platform"
         if self.available:
             try:
-                from .win32 import Win32, InputMonitor
-                from .uia import UiaObserver
+                from .win32 import Win32
                 self._api = Win32()
-                self._monitor = InputMonitor(self._api, self._assistant_windows)
-                self._uia = UiaObserver(timeout=uia_timeout)
-                self._detail = "Public Win32 capture and explicit single-step input are available"
+                self._detail = "Public Win32 window capture is available"
             except Exception as exc:
                 self.available, self._detail = False, str(exc)
 
@@ -142,10 +81,7 @@ class WindowsDesktop:
         return {"available": self.available and not self._closed,
                 "platform": "windows" if os.name == "nt" else os.name,
                 "capture": "PrintWindow",
-                "detail": self._detail,
-                "execution": "single_step" if self.available and self._monitor and not self._monitor.failed and self._monitor.ready.is_set() else "unavailable",
-                "uia": self._uia.status if self._uia else "unavailable",
-                "uia_detail": self._uia.detail if self._uia else ""}
+                "detail": self._detail}
 
     def _require(self):
         if not self.available or self._closed:
@@ -155,7 +91,7 @@ class WindowsDesktop:
         self._require()
         hwnd = int(hwnd)
         # Register only windows that actually exist; never accept a broad PID
-        # exemption that would hide user input in unrelated applications.
+        # exemption that would hide unrelated applications.
         if hwnd and self._api.user.IsWindow(hwnd):
             self._assistant_windows.add(self._api.root(hwnd))
 
@@ -245,40 +181,18 @@ class WindowsDesktop:
         with self._lock:
             target = self._target(target_id)
             captured = time.monotonic()
-            epoch = self._monitor.epoch
             image = self._image(target)
             display, png = _fit_capture(image)
-            snapshot_id = f"snap-{uuid.uuid4().hex[:12]}"
-            b = target["bounds"]
-            scale_x = image.width / display.width
-            scale_y = image.height / display.height
-            transform = {"transform_id": f"transform-{snapshot_id}",
-                         "coordinate_space": "snapshot_image_px", "screen_space": "physical_screen_px",
-                         "origin_x": b["left"], "origin_y": b["top"], "scale_x": scale_x, "scale_y": scale_y,
-                         "dpi": target["dpi"], "electron_dip_scale": target["dpi"]/96,
-                         "matrix": [scale_x, 0, b["left"], 0, scale_y, b["top"], 0, 0, 1]}
-            public = {"snapshot_id": snapshot_id, "target_id": target_id,
-                      "captured_at_monotonic_ms": captured * 1000,
-                      "image_size_px": {"width": display.width, "height": display.height},
-                      "png_base64": base64.b64encode(png).decode("ascii"),
-                      "content_sha256": hashlib.sha256(image.tobytes()).hexdigest(),
-                      "target": target, "transform": transform,
-                      "coordinate_space": "snapshot_image_px", "window_state": target["window_state"]}
-            focused_hwnd = self._api.focused_window(target["hwnd"]) if hasattr(self._api, "focused_window") else None
-            self._snapshots[snapshot_id] = _Snapshot(public, image, epoch, captured, focused_hwnd)
             self._targets[target_id] = target
-            # Memory remains bounded even if observations happen continuously.
-            while len(self._snapshots) > 12 or sum(s.image.width * s.image.height * len(s.image.getbands()) + len(s.public.get("png_base64", "")) for s in self._snapshots.values()) > 64 * 1024 * 1024:
-                del self._snapshots[next(iter(self._snapshots))]
-            return public
-
-    def observe_controls(self, target_id: str):
-        self._require()
-        target = self._target(target_id)
-        return self._uia.observe(target["hwnd"], target["bounds"])
+            return {"snapshot_id": f"snap-{uuid.uuid4().hex[:12]}", "target_id": target_id,
+                    "captured_at_monotonic_ms": captured * 1000,
+                    "image_size_px": {"width": display.width, "height": display.height},
+                    "png_base64": base64.b64encode(png).decode("ascii"),
+                    "content_sha256": hashlib.sha256(image.tobytes()).hexdigest(),
+                    "target": target, "window_state": target["window_state"]}
 
     def capture_desktop(self):
-        """Read the virtual desktop; this overview cannot authorize window input."""
+        """Read the virtual desktop as a wide overview."""
         self._require()
         from PIL import ImageGrab
         self._api.dpi_context()
@@ -294,194 +208,7 @@ class WindowsDesktop:
                 "image_size_px": {"width": display.width, "height": display.height},
                 "png_base64": base64.b64encode(png).decode("ascii"),
                 "content_sha256": hashlib.sha256(picture.tobytes()).hexdigest(),
-                "transform": {"origin_x": origin_x, "origin_y": origin_y,
-                              "scale_x": picture.width / display.width, "scale_y": picture.height / display.height}}
-
-    def _validate(self, action, snapshot_id):
-        if action.get("cancelled"):
-            raise DesktopError("cancelled", "Action was cancelled")
-        if snapshot_id not in self._snapshots:
-            raise DesktopError("unknown_snapshot", "Referenced screenshot no longer exists; observe again")
-        snapshot = self._snapshots[snapshot_id]
-        if time.monotonic()-snapshot.captured > self.max_snapshot_age:
-            raise DesktopError("stale_snapshot", "Screenshot is too old; observe again before acting")
-        target_id = action.get("target_id", snapshot.public["target_id"])
-        if target_id != snapshot.public["target_id"]:
-            raise DesktopError("target_mismatch", "Action target does not match its screenshot")
-        if action.get("snapshot_id", snapshot_id) != snapshot_id:
-            raise DesktopError("snapshot_mismatch", "Action snapshot does not match the supplied screenshot")
-        if action.get("coordinate_space", "snapshot_image_px") != "snapshot_image_px":
-            raise DesktopError("coordinate_space", "Actions must use screenshot image pixels")
-        target = self._target(target_id)
-        if not _same_geometry(snapshot.public["target"], target):
-            raise DesktopError("geometry_changed", "Target moved, resized or changed DPI; observe again")
-        kind = action.get("kind")
-        if kind not in {"click", "type", "scroll", "key", "highlight"}:
-            raise DesktopError("invalid_action", "Only click, type, scroll, key and highlight are supported")
-        if kind != "highlight" and self._monitor.epoch != snapshot.input_epoch:
-            raise DesktopError("user_takeover", "User input changed after observation; observe again before acting")
-        if kind in {"type", "key"} and action.get("point") is None and snapshot.focused_hwnd is not None:
-            if self._api.focused_window(target["hwnd"]) != snapshot.focused_hwnd:
-                raise DesktopError("focused_control_changed", "Focused control changed; observe again before typing")
-        current = self._image(target)
-        if not _same_content(snapshot.image, current, snapshot.public["target"].get("client_bounds_image_px"), target["dpi"]):
-            raise DesktopError("content_changed", "Target contents changed; refresh the screenshot and action preview")
-        return snapshot, target, kind
-
-    def _guard(self, target, epoch):
-        if self._active_cancel_epoch is not None and self._cancel_epoch != self._active_cancel_epoch:
-            raise DesktopError("cancelled", "Action was cancelled; remaining input was stopped")
-        if self._monitor.epoch != epoch:
-            raise DesktopError("user_takeover", "User took control; remaining input was stopped")
-        if self._api.foreground() != target["hwnd"]:
-            raise DesktopError("focus_changed", "Target lost focus; remaining input was stopped")
-        current = self._target(target["target_id"])
-        if not _same_geometry(current, target):
-            raise DesktopError("geometry_changed", "Target moved during action; remaining input was stopped")
-
-    def _move_pointer(self, target, epoch, point):
-        # A single SendInput batch containing MOVE/DOWN/UP can reach a Tk
-        # button before it handles its Enter event. Let the target process the
-        # owned move, then repeat guards before submitting the mouse pair.
-        self._api.send([self._api.move_input(*point)])
-        time.sleep(.04)
-        self._guard(target, epoch)
-        if self._api.point_root(*point) != target["hwnd"]:
-            raise DesktopError("target_occluded", "Action point became obscured; remaining input was stopped")
-
-    def _click_pointer(self, target, epoch, point):
-        self._move_pointer(target, epoch, point)
-        self._api.send([self._api.mouse(flags=2)])
-        try:
-            # Let the target handle Press/focus while the button is held. Some
-            # native controls consult live button state while processing Press.
-            time.sleep(.04)
-            self._guard(target, epoch)
-        finally:
-            # Cancellation can stop the rest of an action, never its release.
-            self._api.send([self._api.mouse(flags=4)])
-
-    def execute(self, action: dict, snapshot_id: str):
-        self._require()
-        if not isinstance(action, dict):
-            raise DesktopError("invalid_action", "Action must be an object")
-        with self._lock:
-            self._active_cancel_epoch = self._cancel_epoch
-            snapshot, target, kind = self._validate(action, snapshot_id)
-            public = snapshot.public
-            if kind == "highlight":
-                rect = action.get("rect")
-                if rect is None:
-                    point = action.get("point", {"x": public["image_size_px"]["width"]//2, "y": public["image_size_px"]["height"]//2})
-                    rect = {"x": max(0, float(point["x"])-35), "y": max(0, float(point["y"])-20), "width": 70, "height": 40}
-                x, y = image_point_to_screen(rect, public["image_size_px"], public["transform"])
-                try:
-                    width, height = float(rect["width"]), float(rect["height"])
-                except (KeyError, ValueError, TypeError):
-                    raise DesktopError("invalid_action", "Highlight rectangle dimensions are missing")
-                if not math.isfinite(width) or not math.isfinite(height) or min(width, height) <= 0:
-                    raise DesktopError("invalid_action", "Highlight dimensions must be finite positive numbers")
-                width = min(width, public["image_size_px"]["width"]-float(rect["x"]))
-                height = min(height, public["image_size_px"]["height"]-float(rect["y"]))
-                return {"kind": kind, "status": "highlighted", "target_id": target["target_id"], "snapshot_id": snapshot_id,
-                        "screen_rect": {"x": x, "y": y, "width": round(width), "height": round(height)}, "label": str(action.get("label", "下一步"))[:120]}
-            if self._monitor.failed or not self._monitor.ready.is_set():
-                raise DesktopError("input_observer_unavailable", self._monitor.failed or "Input observer has not initialized")
-            foreground = self._api.foreground()
-            if foreground != target["hwnd"] and foreground not in self._assistant_windows:
-                raise DesktopError("user_takeover", "Another application has focus; return to the target and observe again")
-            if any(self._api.user.GetAsyncKeyState(vk) & 0x8000 for vk in (1, 2, 4, 16, 17, 18, 91, 92)):
-                raise DesktopError("input_busy", "Release mouse buttons and modifier keys before executing")
-            epoch = self._monitor.epoch
-            if foreground != target["hwnd"] and not self._api.focus(target["hwnd"]):
-                raise DesktopError("focus_failed", "Windows refused target focus recovery; no input was sent")
-            # Revalidate content after focus recovery; focused controls can reflow.
-            if not _same_content(snapshot.image, self._image(target), public["target"].get("client_bounds_image_px"), target["dpi"]):
-                raise DesktopError("content_changed", "Target changed after focus recovery; observe again")
-            self._guard(target, epoch)
-            point = None
-            if kind in {"click", "scroll"} or action.get("point") is not None:
-                point = image_point_to_screen(action.get("point"), public["image_size_px"], public["transform"])
-                if self._api.point_root(*point) != target["hwnd"]:
-                    raise DesktopError("target_occluded", "Action point is obscured by another window; no input was sent")
-            # Validate all parameters before injecting any input.
-            text = None
-            if kind == "type":
-                text = action.get("text")
-                if not isinstance(text, str) or not text or len(text) > 4000:
-                    raise DesktopError("invalid_action", "Type requires 1–4000 characters")
-                if any(ord(char) < 32 and char not in "\n\t" for char in text):
-                    raise DesktopError("invalid_action", "Unsupported control characters in typed text")
-            delta = None
-            if kind == "scroll":
-                try:
-                    delta = int(action.get("delta", action.get("amount", -3)))
-                except (ValueError, TypeError):
-                    raise DesktopError("invalid_action", "Scroll amount must be an integer")
-                if not -20 <= delta <= 20 or delta == 0:
-                    raise DesktopError("invalid_action", "Scroll amount must be between -20 and 20 nonzero notches")
-            keys = None
-            if kind == "key":
-                allowed = {"enter": 13, "tab": 9, "escape": 27, "backspace": 8,
-                           "left": 37, "up": 38, "right": 39, "down": 40,
-                           "home": 36, "end": 35, "pageup": 33, "pagedown": 34}
-                key = str(action.get("key", "")).lower()
-                if key not in allowed:
-                    raise DesktopError("invalid_action", "Only navigation and editing single keys are supported")
-                keys = [self._api.key(allowed[key]), self._api.key(allowed[key], flags=2)]
-            self._monitor.active = True
-            try:
-                self._guard(target, epoch)
-                if kind == "click":
-                    if action.get("button", "left") != "left":
-                        raise DesktopError("invalid_action", "Only a single left click is supported")
-                    self._click_pointer(target, epoch, point)
-                elif kind == "type":
-                    if point:
-                        self._click_pointer(target, epoch, point)
-                        time.sleep(.03)
-                    # Let ordinary application message loops translate each
-                    # Unicode code point before the next one. Flooding a Tk
-                    # entry with a large VK_PACKET burst can lose characters.
-                    # A surrogate pair stays in one atomic down/up batch.
-                    for character in text:
-                        self._guard(target, epoch)
-                        units = character.encode("utf-16-le", errors="strict")
-                        batch = []
-                        for offset in range(0, len(units), 2):
-                            code = int.from_bytes(units[offset:offset+2], "little")
-                            batch += [self._api.key(scan=code, flags=4), self._api.key(scan=code, flags=6)]
-                        self._api.send(batch)
-                        time.sleep(.005)
-                elif kind == "scroll":
-                    self._move_pointer(target, epoch, point)
-                    self._api.send([self._api.mouse(flags=0x800, data=delta*120)])
-                else:
-                    self._api.send(keys)
-                time.sleep(.08)
-                self._guard(target, epoch)
-            finally:
-                self._monitor.active = False
-                self._active_cancel_epoch = None
-                # A used snapshot can never be replayed, even on partial input.
-                self._snapshots.pop(snapshot_id, None)
-            after = self.capture(target["target_id"])
-            controls = self.observe_controls(target["target_id"])
-            changed = not _same_content(snapshot.image, self._snapshots[after["snapshot_id"]].image, public["target"].get("client_bounds_image_px"), target["dpi"])
-            expected = str(action.get("expected_text", ""))
-            verified = any(expected in str(control.get("name", "")) or expected in str(control.get("value", "")) for control in controls) if expected else None
-            return {"kind": kind, "status": "input_sent", "target_id": target["target_id"],
-                    "snapshot_id": snapshot_id, "result_snapshot": after, "controls": controls,
-                    "observed_change": changed, "expected_result_verified": verified,
-                    "detail": "Input was sent and the target was captured again. The requested outcome needs observation."}
-
-    def cancel(self):
-        """Stop the next input batch without waiting for the action lock."""
-        self._cancel_epoch += 1
+                "origin": {"x": origin_x, "y": origin_y}}
 
     def close(self):
-        self.cancel()
         self._closed = True
-        if self._monitor: self._monitor.close()
-        if self._uia: self._uia.close()
-        self._snapshots.clear()
