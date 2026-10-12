@@ -58,9 +58,8 @@ async def main():
     cfg = Settings()
     catalog = AvatarCatalog(ROOT)
     system = PromptAssembler(ROOT, catalog).build(
-        full_access=cfg.values.get("full_access", False), costume=cfg.values.get("avatar_costume", "校服"),
-        tools=tool_prompt(ToolRegistry(), native_tools=cfg.values.get("native_tools", True),
-                          full_access=cfg.values.get("full_access", False))).system
+        costume=cfg.values.get("avatar_costume", "校服"),
+        tools=tool_prompt(ToolRegistry(), native_tools=cfg.values.get("native_tools", True))).system
     semaphore = asyncio.Semaphore(2)
     async with httpx.AsyncClient(timeout=httpx.Timeout(75, connect=12), trust_env=False) as client:
         async def check(name, scene, allowed):

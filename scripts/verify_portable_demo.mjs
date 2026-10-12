@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -27,8 +27,6 @@ if (isolatedCompanion) {
   mkdirSync(path.join(isolatedProfile, 'config'), { recursive: true });
   writeFileSync(path.join(isolatedProfile, 'config/local.json'), JSON.stringify({ provider: 'local', voice: { voice_mode: 'silent' }, send_screenshot: false }));
 }
-const statePath = path.join(directory, 'target.json');
-if (!cleanupOnly && existsSync(statePath)) unlinkSync(statePath);
 const reportPath = path.join(directory, cleanupOnly ? 'cleanup-report.json' : 'report.json');
 const report = { checks: {}, launches: [], playback: [], errors: [], scope: 'Actual NSIS EXE and Worklet sample-consumption receipts; excludes acoustic judgment.' };
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -91,8 +89,6 @@ async function inspector(port) {
   };
 }
 
-const basePython = python('import sys; print(sys._base_executable)');
-const target = cleanupOnly ? undefined : spawn(basePython, ['-X', 'utf8', '-m', 'native.windows.demo_target', '--state', statePath, '--auto-close', '600'], { cwd: root, windowsHide: true, stdio: 'ignore' });
 let active;
 let second;
 
@@ -152,10 +148,7 @@ function assertResources(instance) {
 }
 async function playback(instance, label) {
   const page = instance.page;
-  const targetState = JSON.parse(readFileSync(statePath, 'utf8'));
   const previous = await page.evaluate(() => window.__portableEvents.length);
-  await page.evaluate(hwnd => window.ayana.send({ type: 'target.bind', hwnd }), targetState.hwnd);
-  await page.waitForFunction(({ hwnd, previous }) => window.__portableEvents.slice(previous).some(event => event.type === 'snapshot.ready' && event.target?.hwnd === hwnd), { hwnd: targetState.hwnd, previous }, { timeout: 15000 });
   await page.getByRole('textbox', { name: '输入问题' }).fill('这是一项语音回归检查。只回答一句极短日语「こんにちは。」并配中文「你好」。');
   await page.getByRole('button', { name: '发送', exact: true }).click();
   await page.waitForFunction(start => window.__portableEvents.slice(start).some(event => event.type === 'playback.ended' && !Number.isFinite(event.seq) && event.output_sample_rate > 0 && event.played_samples > 1000), previous, { timeout: 120000 });
@@ -217,14 +210,11 @@ try {
     report.checks.graceful_shutdown = report.errors.length === 0;
     report.passed = true;
   } else {
-  await eventually(() => existsSync(statePath), 10000, 'owned safe demo target');
   const first = await launch('initial');
   assertResources(first);
   await playback(first, 'initial');
   report.checks.initial_actual_audio = true;
   // The second wrapper must clean only its own extraction directory.
-  const targetHwnd = JSON.parse(readFileSync(statePath, 'utf8')).hwnd;
-  python('from native.windows.win32 import Win32; import sys; assert Win32().focus(int(sys.argv[1]))', [String(targetHwnd)]);
   second = spawn(executable, [], { cwd: path.dirname(executable), windowsHide: true, stdio: 'ignore' });
   await eventually(() => second.exitCode !== null || second.signalCode !== null, 90000, 'second portable launcher exit');
   assert.equal(second.exitCode, 0);
@@ -252,10 +242,6 @@ try {
     report.events = await active.page.evaluate(() => window.__portableEvents || []).catch(() => []);
   }
   await close(active).catch(error => { report.errors.push(`Cleanup: ${error.message}`); report.passed = false; process.exitCode = 1; });
-  try {
-    if (existsSync(statePath)) python('import ctypes,sys; ctypes.windll.user32.PostMessageW(int(sys.argv[1]),16,0,0)', [String(JSON.parse(readFileSync(statePath, 'utf8')).hwnd)]);
-    if (target) await eventually(() => target.exitCode !== null || target.signalCode !== null, 3000, 'owned target cleanup');
-  } catch { if (target?.exitCode === null) target.kill(); }
 }
 report.passed = report.passed && report.errors.length === 0;
 if (!report.passed) process.exitCode = 1;
