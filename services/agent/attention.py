@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import random
 import time
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -65,11 +67,8 @@ class AttentionRuntime:
                 and self.settings.values.get("send_screenshot", False)
                 and self.settings.values["provider"] == "openai" and bool(self.settings.key())
                 and not (self.task and not self.task.done())
-                and not (self.action_task and not self.action_task.done())
-                and not self.pending and not self.approvals and not self.continuation
-                and not self.actions
-                and not (self.context_job and not self.context_job.done())
-                and not (self.active_task and self.active_task.state in {"running", "paused", "waiting_approval"}))
+                and not self.pending
+                and not (self.context_job and not self.context_job.done()))
 
     async def _attention_loop(self):
         while not self.closed:
@@ -133,28 +132,40 @@ class AttentionRuntime:
         snap = await asyncio.to_thread(self.desktop.capture, target["target_id"])
         return {**snap, "scope": "window", "observed_at": time.time(), "actionable": True}
 
-    async def _desktop_observe(self, scope="foreground", window_id=None, controls=False):
+    async def _desktop_observe(self, scope="foreground", window_id=None):
         if scope == "list":
             return {"windows": await self._windows_list(), "observed_at": time.time()}
         await self.emit("attention.state", observing=True)
         try:
             snap = await self._observe_data(scope, window_id)
-            # A whole-desktop image is an overview, never a window input target.
             self.target = snap.get("target")
             self.snapshot = snap
-            self.actions.clear()
             self.observation = {"available": True, "scope": scope}
             result = {key: value for key, value in snap.items() if key != "png_base64"}
-            if controls:
-                if not self.target:
-                    raise ToolError("no_target", "控件需要先观察一个窗口")
-                result["controls"] = await asyncio.to_thread(self.desktop.observe_controls, self.target["target_id"])
             if window_id:
                 await self.emit("target.bound", target=self.target)
             await self.emit("snapshot.ready", **snap)
             return result
         finally:
             await self.emit("attention.state", observing=False)
+
+    async def _windows_list(self):
+        from native.windows.desktop import DesktopError
+        result = []
+        choices = {}
+        try:
+            windows = await asyncio.to_thread(self.desktop.list_windows)
+        except DesktopError as error:
+            raise ToolError(error.code, str(error)) from None
+        for window in windows[:100]:
+            identity = [window[key] for key in ("hwnd", "process_id", "process_created", "class_name")]
+            window_id = "window-" + hashlib.sha256(json.dumps(identity).encode()).hexdigest()[:16]
+            choices[window_id] = {"window": dict(window), "expires": time.monotonic() + 30}
+            result.append({"window_id": window_id, "title": window["title"], "process_id": window["process_id"],
+                           "executable_name": Path(window["executable"]).name,
+                           "window_state": window["window_state"], "elevated": window["elevated"]})
+        self.window_choices = choices
+        return result
 
     async def _attention_configure(self, enabled):
         self.settings.update({"ambient_attention": enabled})
@@ -172,7 +183,7 @@ class AttentionRuntime:
         tools = [{"type": "function", "function": {"name": "desktop__observe", "description": tool.description,
                                                     "parameters": schema}}]
         names = {"desktop__observe": "desktop.observe"}
-        bundle = self.prompts.build(full_access=False, costume=self.settings.values.get("avatar_costume", "校服"), tools="Only desktop.observe(scope='foreground') is available. All write tools are unavailable.")
+        bundle = self.prompts.build(costume=self.settings.values.get("avatar_costume", "校服"), tools="Only desktop.observe(scope='foreground') is available.")
         context = {"event": "ambient_attention", "window": {k: target.get(k) for k in ("title", "class_name")},
                    "conversation": self.conversations.current.get("preview", "")[:500],
                    "expression_coverage": self._expression_coverage(),

@@ -7,29 +7,22 @@ import time
 import uuid
 import threading
 from collections import OrderedDict
+from datetime import datetime
 
 import httpx
 
 from packages.protocol import PROTOCOL_VERSION, validate_speech
 from .providers.model import LocalProvider, OpenAIProvider
-from .prompts import PromptAssembler, character_text, update_budget, completion_feedback, subtitle_language_instruction
+from .prompts import PromptAssembler, character_text, update_budget, subtitle_language_instruction
 from .prompts import TOOL_RESULT_PREFIX, INTERRUPTED_PREFIX, USER_MEMORY_PREFIX
 from .prompts.trace import PromptTrace
 from .storage import ConversationStore, without_media
-from .context import PromptHistory, repository_message
-from .tools.repository import RepositoryReader
-from .tools.registry import ToolRegistry, ToolError, arguments, string
-from .tools.policy import DirectoryPolicy
-from .tools.files import FileTools
+from .context import PromptHistory
+from .tools.registry import ToolError
 from .tools.web import WebTools
-from .tools.system import SystemTools
-from .tools.shell import ShellTools
-from .tasks import TaskRunner
 from .capabilities import CapabilityRuntime
-from .computer_use import ComputerUse
 from .conversations import Conversations
 from .conversation_runtime import ConversationRuntime
-from .work import local_clock
 from .memory import PersonalMemory, extract_memories
 from .attention import AttentionRuntime
 
@@ -38,12 +31,17 @@ def identifier(prefix):
     return f"{prefix}-{uuid.uuid4().hex[:12]}"
 
 
+def local_clock():
+    now = datetime.now().astimezone()
+    return {"local_iso": now.isoformat(timespec="seconds"), "timezone": str(now.tzinfo),
+            "utc_offset": now.strftime("%z")}
+
+
 # Older tool evidence inside one in-flight turn is replaced by this notice so
 # the project's own budget also constrains tool rounds, not just history.
 COMPRESSED_TOOL_NOTICE = "Tool result omitted to stay within the context budget; re-read if still needed. "
-BUDGET_FINAL_NOTICE = ("This is the final round of the turn: no further tool calls will run. "
-                       "Answer with the evidence you already have — a short factual speech and a task report "
-                       "with status complete/blocked/needs_input. Never claim unverified results as success.")
+BUDGET_FINAL_NOTICE = ("This is the final round of this reply: no further tool calls will run. "
+                       "Answer with the information you already have.")
 
 
 class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
@@ -80,56 +78,32 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         self.snapshot = None
         self.observation = None
         self._init_attention()
-        self.repository = None
         self.task = None
-        self.action_task = None
         self.start_task = None
         self.pending = OrderedDict()
         self.pending_condition = asyncio.Condition()
-        self.actions = {}
         self.utterances = {}
         self.last_reply_keys = {}
         self.last_reply_turn = None
         self.last_reply_delivered = None
-        self.mode = "teach"
         self.closed = False
         self.stt = None
         self.command_lock = asyncio.Lock()
         self.close_lock = asyncio.Lock()
-        self.active_task = None
-        self.deadline_task = None
-        self.task_gate = asyncio.Event()
-        self.task_gate.set()
-        self.continuation = None
-        self.write_cancel = threading.Event()
-        self.policy = DirectoryPolicy(settings.data_root / "artifacts", repository=lambda: (self.repository or {}).get("root"),
-                                      full_access=lambda: self.full_access)
-        self.shell = ShellTools(lambda: self.full_access)
-        for grant in self.store.records("directory"):
-            with contextlib.suppress(ValueError, OSError):
-                self.policy.grant(grant["root_id"], grant["path"], grant["write"])
-        self.files = FileTools(self.policy, settings.data_root, self.store)
+        self.window_choices = {}
+        self.search_history = {}
+        self.search_urls = set()
         self.web = WebTools(lambda: settings.search_key(), search_proxy=lambda: settings.values.get("search_proxy", ""),
                             search_provider=lambda: settings.values.get("search_provider", "auto"))
-        self.system = SystemTools(self.policy)
-        self.window_choices = {}
-        self.computer = ComputerUse(settings)
         if settings.values.get("save_history", True):
             self.web.sources.update({s["source_id"]: s for s in self.store.records("source")})
         self.registry = self._make_tools()
-        self.approvals = {}
         self.client_queues = {}
         self.client_senders = {}
         self.persistence_lock = asyncio.Lock()
         self.subtitle_jobs = set()
         self.subtitle_pending = set()
         self.subtitle_lock = asyncio.Lock()
-        for record in self.store.records("task"):
-            if record["state"] in {"running", "waiting_approval", "paused"}:
-                record["state"] = "interrupted"
-                self.store.put_record("task", record["task_id"], record)
-        # Keep the topic's task snapshot consistent with that single record.
-        self._reconcile_restart_tasks()
 
     async def emit(self, event_type, **payload):
         if event_type in {"subtitle.ready", "subtitle.translated"} and (record := self.utterances.get(payload.get("utterance_id"))):
@@ -145,9 +119,6 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                 await asyncio.to_thread(self.store.commit, event)
                 if event_type == "user.message":
                     await asyncio.to_thread(self.conversations.save)
-        if event_type == "repository.inspected":
-            self.conversations.current["repository_root"] = (self.repository or {}).get("root")
-            await asyncio.to_thread(self.conversations.save)
         for ws in tuple(self.clients):
             if ws not in self.client_queues:
                 queue = asyncio.Queue(maxsize=128)
@@ -200,14 +171,6 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
     async def start(self):
         self.start_task = asyncio.create_task(self._prepare_voice())
         self.attention_runner = asyncio.create_task(self._attention_loop())
-        root = self.conversations.current.get("repository_root")
-        if root:
-            try:
-                self.repository = await asyncio.to_thread(RepositoryReader(root).inspect)
-                await self.emit("repository.inspected", repository=self.repository, **self.repository)
-            except (OSError, ValueError):
-                self.conversations.current["repository_root"] = None
-                await asyncio.to_thread(self.conversations.save)
 
     async def _prepare_voice(self):
         await self.emit("service.state", service="tts", state="loading")
@@ -230,25 +193,11 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         await self._memory_snapshot()
 
     async def cancel(self, reason="user"):
-        self.write_cancel.set()
-        self.approvals.clear()
-        self.files.proposals.clear()
-        self.continuation = None
-        if self.active_task and self.active_task.state in {"running", "paused", "waiting_approval"}:
-            self.active_task.transition("cancelled")
-            await self._task_event()
         old = self.generation
         self.generation += 1
         task, self.task = self.task, None
         if task and task is not asyncio.current_task():
             task.cancel()
-        action_task, self.action_task = self.action_task, None
-        if action_task:
-            action_task.cancel()
-        await self.computer.stop()
-        await self.shell.stop()
-        await self._stop_background(reason)
-        self.actions.clear()
         for utterance in self.utterances.values():
             if utterance["generation_id"] == old and utterance.get("status", "generated") in {"generated", "playing"}:
                 utterance["status"] = "partial" if utterance.get("status") == "playing" else "cancelled"
@@ -261,38 +210,11 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         # Generation broadcast precedes slow inference cancellation.
         await self.emit("generation.cancelled", cancelled_generation_id=old, reason=reason)
         await self.emit("input.state", state="idle")
-        if hasattr(self.desktop, "cancel"):
-            self.desktop.cancel()
         with contextlib.suppress(BrokenPipeError, ConnectionError, RuntimeError):
             await self.tts.cancel(old)
         if task and task is not asyncio.current_task():
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-        if action_task:
-            with contextlib.suppress(asyncio.CancelledError):
-                await action_task
-
-    async def capture(self):
-        if not self.target:
-            raise ValueError("请先绑定一个目标窗口")
-        try:
-            snap = await asyncio.to_thread(self.desktop.capture, self.target["target_id"])
-        except Exception as error:
-            self.snapshot = None
-            self.actions.clear()
-            await self.emit("snapshot.invalidated", reason=getattr(error, "code", None), message=str(error)[:500])
-            raise
-        self.snapshot = snap
-        await self.emit("snapshot.ready", **snap)
-        if self.task is None or self.task.done():
-            await self.emit("task.state", state="idle")
-        self.observation = {"available": True}
-        return snap
-
-    async def _mark_unobserved(self, error):
-        self.observation = {"available": False, "code": getattr(error, "code", "capture_failed"),
-                            "message": "目标窗口当前无法截图。对话可以继续；查看或操作前请恢复窗口。"}
-        await self.emit("observation.unavailable", target=self.target, **self.observation)
 
     async def handle(self, cmd: dict):
         async with self.command_lock:
@@ -317,9 +239,8 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
             self.companion_visible = True
             self.target = None
             self.snapshot = None
-            self.actions.clear()
-            await self.emit("snapshot.invalidated")
             self.observation = None
+            await self.emit("snapshot.invalidated")
             await self.emit("session.started", target=None, provider=self.settings.values["provider"])
         elif kind == "session.close":
             self.companion_visible = False
@@ -327,45 +248,6 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
             await self.emit("session.closed")
         elif kind == "generation.cancel":
             await self.cancel()
-        elif kind == "target.bind":
-            await self.cancel("target_changed")
-            self.target = await asyncio.to_thread(self.desktop.bind, int(cmd["hwnd"]))
-            self.snapshot = None
-            await self.emit("target.bound", target=self.target)
-            await self.capture()
-        elif kind == "target.capture":
-            if cmd.get("watch") and not self.settings.values.get("send_screenshot"):
-                return
-            try:
-                await self.capture()
-            except Exception as error:
-                if cmd.get("watch"):
-                    await self._mark_unobserved(error)
-                else:
-                    await self.emit("error", source="capture", message=str(error)[:500])
-        elif kind == "windows.list":
-            await self.emit("windows.list", windows=await asyncio.to_thread(self.desktop.list_windows))
-        elif kind == "repository.inspect":
-            reader = RepositoryReader(cmd["root"])
-            if self.repository and str(reader.root) != self.repository["root"]:
-                await self.cancel("repository_changed")
-            self.repository = await asyncio.to_thread(reader.inspect)
-            await self.emit("repository.inspected", repository=self.repository, **self.repository)
-        elif kind == "repository.read":
-            root = cmd.get("root") or (self.repository or {}).get("root")
-            evidence = await asyncio.to_thread(RepositoryReader(root).read_file, cmd["path"], cmd.get("start_line", 1), 160)
-            await self.emit("evidence.ready", evidence=evidence, **evidence)
-        elif kind == "repository.search":
-            root = cmd.get("root") or (self.repository or {}).get("root")
-            results = await asyncio.to_thread(RepositoryReader(root).search_text, cmd["query"])
-            await self.emit("repository.searched", results=results, query=cmd["query"])
-        elif kind == "mode.set":
-            if cmd.get("mode") not in {"teach", "execute"}:
-                raise ValueError("Invalid task mode")
-            if cmd["mode"] != self.mode:
-                await self.cancel("mode_changed")
-            self.mode = cmd["mode"]
-            await self.emit("mode.ready", mode=self.mode)
         elif kind == "input.audio":
             await self.cancel("microphone_input")
             self.task = asyncio.create_task(self._transcribe(cmd, self.generation))
@@ -382,31 +264,11 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
             elif attention_text in {"继续看", "可以偷看", "恢复偷看", "彩名继续看"}:
                 await self._attention_configure(True)
             self.turn_id = identifier("turn")
-            self.mode = cmd.get("mode", "teach")
-            if self.mode not in {"teach", "execute"}:
-                raise ValueError("Invalid task mode")
             await self.emit("user.message", text=text)
             await self._conversation_snapshot()
-            self.write_cancel = threading.Event()
-            self.task_gate.set()
-            self.active_task = TaskRunner(text, self.settings.values.get("task_limits", {}))
-            await self._task_event()
-            self.task = asyncio.create_task(self._turn(text, cmd.get("repository_root"), self.generation))
-            if self.deadline_task:
-                self.deadline_task.cancel()
-            self.deadline_task = asyncio.create_task(self._watch_budget(self.active_task))
-        elif kind == "tool.execute":
-            if cmd.get("action_id") in self.approvals:
-                await self._capability_command({"type": "approval.resolve", "approval_id": cmd["action_id"], "accept": True})
-                return
-            action = self.actions.get(cmd.get("action_id")) if cmd.get("action_id") else cmd.get("action", {})
-            if not isinstance(action, dict):
-                raise ValueError("Proposed action is cancelled or already used")
-            if not self._execution_enabled() and action.get("kind") != "highlight":
-                raise ValueError("先选择单步执行模式，再确认具体步骤")
-            if self.action_task and not self.action_task.done():
-                raise ValueError("另一个单步操作尚未结束")
-            self.action_task = asyncio.create_task(self._run_action(cmd, self.generation))
+            self.search_history = {}
+            self.search_urls = set()
+            self.task = asyncio.create_task(self._turn(text, self.generation))
         elif kind.startswith("playback.") or kind == "utterance.displayed":
             await self._receipt(cmd)
         elif kind == "settings.get":
@@ -417,7 +279,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
             patch = cmd.get("settings", {})
             validated = self.settings.validate(patch)
             # Presentation changes can be applied while a reply is playing.
-            # Persist first: a failed write must not stop a task or voice.
+            # Persist first: a failed write must not stop voice or attention.
             presentation = {"companion_ui", "avatar_costume", "volume", "subtitles", "sentence_motion", "hotkey", "cancel_hotkey", "ambient_attention", "ambient_speech", "ambient_interval_min", "ambient_interval_max", "remember_user"}
             interrupt = any(key not in presentation and value != self.settings.values.get(key)
                             for key, value in validated.items())
@@ -440,11 +302,10 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
             if self.settings.values.get("save_history", True) != previous_history:
                 self.conversations = Conversations(self.store, self.settings.values.get("save_history", True))
                 self.prompt_history = PromptHistory(self.store)
-                self.repository = self.target = self.snapshot = None
-                self.active_task = self.last_reply_turn = None
+                self.snapshot = None
+                self.last_reply_turn = None
                 self.last_reply_keys = {}
                 self.last_reply_delivered = None
-                await self.emit("repository.cleared")
                 await self.emit("session.started", target=None, provider=self.settings.values["provider"])
                 await self._conversation_snapshot(changed=True)
                 await self._history_snapshot()
@@ -461,7 +322,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                 self.tts = TtsService(self.settings.values["voice"])
                 self.start_task = asyncio.create_task(self._prepare_voice())
             await self.emit("settings.ready", settings=self.settings.public(), api_key_configured=bool(self.settings.key()), request_id=cmd.get("request_id"))
-            if any(key in patch for key in ("full_access", "search_provider", "search_proxy")):
+            if any(key in patch for key in ("search_provider", "search_proxy")):
                 await self._capabilities_snapshot()
         elif kind == "history.get":
             await self._history_snapshot(cmd.get("conversation_id"), cmd.get("before"))
@@ -587,110 +448,78 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         await speaker
 
     def _speech_budget(self, used=0):
-        normal = self.settings.values["max_utterances"]
-        detailed = max(normal, self.settings.values.get("detailed_max_utterances", 32))
-        limit = detailed if self.active_task and self.active_task.detail == "detailed" else normal
-        return {"normal": normal, "detailed": detailed, "used": used, "remaining": max(0, limit - used)}
+        limit = self.settings.values["max_utterances"]
+        return {"limit": limit, "used": used, "remaining": max(0, limit - used)}
 
     def _record_prompt(self, body, *, phase):
         self.prompt_trace.record(body, phase=phase, turn_id=self.turn_id,
                                  conversation_id=self.conversations.current_id)
 
-    async def _turn(self, text, root, gen, continuation=None):
+    async def _turn(self, text, gen):
         queue = asyncio.Queue(maxsize=3)
         speaker = asyncio.create_task(self._speech_worker(queue, gen))
-        keys = dict(continuation.get("keys", {})) if continuation else {}
+        keys = {}
         count = 0
-        audio_count = continuation.get("audio_count", 0) if continuation else 0
+        audio_count = 0
         streams = []
         messages = None
         prefix_length = 0
-        reserve = continuation.get("reserve", 0) if continuation else 0
+        reserve = 0
         sealed = False
         try:
             await self.emit("task.state", state="thinking")
-            if root:
-                self.repository = await asyncio.to_thread(RepositoryReader(root).inspect)
-                await self.emit("repository.inspected", repository=self.repository, **self.repository)
             tool_schemas, tool_names = self._model_tools()
-            if continuation:
-                messages = continuation["messages"]
-                tool_schemas, tool_names = self._model_tools(messages)
-                prefix_length = continuation["prefix_length"]
-                provider = OpenAIProvider(self.settings, self.model_client, thinking=True)
-                provider.request_observer = self._record_prompt
-                self._cap_request(messages, prefix_length, reserve)
-                streams = [provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names)]
-            elif self.settings.values["provider"] == "local":
-                await self.emit("service.state", service="model", state="ready", engine="local-evidence", message="本地文件教学模式，无视觉模型")
-                streams = [LocalProvider().stream_reply(text, self.repository, self.target)]
+            if self.settings.values["provider"] == "local":
+                await self.emit("service.state", service="model", state="ready", engine="local-demo", message="本地演示模式，无在线模型")
+                streams = [LocalProvider().stream_reply(text)]
                 messages = None
             else:
                 # Observations are requested through tools. Expire old images instead
                 # of making an unrelated chat message trigger another capture.
                 if self.snapshot and time.monotonic() * 1000 - self.snapshot.get("captured_at_monotonic_ms", time.monotonic() * 1000) > 30000:
                     self.snapshot = None
-                    self.actions.clear()
                     self.observation = {"available": False, "code": "stale_snapshot", "message": "上一次观察已过期，需要时可以重新看看。"}
                     await self.emit("snapshot.invalidated")
-                bundle = self.prompts.build(full_access=self.full_access,
-                                            costume=self.settings.values.get("avatar_costume", "校服"),
+                bundle = self.prompts.build(costume=self.settings.values.get("avatar_costume", "校服"),
                                             tools=self._tool_prompt())
                 system = bundle.system + subtitle_language_instruction(self.settings.values)
                 self.prompt_history.select(system, self.settings.values, conversation_id=self.conversations.current_id)
-                # Keep one copy of repository evidence ahead of dialogue history.
-                evidence_prefix = repository_message(self.repository)
-                context = {"mode": "execute" if self._execution_enabled() else "teach", "full_access": self.full_access, "target": self.target,
+                context = {"target": self.target,
                            "observation": self.observation or {"available": bool(self.snapshot)},
                            "ambient_attention": self.settings.values.get("ambient_attention", True),
                            "recent_observations": [item for item in self.recent_observations
                                                    if item["conversation_id"] == self.conversations.current_id],
-                           "local_clock": local_clock(), "work_context": self._prompt_work_context(),
+                           "local_clock": local_clock(),
                            "speech_budget": self._speech_budget(audio_count),
-                           "directories": self.policy.public(include_repository=True),
                            "avatar_context": self._avatar_context(),
                            "expression_coverage": self._expression_coverage(),
                            "snapshot_id": self.snapshot.get("snapshot_id") if self.snapshot else None,
                            "previous_reply_reception": self.prompt_history.last_reception(self.utterances),
                            "previous_interrupted_reply": self._interrupted_reply(), "question": text}
                 memories = self.memory.prompt() if self._memory_enabled() else []
-                memory_prefix = [{'role': 'system', 'content': USER_MEMORY_PREFIX + json.dumps(memories,ensure_ascii=False)}] if memories else []
+                memory_prefix = [{'role': 'system', 'content': USER_MEMORY_PREFIX + json.dumps(memories, ensure_ascii=False)}] if memories else []
                 content = [{"type": "text", "text": json.dumps(context, ensure_ascii=False)}]
                 if self.snapshot and self.settings.values.get("send_screenshot"):
                     content.append({"type": "image_url", "image_url": {"url": "data:image/png;base64," + self.snapshot["png_base64"]}})
-                reserve = len(system) + len(json.dumps(evidence_prefix, ensure_ascii=False)) + len(content[0]["text"]) + len(json.dumps(memory_prefix,ensure_ascii=False)) + 8800
+                reserve = len(system) + len(content[0]["text"]) + len(json.dumps(memory_prefix, ensure_ascii=False)) + 8800
                 await self._compact_history(reserve, gen)
                 previous = self.prompt_history.messages(reserve_chars=reserve)
-                messages = [{"role": "system", "content": system}, *evidence_prefix, *previous, {"role": "user", "content": content}, *memory_prefix]
-                prefix_length = 1 + len(evidence_prefix) + len(previous)
+                messages = [{"role": "system", "content": system}, *previous, {"role": "user", "content": content}, *memory_prefix]
+                prefix_length = 1 + len(previous)
                 if self.model_client is None:
                     self.model_client = httpx.AsyncClient(timeout=httpx.Timeout(75, connect=12), trust_env=False)
                 provider = OpenAIProvider(self.settings, self.model_client, thinking=True)
                 provider.request_observer = self._record_prompt
                 streams = [provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names)]
-            report_repair_requested = False
-            report_only_round = False
-            repair_allow_speech = False
-            final_round = self.settings.values.get("task_limits", {}).get("rounds", 12)
-            # One extra iteration after the tool rounds stays tools-free so the
-            # model can summarize the results it already has instead of losing
-            # them to a hard budget error.
+            final_round = self.settings.values.get("max_tool_rounds", 8)
             for tool_round in range(final_round + 1):
                 wrap_up = tool_round >= final_round
-                await self._checkpoint()
-                if self.active_task:
-                    if not wrap_up:
-                        self.active_task.next_round()
-                    await self._task_event()
                 requests = []
                 round_keys = {}
                 async for event in streams[-1]:
                     if gen != self.generation:
                         return
                     kind = event.get("type")
-                    if report_only_round and kind != "task" and not (repair_allow_speech and kind in {"speech", "translation"}):
-                        provider.report_errors.append({"issue": "报告修复只能返回任务报告，不能重复语音或调用工具"})
-                        continue
                     if kind == "speech":
                         speech = validate_speech(event)
                         key = event.get("key")
@@ -699,8 +528,8 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                             # event before committing it; a keyless event here
                             # is an internal contract violation.
                             raise ValueError("Model speech event is missing its key")
-                        # Narration limits must not abort tools, final reports or
-                        # translations. Overflow sentences remain readable.
+                        # Narration limits must not abort tools or translations.
+                        # Overflow sentences remain readable.
                         speech["audio_enabled"] = self._speech_budget(audio_count)["remaining"] > 0
                         speech.update(self.avatars.resolve(speech, self.settings.values.get("avatar_costume", "校服")))
                         issues = []
@@ -716,10 +545,9 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                             raise ValueError("Model repeated a committed utterance key")
                         uid = identifier("u")
                         round_keys[key] = uid
-                        # The same key may return in a later tool round or after
-                        # an approval. Keep stored keys unique so both sentences
-                        # and their receipts survive; a repeat inside one stream
-                        # is still rejected above.
+                        # The same key may return in a later tool round. Keep
+                        # stored keys unique so both sentences and their receipts
+                        # survive; a repeat inside one stream is still rejected.
                         stored = key
                         suffix = 2
                         while stored in keys:
@@ -752,37 +580,8 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                             raise ValueError("Translation references an uncommitted sentence")
                         await self.emit("subtitle.ready", utterance_id=uid, display_zh=str(event.get("display_zh", ""))[:1200],
                                         **({"display_en": event["display_en"][:1200]} if isinstance(event.get("display_en"), str) else {}))
-                    elif kind == "evidence":
-                        # Only show excerpts verified against the selected repository.
-                        if self.repository and event.get("path"):
-                            reader = RepositoryReader(self.repository["root"])
-                            evidence = await asyncio.to_thread(reader.read_file, event["path"], event.get("line", event.get("start_line", 1)), 50)
-                            await self.emit("evidence.ready", evidence=evidence, **evidence)
                     elif kind == "tool":
                         requests.append(event)
-                    elif kind == "task":
-                        if self.active_task:
-                            try:
-                                if "continues_task_id" in event:
-                                    context = self._work_context()
-                                    known = [*context.get("pending_tasks", []), context.get("last_task", {})]
-                                    if not any(item.get("task_id") == event["continues_task_id"] for item in known):
-                                        raise ValueError("接续任务 ID 不属于当前话题的已知任务")
-                                self.active_task.report(event)
-                            except (ValueError, TypeError) as error:
-                                provider.report_errors.append({"issue": str(error)[:300]})
-                            else:
-                                await self._task_event()
-                    elif kind == "action":
-                        await self._checkpoint()
-                        if self.full_access:
-                            # Route legacy NDJSON actions through the same tool-result loop.
-                            if not self.snapshot:
-                                raise ToolError("no_snapshot", "请先观察目标窗口")
-                            requests.append({"type": "tool", "name": "desktop.step", "arguments": {
-                                **event.get("action", {}), "snapshot_id": self.snapshot["snapshot_id"]}})
-                        else:
-                            await self._propose_action(event)
                     else:
                         raise ValueError(f"Unknown model event: {kind}")
                 if messages is not None:
@@ -791,53 +590,6 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                     # Preserve original content, event keys and JSON formatting.
                     # Playback receipts are sent only with the next user message.
                     messages = [*provider.request_messages, provider.assistant_message()]
-                report_feedback = None
-                if messages is not None and provider.report_errors:
-                    issues = [item["issue"] for item in provider.report_errors]
-                    await self.emit("model.validation", issues=issues, phase="task_report")
-                    self._record_prompt({"issues": provider.report_errors}, phase="task_report_validation")
-                    report_feedback = {"role": "system", "content":
-                        "Correct only the invalid task report. Already emitted speech and tool results are committed; "
-                        "do not repeat speech, tools or operations. Preserve task kind, goal and agreed check descriptions. "
-                        "Use only real current-task call_ids and factual result pointers; never invent completion evidence. "
-                        + ("No speech was committed yet; also supply a brief factual speech and its translation. " if not (count or keys) else "") +
-                        "Return one valid task NDJSON event (running/complete/blocked/needs_input; reason required for "
-                        "blocked/needs_input). Report fields: type,kind,goal,detail,status,reason,checks,continues_task_id. "
-                        "Each check: description,evidence. Each fact: call_id,pointer,operator,value. "
-                        + json.dumps({"issues": issues, "current_task": self.active_task.public() if self.active_task else None}, ensure_ascii=False)}
-                    if not requests:
-                        if wrap_up:
-                            # The final round cannot repair the report; keep the
-                            # factual speech and let the turn end here.
-                            break
-                        if report_repair_requested:
-                            if count or keys:
-                                # Committed speech outranks report metadata: keep
-                                # the reply and finish as needs_verification
-                                # instead of dropping it on a second repair miss.
-                                break
-                            raise ToolError("invalid_task_report", "任务报告校验仍未通过，已有工具结果已保留；请重新发起这一步")
-                        report_repair_requested = True
-                        report_only_round = True
-                        repair_allow_speech = not (count or keys)
-                        messages.append(report_feedback)
-                        self._cap_request(messages, prefix_length, reserve)
-                        # A metadata correction cannot request tools or replay operations.
-                        streams.append(provider.stream_reply(messages))
-                        continue
-                if not requests and messages is not None and self.active_task:
-                    task = self.active_task
-                    if (task.kind == "action" and task.outcome() == "needs_verification"
-                            and not task.repair_requested and not self.approvals
-                            and tool_round + 1 < self.settings.values.get("task_limits", {}).get("rounds", 12)):
-                        task.repair_requested = True
-                        report_only_round = False
-                        messages.append({"role": "system", "content": completion_feedback(
-                            task.completion_feedback(), self._speech_budget(audio_count)["remaining"])})
-                        tool_schemas, tool_names = self._model_tools(messages)
-                        self._cap_request(messages, prefix_length, reserve)
-                        streams.append(provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names))
-                        continue
                 if not requests or messages is None:
                     break
                 if wrap_up:
@@ -847,7 +599,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                 results = await self._dispatch_tools(requests, provider.tool_errors)
                 # Keep native assistant tool calls adjacent to their results.
                 update_budget(messages, self._speech_budget(audio_count))
-                include_image = any(r.get("name") in {"desktop.observe", "desktop.step"} and "error" not in r for r in results)
+                include_image = any(r.get("name") == "desktop.observe" and "error" not in r for r in results)
                 if provider.used_native_tools:
                     native_ids = {call["call_id"] for call in provider.tool_calls}
                     unhandled = []
@@ -866,20 +618,6 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                             messages.append(image_message)
                 else:
                     messages.append(self._tool_message(results, include_image))
-                if report_feedback:
-                    if report_repair_requested:
-                        if count or keys:
-                            break
-                        raise ToolError("invalid_task_report", "任务报告校验仍未通过，已有工具结果已保留；请重新发起这一步")
-                    report_repair_requested = True
-                    report_only_round = True
-                    repair_allow_speech = not (count or keys)
-                    messages.append(report_feedback)
-                    self._cap_request(messages, prefix_length, reserve)
-                    streams.append(provider.stream_reply(messages))
-                    continue
-                if self.approvals:
-                    break
                 if tool_round + 1 >= final_round:
                     messages.append({"role": "system", "content": BUDGET_FINAL_NOTICE})
                     self._cap_request(messages, prefix_length, reserve)
@@ -888,19 +626,9 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                     tool_schemas, tool_names = self._model_tools(messages)
                     self._cap_request(messages, prefix_length, reserve)
                     streams.append(provider.stream_reply(messages, tools=tool_schemas, tool_names=tool_names))
-            else:
-                raise ToolError("round_budget", "任务工具往返已达到上限")
-            await self._checkpoint()
-            waiting = bool(self.approvals)
-            if not count and not keys and not waiting:
+            if not count and not keys:
                 raise RuntimeError("模型没有返回可播放的完整日语语句")
-            if waiting and messages is not None:
-                self.continuation = {"messages": messages, "prefix_length": prefix_length, "keys": keys,
-                                     "audio_count": audio_count, "reserve": reserve,
-                                     "native_tool_ids": [call.get("call_id") for call in (provider.tool_calls or [])]
-                                                         if provider.used_native_tools else []}
-                sealed = True
-            elif messages is not None:
+            if messages is not None:
                 self.prompt_history.append(self.turn_id, messages[prefix_length:], keys,
                                            persist=self.settings.values.get("save_history", True))
                 self.last_reply_delivered = self.turn_id
@@ -908,30 +636,14 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
             await self._conversation_snapshot()
             await self._history_snapshot()
             await self._drain_speech(queue, speaker)
-            if self.active_task:
-                if waiting:
-                    self.active_task.transition("waiting_approval")
-                else:
-                    self.active_task.transition(self.active_task.outcome())
-                await self._task_event()
-            await self.emit("task.state", state="waiting_approval" if waiting else "idle", generated_utterances=count)
-            if not waiting and messages is not None:
+            await self.emit("task.state", state="idle", generated_utterances=count)
+            if messages is not None:
                 self._queue_maintenance(reserve)
         except asyncio.CancelledError:
             raise
         except Exception as e:
             if gen == self.generation:
-                for approval_id in tuple(self.approvals):
-                    await self.emit("approval.resolved", approval_id=approval_id, accepted=False)
-                self.approvals.clear()
-                self.files.proposals.clear()
-                self.actions.clear()
-                self.continuation = None
                 message = self._display_error(e)
-                if self.active_task:
-                    self.active_task.reason = message
-                    self.active_task.transition("failed")
-                    await self._task_event()
                 await self.emit("error", source="turn", message=message)
                 await self.emit("task.state", state="failed")
                 # A later malformed model event must not cut off valid speech
@@ -976,12 +688,6 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
             return
         if any(turn["turn_id"] == self.turn_id for turn in self.prompt_history.turns):
             return
-        goal = self.active_task.goal if self.active_task else None
-        items = self.conversations.history(self.conversations.current_id)["items"]
-        evidence = {"state": "interrupted",
-                    "reply": [item for item in items
-                              if item.get("turn_id") == self.turn_id and item.get("role") == "assistant"],
-                    "actual_tool_results": self.active_task.results if self.active_task else {}}
         factual = [message for message in messages[prefix_length:] if message.get("role") != "system"]
         # A cancelled batch may have returned only some calls. Native APIs require
         # a reply for every announced call before the next user turn. Preserve real
@@ -1003,18 +709,14 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                 if cid in replies:
                     completed.append(replies[cid])
                     continue
-                entry = self.active_task.results.get(cid) if self.active_task else None
-                value = entry["value"] if entry else {"call_id": cid, "code": "interrupted",
-                    "error": "本次调用未取得完成回执；不要自动重复操作，请先核实当前状态",
-                    "receipt": {"execution": "uncertain", "verification": "unverified",
-                                "scope": "completion_receipt_missing", "retryable": False}}
-                completed.append({"role": "tool", "tool_call_id": cid,
-                                  "content": json.dumps(value, ensure_ascii=False)})
+                completed.append({"role": "tool", "tool_call_id": cid, "content": json.dumps(
+                    {"call_id": cid, "code": "interrupted",
+                     "error": "本次调用未取得完成回执；不要自动重复操作，请先核实当前状态"}, ensure_ascii=False)})
         factual = completed
-        if not factual and goal:
-            factual = [{"role": "user", "content": goal}]
+        if not factual:
+            return
         sealed_messages = [*factual, {"role": "user", "content": INTERRUPTED_PREFIX + json.dumps(
-            without_media(evidence), ensure_ascii=False)}]
+            {"state": "interrupted"}, ensure_ascii=False)}]
         self.prompt_history.append(self.turn_id, sealed_messages, {},
                                    persist=self.settings.values.get("save_history", True))
 
@@ -1024,9 +726,6 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         return [{"key": key, "speech_ja": record["speech_ja"], "status": record.get("status", "generated"),
                  "displayed": record.get("displayed", False), "played_samples": record.get("played_samples", 0)}
                 for key, uid in self.last_reply_keys.items() if (record := self.utterances.get(uid))]
-
-    async def _read_tool(self, request):
-        return await self._dispatch_tool(request)
 
     def _memory_enabled(self):
         return bool(self.settings.values.get('save_history', True) and self.settings.values.get('remember_user', True))
@@ -1150,7 +849,6 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                     for item in value:
                         if isinstance(item, dict):
                             item.pop("result", None)
-                            item.pop("receipt", None)
                             item["compressed"] = True
                 message["content"] = TOOL_RESULT_PREFIX + json.dumps(value, ensure_ascii=False)
             elif isinstance(content, list):
@@ -1158,87 +856,6 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                 if len(stripped) != len(content):
                     message["content"] = stripped
         return messages
-
-    async def _propose_action(self, event):
-        if not self.snapshot:
-            return
-        action = event.get("action", {})
-        if action.get("kind") not in {"click", "type", "scroll", "highlight", "key"}:
-            raise ValueError("Unsupported desktop action")
-        aid = identifier("action")
-        action = {**action, "action_id": aid, "target_id": self.target["target_id"], "snapshot_id": self.snapshot["snapshot_id"], "generation_id": self.generation,
-                  "coordinate_space": "snapshot_image_px"}
-        self.actions[aid] = action
-        if self.full_access:
-            self._write_allowed()
-            self.active_task.next_call()
-            result = await self._execute({"action_id": aid, "snapshot_id": action["snapshot_id"]}, self.generation)
-            if result is None:
-                raise ToolError("desktop_incomplete", "桌面操作未完成，请重新观察")
-            if action["kind"] != "highlight":
-                self.active_task.verification_pending = result.get("expected_result_verified") is not True
-            return result
-        await self.emit("action.proposed", action=action, label=str(event.get("label", action.get("expected_result", "执行单步操作")))[:500])
-        if self.active_task and self.active_task.state == "running":
-            if self.approvals:
-                raise ValueError("一次只提出一个需要确认的步骤")
-            await self._register_approval(action, "desktop")
-
-    async def _run_action(self, cmd, gen):
-        try:
-            await self._execute(cmd, gen)
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            if gen == self.generation:
-                await self.emit("tool.failed", tool="execute_step", message=str(e)[:500])
-
-    async def _execute(self, cmd, gen, *, raise_errors=False):
-        action = cmd.get("action", {})
-        if cmd.get("action_id"):
-            action = self.actions.pop(cmd["action_id"], None)
-            if not action:
-                raise ValueError("Proposed action is cancelled or already used")
-        if not self.snapshot or cmd.get("snapshot_id", action.get("snapshot_id")) != self.snapshot["snapshot_id"]:
-            raise ValueError("动作没有绑定当前快照，请重新观察")
-        if action.get("generation_id", self.generation) != self.generation:
-            raise ValueError("Cancelled action generation")
-        if not self._execution_enabled() and action.get("kind") != "highlight":
-            raise ValueError("先选择单步执行模式，再确认具体步骤")
-        target_id, snapshot_id = self.target["target_id"], self.snapshot["snapshot_id"]
-        mode = self.mode
-        await self.emit("tool.started", tool="execute_step", action=action)
-        await self.emit("task.state", state="acting")
-        try:
-            def execute():
-                if gen != self.generation:
-                    raise RuntimeError("Cancelled action generation")
-                if self.mode != mode:
-                    raise RuntimeError("Task mode changed; confirm the action again")
-                return self.desktop.execute({**action, "target_id": target_id}, snapshot_id)
-            result = await asyncio.to_thread(execute)
-            if gen != self.generation:
-                return
-            await self.emit("tool.completed", tool="execute_step", result=result)
-            if action.get("kind") == "highlight":
-                await self.emit("highlight.ready", **result)
-            else:
-                if result.get("result_snapshot"):
-                    self.snapshot = result["result_snapshot"]
-                    await self.emit("snapshot.ready", **self.snapshot)
-                else:
-                    await self.capture()
-            await self.emit("task.state", state="idle")
-            return {k: v for k, v in result.items() if k != "result_snapshot"}
-        except Exception as e:
-            if gen == self.generation:
-                await self.emit("tool.failed", tool="execute_step", message=str(e)[:500])
-                self.snapshot = None
-                self.actions.clear()
-                await self.emit("snapshot.invalidated")
-                await self.emit("task.state", state="failed")
-            if raise_errors:
-                raise ToolError(getattr(e, "code", "desktop_incomplete"), str(e)[:500]) from None
 
     def _queue_subtitle_translation(self, conversation_id, ids):
         fresh = [uid for uid in dict.fromkeys(ids) if (conversation_id, uid) not in self.subtitle_pending]
@@ -1301,10 +918,6 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         for job in tuple(self.subtitle_jobs):
             job.cancel()
         await asyncio.gather(*tuple(self.subtitle_jobs), return_exceptions=True)
-        if self.deadline_task:
-            self.deadline_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self.deadline_task
         if self.start_task and not self.start_task.done():
             self.start_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

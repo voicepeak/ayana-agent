@@ -57,7 +57,7 @@ class Settings:
         return options
 
     def validate(self, patch: dict):
-        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "remember_user", "ambient_attention", "ambient_speech", "ambient_interval_min", "ambient_interval_max", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "detailed_max_utterances", "character", "avatar_costume", "sentence_motion", "volume", "task_limits", "model_max_tokens", "native_tools", "full_access", "search_proxy", "search_provider", "companion_ui"}
+        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "remember_user", "ambient_attention", "ambient_speech", "ambient_interval_min", "ambient_interval_max", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "max_tool_rounds", "character", "avatar_costume", "sentence_motion", "volume", "model_max_tokens", "native_tools", "search_proxy", "search_provider", "companion_ui"}
         if not isinstance(patch, dict) or set(patch) - allowed:
             raise ValueError("Unsupported settings field")
         for key in ("send_screenshot", "subtitles", "save_history", "remember_user", "ambient_attention", "ambient_speech"):
@@ -65,8 +65,6 @@ class Settings:
                 raise ValueError(f"{key} must be boolean")
         if "native_tools" in patch and type(patch["native_tools"]) is not bool:
             raise ValueError("native_tools must be boolean")
-        if "full_access" in patch and type(patch["full_access"]) is not bool:
-            raise ValueError("full_access must be boolean")
         if "search_provider" in patch and (not isinstance(patch["search_provider"], str) or patch["search_provider"] not in {"auto", "bing", "brave"}):
             raise ValueError("search_provider must be auto, bing or brave")
         if "search_proxy" in patch:
@@ -144,7 +142,7 @@ class Settings:
         shortcuts = [candidate.get(key, "").strip().casefold() for key in ("hotkey", "cancel_hotkey")]
         if any(key in patch for key in ("hotkey", "cancel_hotkey")) and len(set(shortcuts)) < len(shortcuts):
             raise ValueError("呼出和打断快捷键不能相同")
-        for key, low, high in (("max_utterances", 1, 12), ("detailed_max_utterances", 12, 64), ("max_audio_ahead_ms", 2000, 15000)):
+        for key, low, high in (("max_utterances", 1, 12), ("max_tool_rounds", 1, 24), ("max_audio_ahead_ms", 2000, 15000)):
             if key in patch and (type(patch[key]) is not int or not low <= patch[key] <= high):
                 raise ValueError(f"{key} out of range")
         for key in ("ambient_interval_min", "ambient_interval_max"):
@@ -155,14 +153,6 @@ class Settings:
             raise ValueError("偷看间隔的最小值不能大于最大值")
         if "model_max_tokens" in patch and (type(patch["model_max_tokens"]) is not int or not 1000 <= patch["model_max_tokens"] <= 12000):
             raise ValueError("model_max_tokens out of range")
-        if "task_limits" in patch:
-            limits = patch["task_limits"]
-            if not isinstance(limits, dict) or set(limits) - {"rounds", "calls", "seconds"}:
-                raise ValueError("Invalid task_limits")
-            for key, value in limits.items():
-                if type(value) is not int or not 1 <= value <= {"rounds": 24, "calls": 64, "seconds": 600}[key]:
-                    raise ValueError("Invalid task budget")
-            patch = {**patch, "task_limits": {**self.values.get("task_limits", {}), **limits}}
         if "voice" in patch:
             if not isinstance(patch["voice"], dict):
                 raise ValueError("voice must be an object")

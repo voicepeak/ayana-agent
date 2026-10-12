@@ -12,10 +12,9 @@ from urllib.parse import urlparse
 import httpx
 from packages.protocol import SpeechParser, validate_speech
 from packages.protocol.events import MAX_SPEECH_CHARS, speech_sentences
-from ..work import validate_report
 from ..prompts import CONTRACT, RETRY_INSTRUCTION, repair_instruction, style_from_messages
 
-EVENT_TYPES = {"speech", "translation", "evidence", "tool", "action", "task", "silence"}
+EVENT_TYPES = {"speech", "translation", "tool", "silence"}
 # Protocol events that providers occasionally return as native function calls.
 # They are committed as events instead of being executed as unknown tools.
 EVENT_ALIASES = {"speech", "translation"}
@@ -101,7 +100,6 @@ class OpenAIProvider:
         self.usage = None
         self.tool_calls = []
         self.tool_errors = {}
-        self.report_errors = []
         self.used_native_tools = False
         self.request_observer = None
         self.speaking_style = ""
@@ -150,7 +148,6 @@ class OpenAIProvider:
         self.speaking_style = style_from_messages(messages)
         for attempt in range(2):
             accepted = []
-            pending_tasks = []
             repaired_keys = set()
             keys = _EventKeys()
             try:
@@ -173,15 +170,6 @@ class OpenAIProvider:
                                     self.output_repaired = True
                                     continue
                                 self.output_repaired = self.output_repaired or normalized
-                            if event.get("type") == "task":
-                                try:
-                                    validate_report(event)
-                                except (ValueError, TypeError) as error:
-                                    self.report_errors.append({"issue": str(error)[:300], "fields": sorted(event)[:32]})
-                                    self.output_repaired = True
-                                    # Invalid metadata must not discard speech or sibling tools.
-                                    # The runtime requests one bounded continuation to correct it.
-                                    continue
                             expanded = [event]
                             if event.get("type") == "speech":
                                 try:
@@ -208,13 +196,7 @@ class OpenAIProvider:
                                     self.output_repaired = True
                             for output in expanded:
                                 accepted.append(output)
-                                if output.get("type") == "task" and not emitted:
-                                    pending_tasks.append(output)
-                                    continue
                                 emitted = True
-                                for task in pending_tasks:
-                                    yield task
-                                pending_tasks.clear()
                                 yield output
                 except IncompleteSubtitleError:
                     if accepted and accepted[-1].get("type") == "speech":
@@ -232,10 +214,6 @@ class OpenAIProvider:
                         self.output_repaired = True
                     else:
                         raise ModelEventError("No committed sentence for subtitle repair") from None
-                # A valid response containing only task reports is still useful
-                # when continuing a task after its audio budget is exhausted.
-                for task in pending_tasks:
-                    yield task
                 if self.output_repaired:
                     # Store exactly the corrected events, so the next request
                     # cannot imitate the invalid sentence or broken subtitle.
@@ -330,7 +308,6 @@ class OpenAIProvider:
         self.usage = None
         self.tool_calls = []
         self.tool_errors = {}
-        self.report_errors = []
         self.used_native_tools = False
         self.output_repaired = False
         self.thinking_applied = False
@@ -419,8 +396,7 @@ class OpenAIProvider:
                                 event = {**event, "name": (tool_names or {}).get(event["name"], event["name"])}
                             event_count += 1
                             last_event = event
-                            if kind != "task":
-                                committed_any = True
+                            committed_any = True
                             yield event
                     for call in delta.get("tool_calls") or []:
                         index = call.get("index", 0) if isinstance(call, dict) else 0
@@ -493,44 +469,28 @@ class OpenAIProvider:
 
 
 class LocalProvider:
-    """Offline demonstration based on real file evidence, explicitly not a vision LLM."""
+    """Offline greeting demo; explicitly not a language model."""
     @staticmethod
     def english(ja, zh=""):
         known = {
             "うん、ここにいるよ。": "Yes, I'm right here.",
             "今日は、どんなことを話したい？": "What would you like to talk about today?",
             "じゃあ、小さな例で見てみよう。": "Let's look at a smaller example.",
-            "入力から出力まで、一つの流れを追ってみよう。": "Let's follow one path from input to output.",
+            "一つずつ、一緒に確かめようね。": "Let's check it together, one step at a time.",
             "中断すると、前の音声は再生しないよ。": "After an interruption, the previous audio won't play again.",
             "新しい質問から、また一緒に進めよう。": "Let's continue together with your new question.",
-            "次に、入口のファイルを探そう。": "Next, let's find the entry file and follow one feature path.",
-            "一度に一つの処理を追うと、理解しやすいよ。": "Following one process at a time makes it easier to understand.",
         }
-        if ja == "まず、説明書から一緒に見ていこう。":
-            count = re.search(r"(\d+) 个文本文件", zh)
-            return f"Let's start with the repository documentation; the scan found {count[1]} text files." if count else "Let's start with the repository documentation."
         return known.get(ja, "")
-    async def stream_reply(self, text: str, repository: dict | None, target: dict | None):
-        events = []
-        if repository:
-            files = repository["files"]
-            evidence = repository["evidence"]
-            if any(w in text for w in ("没懂", "不懂", "简单", "例子")):
-                pairs = [("じゃあ、小さな例で見てみよう。", "那我们用一个更小的例子。"),
-                         ("入力から出力まで、一つの流れを追ってみよう。", "只跟踪从输入到输出的一条路径。")]
-            elif any(w in text.lower() for w in ("取消", "打断", "cancel")):
-                pairs = [("中断すると、前の音声は再生しないよ。", "打断后，旧语音不会重新播放。"),
-                         ("新しい質問から、また一緒に進めよう。", "从新问题继续一起往下走。")]
-            else:
-                pairs = [("まず、説明書から一緒に見ていこう。", f"先看这个仓库的说明文件；实际扫描到 {len(files)} 个文本文件。"),
-                         ("次に、入口のファイルを探そう。", "接着找入口文件，沿一条功能路径学习。"),
-                         ("一度に一つの処理を追うと、理解しやすいよ。", "一次只追踪一个处理过程，会更容易理解。")]
-            events.extend({"type": "evidence", **e} for e in evidence[:3])
+    async def stream_reply(self, text: str):
+        if any(w in text for w in ("没懂", "不懂", "简单", "例子")):
+            pairs = [("じゃあ、小さな例で見てみよう。", "那我们用一个更小的例子。"),
+                     ("一つずつ、一緒に確かめようね。", "一点一点一起确认吧。")]
+        elif any(w in text.lower() for w in ("取消", "打断", "cancel")):
+            pairs = [("中断すると、前の音声は再生しないよ。", "打断后，旧语音不会重新播放。"),
+                     ("新しい質問から、また一緒に進めよう。", "从新问题继续一起往下走。")]
         else:
             pairs = [("うん、ここにいるよ。", "嗯，我在这里。"),
                      ("今日は、どんなことを話したい？", "今天想聊点什么？")]
-        for e in events:
-            yield e
         for i, (ja, zh) in enumerate(pairs):
             yield {"type": "speech", "key": f"s{i}", "speech_ja": ja, "intent": "explain", "affect": "neutral", "intensity": 0.25}
             yield {"type": "translation", "key": f"s{i}", "display_zh": zh, "display_en": self.english(ja, zh)}

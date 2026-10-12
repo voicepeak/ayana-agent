@@ -5,7 +5,7 @@ from copy import deepcopy
 import hashlib
 import json
 import httpx
-from .prompts import SUMMARY_INSTRUCTION, is_transient, REPOSITORY_PREFIX, HISTORY_PREFIX
+from .prompts import SUMMARY_INSTRUCTION, is_transient, HISTORY_PREFIX
 
 # A summary request gets its own input ceiling, independent of the main model
 # request, so a huge retained turn cannot wedge compaction forever.
@@ -32,12 +32,6 @@ def text_messages(messages):
     return result
 
 
-def repository_message(repository):
-    if not repository:
-        return []
-    return [{"role": "user", "content": REPOSITORY_PREFIX + json.dumps(repository, ensure_ascii=False, sort_keys=True)}]
-
-
 class PromptHistory:
     def __init__(self, store, max_chars=64000):
         self.store = store
@@ -49,11 +43,11 @@ class PromptHistory:
         self.persist = True
         self.temporary = {}
 
-    def select(self, system, settings, repository_root=None, exclude_turn=None, conversation_id=None):
+    def select(self, system, settings, exclude_turn=None, conversation_id=None):
         # Logical topics remain stable across model changes. Keep the legacy
         # configuration partition only for callers without a conversation ID.
         scope = "conversation:" + conversation_id if conversation_id else hashlib.sha256(json.dumps(
-            [system, settings.get("base_url"), settings.get("model"), repository_root], ensure_ascii=False).encode()).hexdigest()
+            [system, settings.get("base_url"), settings.get("model")], ensure_ascii=False).encode()).hexdigest()
         self.conversation_id = conversation_id
         previous_persist = self.persist
         self.persist = settings.get("save_history", True)

@@ -1,340 +1,62 @@
-"""Tool dispatch, task receipts and user-only approval commands."""
+"""Tool dispatch for the companion tool catalog and user-only commands."""
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import contextvars
 import json
-import threading
 import time
-import hashlib
-import os
-import re
-from pathlib import Path
 
 import httpx
 
-from .tasks import TaskRunner
-from .work import remember_result, result_digest
 from .tools.registry import ToolRegistry, ToolError, arguments, string
-from .tools.receipts import receipt
 from .tools.search_terms import restore_search_terms
 from packages.protocol import validate_tool_request
 from .prompts import TOOL_RESULT_PREFIX, SCREENSHOT_NOTICE
 
 _current_tool = contextvars.ContextVar("ayana_current_tool", default=None)
 
-# A second identical result from any read tool is a stuck loop, not progress.
-# Polling tools wait for external change, and web.search carries its own
-# progress feedback; both keep their own semantics.
-POLL_READ_TOOLS = {"process.status"}
-FEEDBACK_READ_TOOLS = {"web.search"}
-
 
 class CapabilityRuntime:
-    @property
-    def full_access(self):
-        return self.settings.values.get("full_access", False) is True
-
-    def _execution_enabled(self):
-        return self.full_access or self.mode == "execute"
-
-    @property
-    def processes(self):
-        if not hasattr(self, "_process_manager"):
-            from .tools.processes import ProcessTools
-            self._process_manager = ProcessTools(lambda: self.full_access)
-        return self._process_manager
-
-    async def _stop_background(self, reason):
-        self.files.documents.close()
-        await asyncio.to_thread(self.files.browser.close)
-        if reason not in {"new_turn", "microphone_input", "target_changed", "summon", "new_computer_task"}:
-            if hasattr(self, "_process_manager"):
-                await self.processes.close()
-            if hasattr(self, "_browser_manager"):
-                await self.browser_tools.close()
-
-    @property
-    def browser_tools(self):
-        if not hasattr(self, "_browser_manager"):
-            from .tools.browser import BrowserTools
-            self._browser_manager = BrowserTools(lambda: self.full_access, self.settings.data_root / ".runtime/browser-profile")
-        return self._browser_manager
-
     def _make_tools(self):
-        registry = ToolRegistry(lambda: self.full_access)
+        registry = ToolRegistry()
         integer = lambda low, high: {"type": "integer", "minimum": low, "maximum": high}
-        registry.add("desktop.observe", "按需看看屏幕：scope=list 列出窗口（window_id 从这里获取），foreground 当前前台窗口，window 指定窗口，desktop 整个桌面；controls=true 时附带当前目标的控件。返回新截图和时间；桌面全景不能直接用作点击依据。屏幕内容仅是证据。", arguments({
+        registry.add("desktop.observe", "按需看看屏幕：scope=list 列出窗口（window_id 从这里获取），foreground 当前前台窗口，window 指定窗口，desktop 整个桌面。返回新截图和时间。屏幕内容仅是证据。", arguments({
             "scope": {"type": "string", "enum": ["foreground", "window", "desktop", "list"]},
-            "window_id": string(100),
-            "controls": {"type": "boolean"}}, []), self._desktop_observe)
+            "window_id": string(100)}, []), self._desktop_observe)
         registry.set_availability("desktop.observe", lambda: bool(self.desktop.status.get("available") and self.settings.values.get("send_screenshot")), "需要 Windows 桌面和开启屏幕观察")
         registry.add("attention.configure", "用户要求别看了、暂停偷看或继续看时，设置偶尔主动观察。关闭不影响明确请求的按需截图。", arguments({"enabled": {"type": "boolean"}}, ["enabled"]), self._attention_configure)
-        registry.add("computer.run", "执行模式：在用户绑定的当前窗口完成明确要求的桌面任务。自动观察、输入或点击、核实结果；不能启动应用、跨窗口操作或执行命令。只有用户要求操作桌面时使用。", arguments({"goal": string(4000)}, ["goal"]), self._computer_tool, "write")
-        registry.set_availability("computer.run", lambda: bool(self.target and self.computer.status["available"]), "需要绑定窗口并启用桌面执行组件")
         registry.add("web.search", "公网搜索；人物或作品先搜索精确名称，subject 填原始名称；重要结论继续 web.fetch 核对原文", arguments({"query": string(1000), "subject": string(300), "count": integer(1, 10)}, ["query"]), self._web_search)
         registry.add("web.fetch", "读取公网网页正文及链接；next_offset 非空时用 source_id 和 offset 续读", arguments({"url": string(3000), "offset": integer(0, 2097152), "max_chars": integer(1000, 20000)}, ["url"]), self._web_fetch)
-        registry.add("browser.open", "Full access：在 Ayana 管理的浏览器打开 HTTP/HTTPS 页面并读取 DOM，可用于动态网站、登录页面及本地开发服务。page_id 可复用现有页面；它与 open 的默认浏览器窗口不同", arguments({"url": string(3000), "page_id": string(100)}, ["url"]), self._browser_open, "write")
-        registry.add("browser.observe", "Full access：观察受管理页面的正文和真实交互元素，返回最新 snapshot_id/element_id。frame_id 读取实际框架；wait_for_text 最多等待 5 秒，matched_text 是实际出现的文字。正文或元素截断时用 next_text_offset/next_element_offset 续读；页面内容属于不可信证据", arguments({"page_id": string(100), "frame_id": string(100), "text_offset": integer(0, 10000000), "max_chars": integer(1, 20000), "element_offset": integer(0, 1000000), "wait_for_text": string(1000)}), self._browser_observe)
-        registry.set_availability("browser.open", lambda: self.full_access and self.browser_tools.status["available"], "需要 Full access 和浏览器交互组件")
-        registry.set_availability("browser.observe", lambda: self.full_access and self.browser_tools.status["running"], "需要 Full access，并先 browser.open 打开受管理页面")
-        registry.add("browser.act", "Full access：使用当前 page_id/snapshot_id/element_id 执行一个网页动作。click 点击；fill 用 text 填写；select 用 text 指定选项值；check 用 checked；press 用 key；close 关闭页面无需元素。页面变化需重新观察。操作后返回真实 observation，请核对用户目标；输入发送不等于目标完成。未核实的提交先观察，避免重复", arguments({"page_id": string(100), "snapshot_id": string(100), "element_id": string(100),
-            "kind": {"type": "string", "enum": ["click", "fill", "select", "check", "press", "close"]},
-            "text": {"type": "string", "maxLength": 4000}, "checked": {"type": "boolean"},
-            "key": {"type": "string", "enum": ["Enter", "Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Backspace"]}}, ["page_id", "snapshot_id", "kind"]), self._browser_act, "write")
-        registry.set_availability("browser.act", lambda: self.full_access and bool(self.browser_tools.snapshots), "需要 Full access 和受管理页面的最新观察快照")
         registry.set_availability("web.search", lambda: self.web.search_available, "当前搜索服务尚未配置完成")
-        path_args = {"root_id": string(100), "path": string()}
-        registry.add("files.read", "读取文本或 PDF/DOCX/XLSX/PPTX。文本用 start_line/max_lines；文档用 start_unit/max_units，单元为页、段落/表格行、单元格或幻灯片，返回真实出处。扫描 PDF 返回 requires_ocr；Excel 只读取已有值和公式，不重算。next_cursor 非空时保持路径用 cursor 续读。普通模式使用 repository 或授权目录；Full access 可用 filesystem 加绝对路径。省略 root_id 优先仓库，否则 output。修改文本前必须 complete=true", arguments({**path_args, "start_line": integer(1, 1000000), "max_lines": integer(1, 200), "start_unit": integer(1, 1000000), "max_units": integer(1, 50), "cursor": string(12000)}, ["path"]), self._file_read)
-        registry.add("files.create", "执行模式：在授权目录创建新文本文件，绝不覆盖。普通模式先等待用户确认，确认后才会写入；Full access 直接创建", arguments({**path_args, "content": string(40000)}, [*path_args, "content"]), self._file_create, "write")
-        registry.add("files.propose_edit", "读取后，用 base_sha256 和完整新内容修改文件。Full access 直接应用并保存备份；普通模式提出差异等待用户确认", arguments({**path_args, "base_sha256": string(64), "content": {"type": "string", "maxLength": 40000}}, [*path_args, "base_sha256", "content"]), self._file_propose, "preview")
-        registry.add("files.propose_restore", "恢复 artifact_id 的备份。Full access 直接恢复；普通模式生成差异等待确认", arguments({"artifact_id": string(100)}, ["artifact_id"]), self._file_restore, "preview")
-        registry.add("open", "执行模式：打开应用、文件或网址。target 可以是应用名/别名、授权目录内路径（可加 root_id）或 http(s) 网址；用指定应用打开文件时加 app_id。不能传命令或启动参数。返回 Windows 请求回执及能观察到的窗口。", arguments({"target": string(3000), "root_id": string(100), "app_id": string(100)}, ["target"]), self._open, "write")
-        search_args = {"root_id": string(100), "query": string(200), "path": {"type": "string", "maxLength": 1000}, "limit": integer(1, 100), "cursor": string(100)}
-        registry.add("files.find", "列举或按名称查找。query 为空时列出 path 目录（recursive、text_only 生效）；填写 query 时按名称片段递归查找。省略 root_id 优先仓库，否则 output；next_cursor 非空时保留原参数并传 cursor 继续，不能把一页当成全部结果。不搜索文件内容（用 files.search）", arguments({**search_args, "limit": integer(1, 400), "recursive": {"type": "boolean"}, "text_only": {"type": "boolean"}}, []), self._files_find)
-        registry.add("files.search", "搜索授权范围内的文本内容，返回路径、真实行号和原文。省略 root_id 优先仓库，否则 output。扫描有时间和输出上限；next_cursor 非空时保留查询参数并传 cursor 继续，不能把一页当成全部结果。不按文件名匹配", arguments(search_args, ["query"]), self._files_search)
-        registry.add("shell.run", "Full access：执行 PowerShell 命令（非 Windows 为 sh），可访问任意本机路径、操作文件、运行脚本和程序、读取本地服务。cwd 为现有绝对路径，省略时使用当前仓库或数据目录。返回真实退出码和输出；失败不代表成功。命令超时/取消会停止整棵进程树，不能用于启动持久后台服务", arguments({"command": string(16000), "cwd": string(1000), "timeout_seconds": integer(1, 300)}, ["command"]), self._shell_run, "write")
-        registry.set_availability("shell.run", lambda: self.full_access, "命令执行需要开启 Full access")
-        registry.add("process.start", "Full access：启动受管理的后台命令，返回真实 process_id；用于开发服务等长任务。相同命令和 cwd 已运行时复用。运行不证明服务就绪，继续检查服务与日志", arguments({"command": string(16000), "cwd": string(1000)}, ["command"]), self._process_start, "write")
-        registry.add("process.status", "Full access：省略 process_id 列出受管理进程；指定 ID 返回状态和增量日志。log_cursor 使用上次 next_log_cursor；has_more_logs 为真时继续读取。不能把 running 当成服务就绪", arguments({"process_id": string(100), "log_cursor": integer(0, 1000000000)}), self._process_status)
-        registry.add("process.stop", "Full access：停止真实 process_id 对应的后台命令及其子进程，返回最终状态。只能操作本运行时管理的进程", arguments({"process_id": string(100)}, ["process_id"]), self._process_stop, "write")
-        for name in ("process.start", "process.status", "process.stop"):
-            registry.set_availability(name, lambda: self.full_access, "后台进程管理需要开启 Full access")
-        registry.add("desktop.step", "Full access：根据当前截图直接执行一个桌面动作并返回观察结果；snapshot_id 必须与最新截图一致。click/scroll 需要截图坐标 point；type 使用 text；key 使用 key；不得猜测坐标", arguments({
-            "snapshot_id": string(100), "kind": {"type": "string", "enum": ["click", "type", "scroll", "highlight", "key"]},
-            "point": arguments({"x": integer(0, 20000), "y": integer(0, 20000)}, ["x", "y"]),
-            "text": string(4000), "key": {"type": "string", "enum": ["enter", "tab", "escape", "backspace", "left", "up", "right", "down", "home", "end", "pageup", "pagedown"]},
-            "delta": {**integer(-20, 20), "description": "滚动刻度，必须非零；省略时为 -3"},
-            "expected_result": string(1000), "expected_text": string(1000)}, ["snapshot_id", "kind"]), self._desktop_step, "write")
-        registry.set_availability("desktop.step", lambda: self.full_access and bool(self.target and self.snapshot), "需要 Full access、绑定窗口和当前截图")
-        registry.set_availability("open", lambda: os.name == "nt", "该系统操作目前只支持 Windows")
-        for tool in registry.tools.values():
-            if tool.effect == "write":
-                registry.set_visibility(tool.name, self._execution_enabled, "需要执行模式或 Full access")
-        registry.set_visibility("files.propose_restore", self._has_restorable_artifact, "当前没有可恢复且可写的文件备份")
         return registry
-
-    def _has_restorable_artifact(self):
-        return any(record.get("backup") and (self.files.versions / record["backup"]).is_file()
-                   and (self.full_access or self.policy.roots.get(record["root_id"], {}).get("write"))
-                   for record in self.store.records("artifact"))
 
     def _tool_prompt(self):
         from .prompts import tool_prompt
-        return tool_prompt(self.registry, native_tools=self.settings.values.get("native_tools", True), full_access=self.full_access)
+        return tool_prompt(self.registry, native_tools=self.settings.values.get("native_tools", True))
 
     def _model_tools(self, messages=None):
         if messages and messages[0].get("role") == "system":
+            import re
             messages[0] = {**messages[0], "content": re.sub(r"<ayana_tools>\n.*?\n</ayana_tools>",
                 lambda _: self._tool_prompt(), messages[0]["content"], count=1, flags=re.S)}
         native = self.settings.values.get("native_tools", True)
         return (self.registry.openai_schemas() if native else None, self.registry.api_name_map())
 
-    async def _shell_run(self, command, cwd=None, timeout_seconds=60):
-        self._write_allowed()
-        if not self.full_access:
-            raise ToolError("full_access_required", "请先开启 Full access")
-        directory = cwd or (self.repository or {}).get("root") or str(self.settings.data_root)
-        return await self.shell.run(command, directory, timeout_seconds)
-
-    async def _process_start(self, command, cwd=None):
-        self._write_allowed()
-        directory = cwd or (self.repository["root"] if self.repository else str(self.settings.data_root))
-        return await self.processes.start(command, directory)
-
-    async def _process_status(self, **args):
-        return self.processes.status(**args)
-
-    async def _process_stop(self, process_id):
-        self._write_allowed()
-        return await self.processes.stop(process_id)
-
-    async def _browser_open(self, **args):
-        self._write_allowed()
-        return await self.browser_tools.open(**args)
-
-    async def _browser_observe(self, **args):
-        return await self.browser_tools.observe(**args)
-
-    async def _browser_act(self, **args):
-        self._write_allowed()
-        return await self.browser_tools.act(**args)
-
-    async def _desktop_step(self, snapshot_id, **action):
-        self._write_allowed()
-        if not self.full_access:
-            raise ToolError("full_access_required", "请先开启 Full access")
-        if not self.snapshot or snapshot_id != self.snapshot["snapshot_id"]:
-            raise ToolError("stale_snapshot", "请重新观察最新截图")
-        required = {"click": "point", "scroll": "point", "type": "text", "key": "key"}.get(action["kind"])
-        if required and required not in action:
-            raise ToolError("invalid_arguments", f"{action['kind']} 需要 {required}")
-        if action["kind"] == "scroll" and action.get("delta", -3) == 0:
-            raise ToolError("invalid_arguments", "滚动刻度必须非零")
-        result = await self._execute({"snapshot_id": snapshot_id, "action": action}, self.generation, raise_errors=True)
-        if result is None:
-            raise ToolError("desktop_incomplete", "桌面操作未完成，请重新观察")
-        if action["kind"] != "highlight":
-            self.active_task.verification_pending = result.get("expected_result_verified") is not True
-        return result
-
-    def _file_root(self, root_id=None):
-        return root_id or ("repository" if self.repository else "output")
-
-    async def _files_find(self, root_id=None, query=None, **args):
-        root = self._file_root(root_id)
-        if isinstance(query, str) and query.strip():
-            return await asyncio.to_thread(self.files.browser.find, root, query,
-                                           **{k: v for k, v in args.items() if k in {"path", "limit", "cursor"}})
-        return await asyncio.to_thread(self.files.browser.list, root,
-                                       **{k: v for k, v in args.items() if k in {"path", "limit", "recursive", "text_only", "cursor"}})
-
-    async def _files_search(self, root_id=None, **args):
-        return await asyncio.to_thread(self.files.browser.search, self._file_root(root_id), **args)
-
-    async def _system_open(self, method, **args):
-        self._write_allowed()
-        token = self.write_cancel
-        worker = asyncio.create_task(asyncio.to_thread(method, **args, cancelled=token))
-        try:
-            result = await asyncio.shield(worker)
-        except asyncio.CancelledError:
-            token.set()
-            with contextlib.suppress(Exception):
-                await worker
-            raise
-        if result.get("kind") == "application":
-            # Existence of a matching window is evidence for opening, not for its contents.
-            deadline = time.monotonic() + 3
-            while time.monotonic() < deadline:
-                try:
-                    windows = await self._windows_list()
-                    matches = [w for w in windows if
-                               (result.get("process_id") and w["process_id"] == result["process_id"])
-                               or (result.get("executable_name") and w["executable_name"].casefold() == result["executable_name"].casefold())]
-                    if matches:
-                        result.update(status="window_observed", windows=matches, detail="已观察到对应应用窗口；需要继续操作时先用 desktop.observe(scope=\"list\") 取得 window_id。")
-                        break
-                except (ValueError, OSError):
-                    break
-                await asyncio.sleep(.2)
-        if result.get("status") == "open_requested":
-            self.active_task.verification_pending = True
-        await self.emit("system.opened", result=result, task_id=self.active_task.task_id)
-        return result
-
-    async def _open(self, target, root_id=None, app_id=None):
-        text = target.strip()
-        if text.lower().startswith(("http://", "https://")):
-            return await self._system_open(self.system.open_url, url=text)
-        if app_id:
-            return await self._system_open(self.system.open_app, app_id=app_id)
-        if root_id:
-            return await self._system_open(self.system.open_file, root_id=root_id, path=text)
-        path_like = os.path.isabs(text) or "\\" in text or "/" in text
-        matches = await asyncio.to_thread(self.system.apps.search, text, 10)
-        exact = [item for item in matches if item["name"].casefold() == text.casefold()]
-        if exact:
-            return await self._system_open(self.system.open_app, app_id=exact[0]["app_id"])
-        if len(matches) == 1:
-            return await self._system_open(self.system.open_app, app_id=matches[0]["app_id"])
-        if matches and not path_like:
-            return {"status": "ambiguous", "candidates": matches,
-                    "detail": "名称匹配到多个应用；请用 app_id 指定后重试"}
-        if path_like or Path(text).suffix:
-            return await self._system_open(self.system.open_file, root_id=self._file_root(), path=text)
-        raise ToolError("not_found", "没有找到同名应用；打开文件请在授权目录内给出 root_id 和路径，打开网址请以 http(s) 开头")
-
-    async def _windows_list(self):
-        from native.windows.desktop import DesktopError
-        result = []
-        choices = {}
-        try:
-            windows = await asyncio.to_thread(self.desktop.list_windows)
-        except DesktopError as error:
-            raise ToolError(error.code, str(error)) from None
-        for window in windows[:100]:
-            identity = [window[key] for key in ("hwnd", "process_id", "process_created", "class_name")]
-            window_id = "window-" + hashlib.sha256(json.dumps(identity).encode()).hexdigest()[:16]
-            choices[window_id] = {"window": dict(window), "expires": time.monotonic() + 30}
-            result.append({"window_id": window_id, "title": window["title"], "process_id": window["process_id"],
-                           "executable_name": Path(window["executable"]).name,
-                           "window_state": window["window_state"], "elevated": window["elevated"]})
-        self.window_choices = choices
-        return result
-
-    async def _computer_progress(self, event):
-        if event["type"] == "prompt.request":
-            self._record_prompt(event["body"], phase=event["phase"])
-            return
-        task = self.active_task
-        if not task:
-            return
-        if event["type"] == "confirmation":
-            if self.full_access:
-                await self.computer.control("confirm", approval_id=event["approval_id"], accept=True)
-                await self.emit("computer.progress", task_id=task.task_id,
-                                progress={"type": "auto_approved", "message": event["message"]})
-                return
-            approval = {"approval_id": event["approval_id"], "kind": "computer", "action_kind": "desktop",
-                        "task_id": task.task_id, "generation_id": self.generation,
-                        "expected_result": event["message"]}
-            self.approvals[approval["approval_id"]] = approval
-            task.transition("waiting_approval")
-            await self.emit("approval.required", approval=approval)
-            await self._task_event()
-        elif event["type"] == "model":
-            task.next_round()
-            await self._task_event()
-        elif event["type"] == "action":
-            task.next_call()
-            await self._task_event()
-        await self.emit("computer.progress", task_id=task.task_id, progress=event)
-
-    async def _computer_tool(self, goal):
-        self._write_allowed()
-        if not self.target:
-            raise ToolError("no_target", "请先选择目标窗口")
-        result = await self.computer.run(goal, dict(self.target), self._computer_progress,
-                                         limits=self.settings.values.get("task_limits", {}),
-                                         assistant_windows=getattr(self.desktop, "_assistant_windows", ()))
-        self.active_task.verification_pending = result["status"] == "needs_verification"
-        if result["status"] == "failed":
-            raise ToolError("computer_incomplete", result["reason"])
-        await self.emit("computer.completed", task_id=self.active_task.task_id, result=result)
-        # Refresh the existing context panel through its normal capture path.
-        try:
-            await self.capture()
-        except Exception:
-            self.active_task.verification_pending = True
-        return result
-
-    async def _computer_turn(self, goal, generation):
-        # The manual desktop entry uses the same model/tool/evidence loop as
-        # chat, so desktop failures are explained by Ayana as well.
-        await self._turn(goal, None, generation)
-
     async def _web_search(self, **args):
-        task = self.active_task
         metadata = _current_tool.get()
         async def progress(stage, message):
             if metadata:
                 await self.emit("tool.progress", tool="web.search", stage=stage, message=message, **metadata)
-        query, subject = restore_search_terms(args["query"], args.get("subject"),
-                                              task.goal if task else "", self.search_identity)
+        query, subject = restore_search_terms(args["query"], args.get("subject"), "", self.search_identity)
         corrected = query != args["query"] or subject != args.get("subject")
         if corrected:
             args = {**args, "query": query}
             if subject:
                 args["subject"] = subject
             await progress("original_subject", "正在按原始名称查找资料")
-        history = getattr(task, "search_history", {}) if task else {}
         query = args["query"].strip()
         signature = json.dumps([query, args.get("subject"), args.get("count", 5)], ensure_ascii=False)
-        attempts = history.setdefault(signature, {"attempts": 0})
-        if task:
-            task.search_history = history
+        attempts = self.search_history.setdefault(signature, {"attempts": 0})
         attempts["attempts"] += 1
         if attempts["attempts"] > 2:
             raise ToolError("search_repeated", "相同搜索已尝试两次；请读取已有来源、调整关键词或说明没有找到有效资料")
@@ -342,14 +64,13 @@ class CapabilityRuntime:
         if result and corrected:
             result[0] = {**result[0], "query_used": result[0].get("query_used", query), "subject_used": subject,
                          "search_note": "名称字形已按用户原文或角色身份还原；工具参数不应随日语语音要求改写。"}
-        seen = getattr(task, "search_urls", set()) if task else set()
+        seen = self.search_urls
         urls = {source["url"] for source in result}
         if result and seen:
             result[0] = {**result[0], "search_feedback": {"new_urls": len(urls - seen),
                 "repeated_urls": len(urls & seen), "query_attempts": attempts["attempts"],
                 "guidance": "重复结果不能当作新线索；先核对名称与摘要，再读取相关来源。"}}
-        if task:
-            task.search_urls = seen | urls
+        self.search_urls = seen | urls
         for source in result:
             if self.settings.values.get("save_history", True):
                 await asyncio.to_thread(self.store.put_record, "source", source["source_id"], source)
@@ -362,151 +83,6 @@ class CapabilityRuntime:
             await asyncio.to_thread(self.store.put_record, "source", result["source_id"], {k: v for k, v in result.items() if k != "content"})
         await self.emit("source.ready", source={k: v for k, v in result.items() if k != "content"})
         return result
-
-    async def _file_read(self, root_id=None, **args):
-        result = await asyncio.to_thread(self.files.read, self._file_root(root_id), **args)
-        if result["root_id"] == "repository":
-            await self.emit("evidence.ready", evidence=result, **result)
-        return result
-
-    def _write_allowed(self):
-        if not self._execution_enabled():
-            raise ToolError("execution_mode_required", "请先在管理窗口切换到执行模式")
-        if not self.active_task or self.active_task.state != "running":
-            raise ToolError("inactive_task", "当前没有可执行的任务")
-
-    async def _file_create(self, **args):
-        self._write_allowed()
-        if self.full_access:
-            return await self._create_now(args)
-        if self.approvals:
-            raise ToolError("approval_pending", "请先处理当前修改或动作")
-        if not self.active_task:
-            raise ToolError("inactive_task", "没有当前任务")
-        staged = await asyncio.to_thread(self.files.stage_create, **args, task_id=self.active_task.task_id,
-                                         generation=self.generation, conversation_id=self.conversations.current_id)
-        await self._register_approval(staged, "file")
-        return {"status": "waiting_approval", **staged}
-
-    async def _create_now(self, args):
-        token = self.write_cancel
-        worker = asyncio.create_task(asyncio.to_thread(self.files.create, **args, cancelled=token,
-                                                       conversation_id=self.conversations.current_id))
-        # Once a filesystem operation starts, wait for its real outcome on cancellation.
-        try:
-            result = await asyncio.shield(worker)
-        except asyncio.CancelledError:
-            token.set()
-            with contextlib.suppress(Exception):
-                await worker
-            raise
-        await self.emit("artifact.ready", artifact=result)
-        return result
-
-    async def _file_propose(self, **args):
-        if self.full_access:
-            self._write_allowed()
-        if self.approvals:
-            raise ToolError("approval_pending", "请先处理当前修改或动作")
-        if not self.active_task:
-            raise ToolError("inactive_task", "没有当前任务")
-        result = await asyncio.to_thread(self.files.propose, **args, task_id=self.active_task.task_id,
-                                         generation=self.generation, conversation_id=self.conversations.current_id)
-        if self.full_access:
-            return await self._apply_file_now(result)
-        await self._register_approval(result, "file")
-        return {"status": "waiting_approval", **result}
-
-    async def _file_restore(self, **args):
-        if self.full_access:
-            self._write_allowed()
-        if self.approvals or not self.active_task:
-            raise ToolError("approval_pending", "请先处理当前任务或确认项")
-        result = await asyncio.to_thread(self.files.restore, **args, task_id=self.active_task.task_id,
-                                         generation=self.generation, conversation_id=self.conversations.current_id)
-        if self.full_access:
-            return await self._apply_file_now(result)
-        await self._register_approval(result, "file")
-        return {"status": "waiting_approval", **result}
-
-    async def _apply_file_now(self, proposal):
-        token = self.write_cancel
-        worker = asyncio.create_task(asyncio.to_thread(self.files.apply, proposal["proposal_id"],
-                                    self.active_task.task_id, self.generation, token,
-                                    conversation_id=self.conversations.current_id))
-        try:
-            artifact = await asyncio.shield(worker)
-        except asyncio.CancelledError:
-            token.set()
-            with contextlib.suppress(Exception):
-                await worker
-            raise
-        await self.emit("artifact.ready", artifact=artifact)
-        return {"status": "applied", **artifact}
-
-    async def _register_approval(self, value, kind):
-        approval_id = value.get("proposal_id") or value["action_id"]
-        metadata = _current_tool.get() or {}
-        item = {**value, "approval_id": approval_id, "kind": kind, "action_kind": value.get("kind"),
-                "task_id": self.active_task.task_id, "generation_id": self.generation,
-                "call_id": metadata.get("call_id")}
-        self.approvals[approval_id] = item
-        await self.emit("approval.required", approval=item)
-
-    async def _task_event(self):
-        if self.active_task:
-            self._remember_task()
-            value = self.active_task.public()
-            if self.settings.values.get("save_history", True):
-                await asyncio.to_thread(self.store.put_record, "task", value["task_id"], value)
-            await self.emit("task.updated", task=value)
-
-    async def _capabilities_snapshot(self):
-        await self.emit("capabilities.ready", directories=self.policy.public(),
-                        tools=self.registry.catalog(),
-                        full_access=self.full_access,
-                        computer_use=self.computer.status,
-                        browser=self.browser_tools.status,
-                        search_configured=self.web.search_available,
-                        search_provider=self.web.selected_search_provider,
-                        artifacts=await asyncio.to_thread(self.files.inventory),
-                        tasks=self.store.records("task") if self.settings.values.get("save_history", True) else [])
-        await self._task_event()
-        for approval in self.approvals.values():
-            await self.emit("approval.required", approval=approval)
-        for source in self.web.sources.values():
-            await self.emit("source.ready", source={k: v for k, v in source.items() if k != "content"})
-
-    async def _checkpoint(self):
-        await self.task_gate.wait()
-        if self.active_task:
-            self.active_task.check()
-
-    async def _watch_budget(self, task):
-        while self.active_task is task and task.state in {"running", "paused", "waiting_approval"}:
-            await asyncio.sleep(.1)
-            async with self.command_lock:
-                if self.active_task is not task:
-                    return
-                try:
-                    task.check()
-                except ToolError:
-                    task.transition("failed")
-                    self.write_cancel.set()
-                    self.desktop.cancel()
-                    await self.shell.stop()
-                    await self._stop_background("task_timeout")
-                    if self.task and not self.task.done():
-                        self.task.cancel()
-                    for approval_id in tuple(self.approvals):
-                        await self.emit("approval.resolved", approval_id=approval_id, accepted=False)
-                    self.approvals.clear()
-                    self.files.proposals.clear()
-                    self.actions.clear()
-                    self.continuation = None
-                    await self._task_event()
-                    await self.emit("error", source="task", message="任务执行时间已用完，后续步骤已停止")
-                    return
 
     def _tool_message(self, results, include_image=False):
         text = TOOL_RESULT_PREFIX + json.dumps(results, ensure_ascii=False)
@@ -529,32 +105,8 @@ class CapabilityRuntime:
             call_id = "call-" + __import__("uuid").uuid4().hex[:12]
         if not isinstance(call_id, str) or len(call_id) > 100:
             raise ToolError("invalid_call_id", "调用 ID 无效")
-        task = self.active_task
-        signature = json.dumps([name, args, validation_error], ensure_ascii=False, sort_keys=True)
-        if task and call_id in task.results:
-            previous = task.results[call_id]
-            if previous["signature"] != signature:
-                raise ToolError("duplicate_call_id", "调用 ID 已用于不同参数")
-            return previous["value"]
-        if task and task.failures.get(signature, 0) >= 2:
-            # The same call already failed twice; running it again cannot add
-            # information, so it is blocked before any network or desktop work.
-            message = "相同的调用已经失败两次，重试不会有新结果；请换方法，或根据现有证据报告 blocked/needs_input"
-            evidence = receipt(name, code="repeated_failure", message=message)
-            value = {"name": name, "call_id": call_id, "error": message, "code": "repeated_failure", "receipt": evidence}
-            metadata = {"call_id": call_id, "task_id": task.task_id}
-            await self.emit("tool.started", tool=name, arguments={k: v for k, v in args.items() if k != "content"} if isinstance(args, dict) else {}, **metadata)
-            await self.emit("tool.failed", tool=name, message=message, code="repeated_failure", receipt=evidence,
-                            audience="assistant", duration_ms=0, **metadata)
-            task.results[call_id] = {"signature": signature, "value": value}
-            remember_result(self._work_context(), name, args, value, resolver=self._reference_path)
-            return value
-        await self._checkpoint()
-        if task:
-            task.next_call()
-        metadata = {"call_id": call_id, "task_id": task.task_id if task else None}
+        metadata = {"call_id": call_id}
         await self.emit("tool.started", tool=name, arguments={k: v for k, v in args.items() if k != "content"} if isinstance(args, dict) else {}, **metadata)
-        tool = self.registry.tools.get(name)
         started = time.monotonic()
         token = _current_tool.set(metadata)
         try:
@@ -565,16 +117,8 @@ class CapabilityRuntime:
             except ValueError as error:
                 raise ToolError("invalid_arguments", str(error)) from None
             result = await self.registry.execute(name, args)
-            if task:
-                task.failures.pop(signature, None)
-            if (task and tool is not None and tool.effect == "read"
-                    and name not in POLL_READ_TOOLS and name not in FEEDBACK_READ_TOOLS
-                    and task.note_observation(signature, result_digest(result)) >= 1):
-                raise ToolError("repeated_no_progress",
-                                "这一步和上一次结果完全相同，没有新信息。请停止重复同一个调用，改用其他方法，或根据现有证据报告 blocked/needs_input")
-            evidence = receipt(name, result, tool.effect if tool else "read")
-            value = {"name": name, "call_id": call_id, "result": result, "receipt": evidence}
-            await self.emit("tool.completed", tool=name, result=result, receipt=evidence, audience="assistant", **metadata)
+            value = {"name": name, "call_id": call_id, "result": result}
+            await self.emit("tool.completed", tool=name, result=result, audience="assistant", **metadata)
         except Exception as error:
             code = getattr(error, "code", "tool_failed")
             message = str(error)[:300] if isinstance(error, (ToolError, ValueError)) else "工具未能完成操作，暂时无法核实结果"
@@ -582,37 +126,24 @@ class CapabilityRuntime:
                 code, message = "tool_timeout", "这次工具请求超时；可换一个来源或稍后再试"
             elif isinstance(error, httpx.RequestError) or name in {"web.search", "web.fetch"} and isinstance(error, OSError):
                 code, message = "network_error", "网络连接未完成；可换一个来源或稍后再试"
-            if task and code != "repeated_no_progress" and task.note_failure(signature) >= 2:
-                code = "repeated_failure"
-                message = "相同的调用已经失败两次，重试不会有新结果；请换方法，或根据现有证据报告 blocked/needs_input"
-            evidence = receipt(name, code=code, message=message)
-            value = {"name": name, "call_id": call_id, "error": message, "code": code, "receipt": evidence}
-            await self.emit("tool.failed", tool=name, message=message, code=code, receipt=evidence, audience="assistant",
+            value = {"name": name, "call_id": call_id, "error": message, "code": code}
+            await self.emit("tool.failed", tool=name, message=message, code=code, audience="assistant",
                             error_type=type(error).__name__, duration_ms=round((time.monotonic() - started) * 1000), **metadata)
         finally:
             _current_tool.reset(token)
-        if task:
-            task.results[call_id] = {"signature": signature, "value": value}
-            # A waiting approval is not an executed effect; the confirmation
-            # records it only after the user accepts and the write succeeds.
-            if (tool and tool.effect != "read" and evidence["execution"] != "waiting_approval"
-                    and ("error" not in value or evidence["execution"] == "uncertain")):
-                task.effects.append(call_id)
-        remember_result(self._work_context(), name, args, value, resolver=self._reference_path)
-        self.conversations.save()
         return value
 
     async def _dispatch_tools(self, requests, validation_errors=None):
-        """Parallelize independent public reads; preserve ordering and write barriers."""
+        """Parallelize independent public web reads while preserving result order."""
         errors = validation_errors or {}
-        results = []
         semaphore = asyncio.Semaphore(3)
         async def read(request):
             async with semaphore:
                 error = errors.get(request.get("call_id"))
                 if error:
                     return await self._dispatch_tool(request, validation_error=error)
-                return await self._read_tool(request)
+                return await self._dispatch_tool(request)
+        results = []
         index = 0
         while index < len(requests):
             request = requests[index]
@@ -634,181 +165,21 @@ class CapabilityRuntime:
             index = end
         return results
 
-    def _reference_path(self, root_id, path):
-        """Resolve a tool reference to its real absolute path now, or nothing."""
-        try:
-            return str(self.policy.path(root_id, path).resolve())
-        except (ValueError, OSError, TypeError):
-            return None
+    async def _capabilities_snapshot(self):
+        await self.emit("capabilities.ready",
+                        tools=self.registry.catalog(),
+                        search_configured=self.web.search_available,
+                        search_provider=self.web.selected_search_provider)
 
     async def _capability_command(self, cmd):
         kind = cmd["type"]
         if kind == "capabilities.get":
             await self._capabilities_snapshot()
-        elif kind == "computer.start":
-            goal = cmd.get("goal")
-            if not isinstance(goal, str) or not 1 <= len(goal.strip()) <= 4000:
-                raise ValueError("请输入 1–4000 字的桌面任务")
-            if not self._execution_enabled():
-                raise ValueError("请先切换到执行模式")
-            if not self.target:
-                raise ValueError("请先选择目标窗口")
-            if not self.computer.status["available"]:
-                raise ValueError(self.computer.status["detail"])
-            await self.cancel("new_computer_task")
-            self.turn_id = "turn-" + __import__("uuid").uuid4().hex[:12]
-            self.write_cancel = threading.Event()
-            self.task_gate.set()
-            self.active_task = TaskRunner(goal.strip(), self.settings.values.get("task_limits", {}))
-            await self.emit("user.message", text=goal.strip())
-            await self._task_event()
-            self.task = asyncio.create_task(self._computer_turn(goal.strip(), self.generation))
-            if self.deadline_task:
-                self.deadline_task.cancel()
-            self.deadline_task = asyncio.create_task(self._watch_budget(self.active_task))
-        elif kind == "directory.grant":
-            if type(cmd.get("write", False)) is not bool:
-                raise ValueError("Invalid directory grant")
-            await self.cancel("directory_changed")
-            import uuid
-            root_id = "directory-" + uuid.uuid4().hex[:12]
-            self.policy.grant(root_id, cmd["path"], cmd.get("write", False))
-            record = {"root_id": root_id, "path": str(self.policy.roots[root_id]["path"]), "write": cmd.get("write", False)}
-            self.store.put_record("directory", root_id, record)
-            await self._capabilities_snapshot()
-        elif kind == "directory.revoke":
-            if cmd.get("root_id") == "output":
-                raise ValueError("默认产出目录不可撤销")
-            await self.cancel("directory_revoked")
-            self.policy.roots.pop(cmd["root_id"], None)
-            self.store.delete_record("directory", cmd["root_id"])
-            await self._capabilities_snapshot()
-        elif kind == "task.pause":
-            if self.active_task and self.active_task.state == "running":
-                self.task_gate.clear()
-                self.active_task.transition("paused")
-                self.desktop.cancel()
-                await self.shell.stop()
-                await self.computer.control("pause")
-                await self._task_event()
-        elif kind == "task.resume":
-            if self.active_task and self.active_task.state == "paused":
-                self.active_task.transition("running")
-                self.task_gate.set()
-                await self.computer.control("resume")
-                await self._task_event()
-        elif kind == "task.cancel":
-            await self.cancel("task_cancelled")
-        elif kind == "approval.resolve":
-            if type(cmd.get("accept")) is not bool:
-                raise ValueError("确认结果必须是布尔值")
-            computer_item = self.approvals.get(cmd.get("approval_id"))
-            if computer_item and computer_item.get("kind") == "computer":
-                if (computer_item["generation_id"] != self.generation or not self.active_task
-                        or computer_item["task_id"] != self.active_task.task_id
-                        or self.active_task.state != "waiting_approval" or self.mode != "execute"):
-                    raise ValueError("确认项已失效")
-                self.approvals.pop(cmd["approval_id"])
-                await self.emit("approval.resolved", approval_id=cmd["approval_id"], accepted=cmd["accept"])
-                self.active_task.transition("running")
-                await self._task_event()
-                await self.computer.control("confirm", approval_id=cmd["approval_id"], accept=cmd["accept"])
-                return True
-            if self.task and not self.task.done():
-                raise ValueError("正在完成当前输出，请稍后处理确认")
-            item = self.approvals.get(cmd.get("approval_id"))
-            if not item or item["generation_id"] != self.generation or not self.active_task or item["task_id"] != self.active_task.task_id or self.active_task.state != "waiting_approval":
-                raise ValueError("确认项已失效")
-            if cmd["accept"] and self.mode != "execute" and item.get("action_kind") != "highlight":
-                raise ValueError("请先选择执行模式，再开始修改任务")
-            self.task = asyncio.create_task(self._resolve_approval(item, cmd["accept"]))
-        elif kind in {"artifact.get", "artifact.open", "artifact.restore"}:
-            result = self.files.get(cmd["artifact_id"])
-            if kind == "artifact.restore":
-                if self.active_task and self.active_task.state in {"running", "paused", "waiting_approval"}:
-                    raise ValueError("请先完成或取消当前任务")
-                self.write_cancel = threading.Event()
-                self.active_task = TaskRunner("恢复文件版本", self.settings.values.get("task_limits", {}))
-                self.continuation = None
-                await self._file_restore(artifact_id=cmd["artifact_id"])
-                self.active_task.transition("succeeded" if self.full_access else "waiting_approval")
-                await self._task_event()
-            else:
-                await self.emit(kind, artifact=result)
         elif kind == "source.open":
-            source = self.web.sources.get(cmd["source_id"])
+            source = self.web.sources.get(cmd.get("source_id"))
             if not source:
                 raise ValueError("来源记录已失效")
             await self.emit("source.open", url=source["url"])
         else:
             return False
         return True
-
-    async def _resolve_approval(self, item, accept):
-        gen = self.generation
-        self.approvals.pop(item["approval_id"], None)
-        await self.emit("approval.resolved", approval_id=item["approval_id"], accepted=accept)
-        self.active_task.transition("running")
-        self.task_gate.set()
-        await self._task_event()
-        creating = item.get("action_kind") == "create"
-        result = {"name": "files.create" if creating else "files.apply_edit" if item["kind"] == "file" else "execute_step"}
-        try:
-            if not accept:
-                self.files.proposals.pop(item["approval_id"], None)
-                self.actions.pop(item["approval_id"], None)
-                result["error"] = "用户拒绝了这一步；不要重复提出相同操作"
-            elif item["kind"] == "file":
-                self.active_task.next_call()
-                await self.emit("tool.started", tool=result["name"], task_id=self.active_task.task_id, call_id=item["approval_id"])
-                method = self.files.commit_create if creating else self.files.apply
-                worker = asyncio.create_task(asyncio.to_thread(method, item["approval_id"], self.active_task.task_id,
-                                                               gen, self.write_cancel, self.conversations.current_id))
-                try:
-                    artifact = await asyncio.shield(worker)
-                except asyncio.CancelledError:
-                    self.write_cancel.set()
-                    with contextlib.suppress(Exception):
-                        await worker
-                    raise
-                result["result"] = artifact
-                await self.emit("artifact.ready", artifact=artifact)
-                await self.emit("tool.completed", tool=result["name"], result=artifact, task_id=self.active_task.task_id, call_id=item["approval_id"])
-            else:
-                self.active_task.next_call()
-                result["result"] = await self._execute({"action_id": item["approval_id"], "snapshot_id": item["snapshot_id"]}, gen)
-                if result["result"] is None:
-                    result = {"name": "execute_step", "error": "操作未完成，请重新观察；不能宣称成功"}
-                elif item["kind"] == "desktop" and item.get("action_kind") != "highlight":
-                    self.active_task.verification_pending = result["result"].get("expected_result_verified") is not True
-        except (ToolError, OSError, ValueError) as error:
-            result["error"] = str(error)[:300]
-            await self.emit("tool.failed", tool=result["name"], message=result["error"])
-        if gen != self.generation:
-            return
-        result["call_id"] = "approval-" + item["approval_id"]
-        self.active_task.results[result["call_id"]] = {"signature": "user-approved operation", "value": result}
-        if accept and "error" not in result:
-            self.active_task.effects.append(result["call_id"])
-        remember_result(self._work_context(), result["name"], item, result)
-        self.conversations.save()
-        continuation = self.continuation
-        self.continuation = None
-        if continuation:
-            pending_call = item.get("call_id")
-            if pending_call and pending_call in (continuation.get("native_tool_ids") or []):
-                # A native API requires one tool-role reply per announced call;
-                # replace the staged "waiting_approval" reply with the real result.
-                payload = json.dumps(result, ensure_ascii=False)
-                for message in reversed(continuation["messages"]):
-                    if message.get("role") == "tool" and message.get("tool_call_id") == pending_call:
-                        message["content"] = payload
-                        break
-                else:
-                    continuation["messages"].append({"role": "tool", "tool_call_id": pending_call, "content": payload})
-            else:
-                continuation["messages"].append(self._tool_message([result], item["kind"] == "desktop"))
-            await self._turn(self.active_task.goal, None, gen, continuation=continuation)
-        else:
-            self.active_task.transition("failed" if "error" in result else "succeeded")
-            await self._task_event()

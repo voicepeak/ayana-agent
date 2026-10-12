@@ -18,7 +18,6 @@ class Tool:
     description: str
     parameters: dict
     handler: object
-    effect: str = "read"
 
 
 def validate(value, schema, path="arguments"):
@@ -51,46 +50,27 @@ def string(maximum=1000):
 
 
 class ToolRegistry:
-    def __init__(self, full_access=None):
+    def __init__(self):
         self.tools = {}
         self.availability = {}
-        self.visibility = {}
         self.reasons = {}
-        self.full_access = full_access or (lambda: False)
 
-    def add(self, name, description, schema, handler, effect="read"):
-        self.tools[name] = Tool(name, description, schema, handler, effect)
+    def add(self, name, description, schema, handler):
+        self.tools[name] = Tool(name, description, schema, handler)
 
     def set_availability(self, name, predicate, reason="该工具当前缺少所需配置"):
         """Hide a registered tool from the model while its predicate is false."""
         self.availability[name] = predicate
-        self.reasons[(name, "availability")] = reason
-
-    def set_visibility(self, name, predicate, reason="当前任务上下文不适用"):
-        """Filter model choices; executor authorization remains in the handler."""
-        self.visibility[name] = predicate
-        self.reasons[(name, "visibility")] = reason
-
-    def description(self, tool):
-        text = tool.description
-        if self.full_access():
-            text = text.replace("执行模式：", "Full access：").replace("授权目录", "本机目录").replace("授权范围", "可访问范围")
-        return text
+        self.reasons[name] = reason
 
     def state(self, tool):
-        for kind, predicates in (("availability", self.availability), ("visibility", self.visibility)):
-            predicate = predicates.get(tool.name)
-            try:
-                enabled = predicate is None or bool(predicate())
-            except Exception:
-                enabled = False
-            if not enabled:
-                reason = self.reasons.get((tool.name, kind), "工具暂时不可用")
-                try:
-                    reason = reason() if callable(reason) else reason
-                except Exception:
-                    reason = "工具状态暂时无法确定"
-                return {"name": tool.name, "available": False, "reason": reason}
+        predicate = self.availability.get(tool.name)
+        try:
+            enabled = predicate is None or bool(predicate())
+        except Exception:
+            enabled = False
+        if not enabled:
+            return {"name": tool.name, "available": False, "reason": self.reasons.get(tool.name, "工具暂时不可用")}
         return {"name": tool.name, "available": True, "reason": None}
 
     def catalog(self):
@@ -120,7 +100,7 @@ class ToolRegistry:
 
     def prompt(self):
         return "Registered tools (exact arguments; stop after requesting tools to receive results):\n" + json.dumps([
-            {"name": t.name, "description": self.description(t), "arguments": t.parameters, "effect": t.effect}
+            {"name": t.name, "description": t.description, "arguments": t.parameters}
             for t in self.active_tools()], ensure_ascii=False, sort_keys=True)
 
     @staticmethod
@@ -131,7 +111,7 @@ class ToolRegistry:
     def openai_schemas(self):
         """Native function-calling schema for providers that accept a tools array."""
         return [{"type": "function", "function": {
-            "name": self.api_name(t.name), "description": self.description(t), "parameters": t.parameters,
+            "name": self.api_name(t.name), "description": t.description, "parameters": t.parameters,
         }} for t in self.active_tools()]
 
     def api_name_map(self):

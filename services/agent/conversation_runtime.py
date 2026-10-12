@@ -4,131 +4,11 @@ import asyncio
 from copy import deepcopy
 import httpx
 import json
-import os
-from .storage import without_media
 
 from .context import summarize_history, summary_batches
-from .prompts import INTERRUPTED_PREFIX
-from .work import remember_result
-
-# The contextual work snapshot sent to the model must stay small even when the
-# 8-pending-task limit is full; otherwise fixed material can exceed the budget.
-WORK_CONTEXT_BUDGET = 16000
 
 
 class ConversationRuntime:
-    def _reconcile_restart_tasks(self):
-        """Derive work_context task state from the single persisted record.
-
-        A task table row is marked interrupted at startup; the topic's task
-        snapshot must not stay "running" (and must become continuable again).
-        """
-        context = self.conversations.current.get("work_context")
-        if not isinstance(context, dict):
-            return
-        active = {"running", "paused", "waiting_approval"}
-        changed = False
-        for key in ("current_task", "last_task", "pending_task"):
-            task = context.get(key)
-            if isinstance(task, dict) and task.get("state") in active:
-                task["state"] = "interrupted"
-                changed = True
-        pending = context.get("pending_tasks", [])
-        for task in pending:
-            if isinstance(task, dict) and task.get("state") in active:
-                task["state"] = "interrupted"
-                changed = True
-        task = context.get("current_task")
-        if isinstance(task, dict) and task.get("state") == "interrupted" and task.get("kind") == "action":
-            replaced = {task.get("task_id"), task.get("continues_task_id")}
-            pending = [item for item in pending if item.get("task_id") not in replaced]
-            pending.append(task)
-            context["pending_tasks"] = pending[-8:]
-            context["pending_task"] = pending[-1]
-            changed = True
-        if changed:
-            self.conversations.save()
-
-    @staticmethod
-    def _trim_task_snapshot(task):
-        if not isinstance(task, dict):
-            return
-        for key in ("goal", "resolved_goal", "reason", "continues_task_id"):
-            value = task.get(key)
-            if isinstance(value, str) and len(value) > 800:
-                task[key] = value[:800] + "…"
-        checks = task.get("checks")
-        if isinstance(checks, list):
-            task["checks"] = [{"description": str(check.get("description", ""))[:200], "verified": check.get("verified")}
-                              for check in checks if isinstance(check, dict)]
-
-    def _mark_stale_references(self, objects):
-        root = (self.repository or {}).get("root")
-        if not root:
-            return
-        base = os.path.abspath(root)
-        for obj in objects:
-            absolute = obj.get("absolute_path") if isinstance(obj, dict) else None
-            if not absolute:
-                continue
-            try:
-                inside = os.path.commonpath([os.path.abspath(absolute), base]) == base
-            except ValueError:
-                inside = False
-            if not inside:
-                obj["stale"] = True
-                obj["note"] = "此引用来自之前的材料，当前仓库可能已不同，请重新读取"
-
-    def _prompt_work_context(self):
-        context = deepcopy(self._work_context())
-        context.pop("last_task", None)
-        for key in ("current_task", "pending_task"):
-            self._trim_task_snapshot(context.get(key))
-        for task in context.get("pending_tasks", []):
-            self._trim_task_snapshot(task)
-        self._mark_stale_references(context.get("objects", []))
-        if len(json.dumps(context, ensure_ascii=False)) > WORK_CONTEXT_BUDGET:
-            context["pending_tasks"] = context.get("pending_tasks", [])[:2]
-            context["objects"] = context.get("objects", [])[:8]
-        if len(json.dumps(context, ensure_ascii=False)) > WORK_CONTEXT_BUDGET:
-            context.pop("pending_tasks", None)
-            context.pop("pending_task", None)
-        return context
-
-    def _work_context(self):
-        current = self.conversations.current
-        if "work_context" not in current:
-            current["work_context"] = {"objects": []}
-            if self.settings.values.get("save_history", True):
-                for event in self.store.recent_work_results(self.conversations.current_id):
-                    value = {"name": event.get("tool"), "call_id": event.get("call_id", "historical")}
-                    if event["type"] == "tool.completed":
-                        value["result"] = event.get("result")
-                    else:
-                        value.update(error=event.get("message", "工具失败"), code=event.get("code"))
-                    remember_result(current["work_context"], value["name"], {}, value)
-        return current["work_context"]
-
-    def _remember_task(self):
-        if self.active_task:
-            context = self._work_context()
-            task = self.active_task.public()
-            context["current_task"] = task
-            if task["state"] not in {"running", "paused", "waiting_approval"}:
-                context["last_task"] = task
-                if task["kind"] == "action":
-                    pending = context.get("pending_tasks", [context["pending_task"]] if "pending_task" in context else [])
-                    replaced = {task["task_id"], task.get("continues_task_id")}
-                    pending = [item for item in pending if item["task_id"] not in replaced]
-                    if task["state"] not in {"succeeded", "cancelled"}:
-                        pending.append(task)
-                    context["pending_tasks"] = pending[-8:]
-                    if pending:
-                        context["pending_task"] = pending[-1]
-                    else:
-                        context.pop("pending_task", None)
-            self.conversations.save()
-
     def _select_history(self):
         self.prompt_history.select("", self.settings.values, conversation_id=self.conversations.current_id)
 
@@ -136,10 +16,7 @@ class ConversationRuntime:
         self._select_history()
         await self.emit("conversation.changed" if changed else "conversations.ready",
                         **self.conversations.snapshot(), summary=self.prompt_history.summary,
-                        retained_turns=len(self.prompt_history.turns),
-                        materials={"repository_root": (self.repository or {}).get("root"),
-                                   "target_title": (self.target or {}).get("title")},
-                        repository=self.repository, target=self.target)
+                        retained_turns=len(self.prompt_history.turns))
 
     async def _history_snapshot(self, cid=None, before=None):
         cid = cid or self.conversations.current_id
@@ -231,13 +108,11 @@ class ConversationRuntime:
             self.memory_state = 'ready'
             if active:
                 await self.cancel('conversation_deleted')
-                self.active_task = None
                 self.last_reply_turn = self.last_reply_delivered = None
                 self.last_reply_keys = {}
                 self.turn_id = ''
-                self.target = self.snapshot = self.repository = None
+                self.target = self.snapshot = None
                 self.observation = None
-                await self.emit('repository.cleared')
                 await self.emit('snapshot.invalidated')
                 await self.emit('session.started',target=None,provider=self.settings.values['provider'])
             self.memory.forget_source(cid)
@@ -246,14 +121,6 @@ class ConversationRuntime:
             if active:
                 self.prompt_history.scope = None
                 self._select_history()
-                root = self.conversations.current.get('repository_root')
-                if root:
-                    from .tools.repository import RepositoryReader
-                    try:
-                        self.repository = await asyncio.to_thread(RepositoryReader(root).inspect)
-                        await self.emit('repository.inspected',repository=self.repository,**self.repository)
-                    except (ValueError,OSError) as error:
-                        await self.emit('error',source='repository',message=f'记录已删除，前一段对话的仓库无法恢复：{error}'[:500])
             self.prompt_trace.clear()
             self.utterances = {uid:record for uid,record in self.utterances.items() if record.get('conversation_id')!=cid}
             self.recent_observations = [item for item in self.recent_observations if item['conversation_id'] != cid]
@@ -279,69 +146,22 @@ class ConversationRuntime:
                 if cid == self.conversations.current_id:
                     await self._conversation_snapshot()
                     return True
-            keep = cmd.get("keep_materials", False)
-            if type(keep) is not bool:
-                raise ValueError("沿用材料选项必须是布尔值")
-            interrupted_turn = self.turn_id
-            goal = self.active_task.goal if self.active_task else None
             await self.cancel("conversation_changed")
-            if goal and interrupted_turn and not any(turn["turn_id"] == interrupted_turn for turn in self.prompt_history.turns):
-                # Preserve an unfinished question when leaving its topic. Do not
-                # replay incomplete native tool calls or imply that a proposal ran.
-                items = self.conversations.history(self.conversations.current_id)["items"]
-                evidence = {"state": "interrupted", "reply": [item for item in items
-                            if item.get("turn_id") == interrupted_turn and item["role"] == "assistant"],
-                            "actual_tool_results": self.active_task.results if self.active_task else {}}
-                self.prompt_history.append(interrupted_turn, [
-                    {"role": "user", "content": goal},
-                    {"role": "user", "content": INTERRUPTED_PREFIX + json.dumps(without_media(evidence), ensure_ascii=False)}],
-                    {}, self.settings.values.get("save_history", True))
-            self.active_task = None
             self.last_reply_turn = None
             self.last_reply_keys = {}
             self.last_reply_delivered = None
             self.turn_id = ""
             if kind == "conversation.create":
                 await asyncio.to_thread(self.conversations.create)
-                if keep:
-                    self.conversations.current["repository_root"] = (self.repository or {}).get("root")
-                    await asyncio.to_thread(self.conversations.save)
             else:
                 await asyncio.to_thread(self.conversations.select, cid)
-            root = self.conversations.current.get("repository_root")
-            self.repository = None
-            if not (kind == "conversation.create" and keep):
-                self.target = self.snapshot = None
-            else:
-                self.snapshot = None
-            await self.emit("repository.cleared")
+            self.target = self.snapshot = None
             await self.emit("snapshot.invalidated")
-            await self.emit("session.started", target=self.target, provider=self.settings.values["provider"])
-            if root:
-                from .tools.repository import RepositoryReader
-                try:
-                    self.repository = await asyncio.to_thread(RepositoryReader(root).inspect)
-                    await self.emit("repository.inspected", repository=self.repository, **self.repository)
-                except (ValueError, OSError) as error:
-                    await self.emit("error", source="repository", message=f"话题已切换，仓库无法恢复：{error}"[:500])
+            await self.emit("session.started", target=None, provider=self.settings.values["provider"])
             await self._conversation_snapshot(changed=True)
-            if self.target:
-                try:
-                    await self.capture()
-                except Exception as error:
-                    await self.emit("error", source="capture", message=str(error)[:500])
             await self._history_snapshot()
         elif kind == "conversation.rename":
             await asyncio.to_thread(self.conversations.rename, cmd.get("title"), cmd.get('conversation_id'))
-            await self._conversation_snapshot()
-        elif kind == "conversation.materials.clear":
-            await self.cancel("materials_cleared")
-            self.target = self.snapshot = self.repository = None
-            self.conversations.current["repository_root"] = None
-            await asyncio.to_thread(self.conversations.save)
-            await self.emit("repository.cleared")
-            await self.emit("snapshot.invalidated")
-            await self.emit("session.started", target=None, provider=self.settings.values["provider"])
             await self._conversation_snapshot()
         else:
             return False

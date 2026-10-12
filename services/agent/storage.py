@@ -89,15 +89,6 @@ class ConversationStore:
         return [dict(r) for r in reversed(rows)]
 
     @locked
-    def recent_work_results(self, conversation_id, limit=40):
-        rows = self.db.execute("""
-            SELECT payload FROM events
-            WHERE type IN ('tool.completed','tool.failed') AND json_extract(payload,'$.conversation_id')=?
-            ORDER BY id DESC LIMIT ?
-        """, (conversation_id, limit)).fetchall()
-        return [json.loads(row[0]) for row in reversed(rows)]
-
-    @locked
     def context(self, exclude_turn=None):
         known = {r["utterance_id"]: r for r in self.history(60)}
         events = self.db.execute("SELECT payload FROM events WHERE type IN ('user.message','utterance.ready') ORDER BY id DESC LIMIT 60").fetchall()
@@ -260,24 +251,20 @@ class ConversationStore:
         scope = "conversation:" + cid
         self.db.execute("PRAGMA secure_delete=ON")
         with self.db:
-            task_ids = [row[0] for row in self.db.execute("""SELECT DISTINCT json_extract(payload,'$.task.task_id')
-                FROM events WHERE type='task.updated' AND json_extract(payload,'$.conversation_id')=?""", (cid,))]
-            for kind in ("source", "artifact"):
-                path = f"$.{kind}.{kind}_id"
-                exclusive = self.db.execute("""SELECT DISTINCT json_extract(payload,?) FROM events
-                    WHERE json_extract(payload,'$.conversation_id')=? AND json_extract(payload,?) IS NOT NULL
-                    AND json_extract(payload,?) NOT IN (SELECT json_extract(payload,?) FROM events
-                        WHERE json_extract(payload,'$.conversation_id')<>? AND json_extract(payload,?) IS NOT NULL)""",
-                    (path, cid, path, path, path, cid, path)).fetchall()
-                self.db.executemany("DELETE FROM capability_records WHERE kind=? AND key=?",
-                                    [(kind, row[0]) for row in exclusive])
+            path = "$.source.source_id"
+            exclusive = self.db.execute("""SELECT DISTINCT json_extract(payload,?) FROM events
+                WHERE json_extract(payload,'$.conversation_id')=? AND json_extract(payload,?) IS NOT NULL
+                AND json_extract(payload,?) NOT IN (SELECT json_extract(payload,?) FROM events
+                    WHERE json_extract(payload,'$.conversation_id')<>? AND json_extract(payload,?) IS NOT NULL)""",
+                (path, cid, path, path, path, cid, path)).fetchall()
+            self.db.executemany("DELETE FROM capability_records WHERE kind=? AND key=?",
+                                [("source", row[0]) for row in exclusive])
             self.db.execute("""DELETE FROM utterances WHERE utterance_id IN (SELECT json_extract(payload,'$.utterance_id')
                 FROM events WHERE json_extract(payload,'$.conversation_id')=?)""", (cid,))
             self.db.execute("DELETE FROM events WHERE json_extract(payload,'$.conversation_id')=?", (cid,))
             self.db.execute("DELETE FROM model_turns WHERE scope=?", (scope,))
             self.db.execute("DELETE FROM context_summaries WHERE scope=?", (scope,))
             self.db.execute("DELETE FROM capability_records WHERE kind='conversation' AND key=?", (cid,))
-            self.db.executemany("DELETE FROM capability_records WHERE kind='task' AND key=?", [(tid,) for tid in task_ids if tid])
             self.db.execute("DELETE FROM capability_records WHERE json_extract(payload,'$.conversation_id')=?", (cid,))
             self.db.execute("DELETE FROM capability_records WHERE kind='memory' AND json_extract(payload,'$.source.conversation_id')=?", (cid,))
         # Reclaim deleted pages now, rather than retaining them in the database/WAL.
@@ -310,7 +297,7 @@ class ConversationStore:
         with self.db:
             self.db.execute("INSERT OR REPLACE INTO capability_records VALUES(?,?,?,?)",
                             (kind, key, json.dumps(without_media(value), ensure_ascii=False), time.time()))
-            limit = {"task": 60, "source": 100, "artifact": 200}.get(kind)
+            limit = {"source": 100}.get(kind)
             if limit:
                 self.db.execute("DELETE FROM capability_records WHERE kind=? AND key NOT IN "
                                 "(SELECT key FROM capability_records WHERE kind=? ORDER BY updated DESC LIMIT ?)",
