@@ -10,9 +10,9 @@ const { preferences, preferencePatch, savePreferences } = module.exports;
 const saved = preferences({ voice: { voice_mode: 'sovits', engine_root: 'private-path' }, stt: { provider: 'openai', model: 'custom' } });
 const changed = structuredClone(saved);
 changed.stt.language = 'zh';
-changed.task_limits.calls = 7;
+changed.max_tool_rounds = 7;
 const patch = JSON.parse(JSON.stringify(preferencePatch(saved, changed)));
-assert.deepEqual(patch, { stt: { language: 'zh' }, task_limits: { calls: 7 } });
+assert.deepEqual(patch, { stt: { language: 'zh' }, max_tool_rounds: 7 });
 
 let listener;
 const sent = [];

@@ -7,7 +7,7 @@ import { catalogFor, characterOptions, costumesOf } from './avatarCatalogs';
 export const settingsSections = [
   { id: 'appearance', title: '外观与声音', icon: 'volume' },
   { id: 'model', title: '模型与连接', icon: 'message' },
-  { id: 'access', title: '权限与隐私', icon: 'eye' },
+  { id: 'access', title: '观察与隐私', icon: 'eye' },
   { id: 'advanced', title: '高级设置', icon: 'settings' },
 ] as const;
 export type SettingsSection = typeof settingsSections[number]['id'];
@@ -34,7 +34,6 @@ export function Settings({ state, section }: { state: ModelState; section: Setti
       return { ...next, ...edits,
         voice: { ...next.voice, ...(edits.voice as Preferences['voice'] || {}) },
         stt: { ...next.stt, ...(edits.stt as Preferences['stt'] || {}) },
-        task_limits: { ...next.task_limits, ...(edits.task_limits as Preferences['task_limits'] || {}) },
       } as Preferences;
     });
     baseline.current = preferences(state.settings);
@@ -61,16 +60,7 @@ export function Settings({ state, section }: { state: ModelState; section: Setti
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setSaving(false); }
   }
-  async function directory(command: Record<string, unknown> & { type: string }) {
-    setError('');
-    try { const result = await bridge.send(command); if (!result.ok) setError(result.error || '操作未完成'); }
-    catch (reason) { setError(String(reason)); }
-  }
-  async function choose(write: boolean) {
-    try { const path = await bridge.chooseDirectory(); if (path) await directory({ type: 'directory.grant', path, write }); }
-    catch (reason) { setError(String(reason)); }
-  }
-  const count = (key: 'max_utterances' | 'detailed_max_utterances' | 'model_max_tokens' | 'ambient_interval_min' | 'ambient_interval_max', title: string, min: number, max: number) =>
+  const count = (key: 'max_utterances' | 'max_tool_rounds' | 'model_max_tokens' | 'ambient_interval_min' | 'ambient_interval_max', title: string, min: number, max: number) =>
     <label>{title}<Input type="number" min={min} max={max} step={1} required value={draft[key]} onChange={event => update(key, Number(event.target.value))}/></label>;
   return <section className="settings-workspace" aria-label="设置中心">
     <form className="settings-form" onSubmit={event => { event.preventDefault(); void save(); }}>
@@ -94,22 +84,14 @@ export function Settings({ state, section }: { state: ModelState; section: Setti
         <div className="form-section"><h3>联网搜索</h3><label>搜索引擎<select aria-label="搜索引擎" value={draft.search_provider} onChange={event => update('search_provider', event.target.value)}><option value="auto">自动选择</option><option value="bing">Bing</option><option value="brave">Brave</option></select></label>{draft.search_provider === 'brave' && !state.searchConfigured && <p className="field-note">需要配置独立的 Brave 搜索凭据。</p>}</div>
       </>}
       {section === 'access' && <>
-        <div className="form-section"><h3>访问权限</h3>
-          <Toggle checked={draft.full_access} onChange={value => update('full_access', value)} note="允许读写任意本机路径、执行命令和操作应用，无需逐步确认。">完全访问（Full access）</Toggle>
-          <details className="preference-advanced"><summary>目录授权{draft.full_access ? ' · 完全访问关闭后生效' : ''}</summary>
-            {state.directories.filter(item => item.root_id !== 'filesystem').map(item => <div className="agent-directory" key={String(item.root_id)}><span><strong>{item.root_id === 'output' ? '默认产出目录' : item.write ? '可读写' : '只读'}</strong><small>{String(item.path)}</small></span>{item.root_id !== 'output' && <Button type="button" variant="light" disabled={!state.connected} onClick={() => void directory({ type: 'directory.revoke', root_id: item.root_id })}>撤销授权</Button>}</div>)}
-            <div className="agent-buttons"><Button type="button" disabled={!state.connected} onClick={() => void choose(false)}>添加只读目录</Button><Button type="button" disabled={!state.connected} onClick={() => void choose(true)}>添加可读写目录</Button></div>
-          </details>
-        </div>
-        <div className="form-section"><h3>隐私</h3><Toggle checked={draft.send_screenshot} onChange={value => update('send_screenshot', value)} note="需要看屏幕时，将窗口或桌面截图发送给模型。">允许屏幕观察</Toggle><Toggle checked={draft.ambient_attention} onChange={value => update('ambient_attention', value)} note="空闲时偶尔看看前台窗口；也可以说“别看了”。">允许彩名偶尔偷看</Toggle>{draft.ambient_attention && <><div className="form-grid">{count('ambient_interval_min', '偷看间隔最小（秒）', 15, 600)}{count('ambient_interval_max', '偷看间隔最大（秒）', 15, 600)}</div><p className="form-hint">空闲时在这个随机区间里挑一个时间点看一眼前台窗口，修改后立即生效。</p><Toggle checked={draft.ambient_speech} onChange={value => update('ambient_speech', value)} note="看到值得聊的内容时才允许主动说一句；关闭后只看不说。">偷看时允许搭话</Toggle></>}<Toggle checked={draft.save_history} onChange={value => update('save_history', value)} note="切换会新建话题；关闭不会删除已有记录。">保存对话记录</Toggle></div>
+        <div className="form-section"><h3>观察与隐私</h3><Toggle checked={draft.send_screenshot} onChange={value => update('send_screenshot', value)} note="需要看屏幕时，将窗口或桌面截图发送给模型。">允许屏幕观察</Toggle><Toggle checked={draft.ambient_attention} onChange={value => update('ambient_attention', value)} note="空闲时偶尔看看前台窗口；也可以说“别看了”。">允许彩名偶尔偷看</Toggle>{draft.ambient_attention && <><div className="form-grid">{count('ambient_interval_min', '偷看间隔最小（秒）', 15, 600)}{count('ambient_interval_max', '偷看间隔最大（秒）', 15, 600)}</div><p className="form-hint">空闲时在这个随机区间里挑一个时间点看一眼前台窗口，修改后立即生效。</p><Toggle checked={draft.ambient_speech} onChange={value => update('ambient_speech', value)} note="看到值得聊的内容时才允许主动说一句；关闭后只看不说。">偷看时允许搭话</Toggle></>}<Toggle checked={draft.save_history} onChange={value => update('save_history', value)} note="切换会新建话题；关闭不会删除已有记录。">保存对话记录</Toggle></div>
       </>}
       {section === 'advanced' && <>
         <details className="preference-advanced"><summary>快捷键</summary><div className="form-grid"><label>呼出 Ayana<Input required value={draft.hotkey} onChange={event => update('hotkey', event.target.value)}/></label><label>立即打断<Input required value={draft.cancel_hotkey} onChange={event => update('cancel_hotkey', event.target.value)}/></label></div>{state.shortcuts && (!state.shortcuts.summon_ok || !state.shortcuts.cancel_ok) && <p className="shortcut-error" role="alert">快捷键注册失败，请更换组合。</p>}</details>
-        <details className="preference-advanced"><summary>回复与任务限制</summary><div className="form-grid">{count('max_utterances', '普通回复最多句数', 1, 12)}{count('detailed_max_utterances', '详细回复最多句数', 12, 64)}{draft.provider === 'openai' && count('model_max_tokens', '单次请求输出上限（tokens）', 1000, 12000)}</div><div className="form-grid">{([['rounds', '最多处理轮数', 24], ['calls', '最多工具调用', 64], ['seconds', '最长时间（秒）', 600]] as const).map(([key, title, max]) => <label key={key}>{title}<Input type="number" min="1" max={max} step="1" required value={draft.task_limits[key]} onChange={event => update('task_limits', { ...draft.task_limits, [key]: Number(event.target.value) })}/></label>)}</div></details>
+        <details className="preference-advanced"><summary>回复限制</summary><div className="form-grid">{count('max_utterances', '每次回复最多句数', 1, 12)}{count('max_tool_rounds', '最多工具轮数', 1, 24)}{draft.provider === 'openai' && count('model_max_tokens', '单次请求输出上限（tokens）', 1000, 12000)}</div></details>
         <details className="preference-advanced"><summary>接口兼容与代理</summary><Toggle checked={draft.native_tools} onChange={value => update('native_tools', value)}>原生工具调用</Toggle><label>Brave 本机 HTTP 代理<Input value={draft.search_proxy} onChange={event => update('search_proxy', event.target.value)} placeholder="http://127.0.0.1:7892"/></label></details>
         <details className="preference-advanced"><summary>服务与诊断</summary>
-          <dl className="service-grid"><div><dt>本地服务</dt><dd>{state.connected ? '已连接' : '未连接'}</dd></div><div><dt>语音引擎</dt><dd>{names[state.voice] || state.voice}</dd></div><div><dt>模型凭据</dt><dd>{state.apiKeyConfigured === undefined ? '尚未检查' : state.apiKeyConfigured ? '已配置' : '未配置'}</dd></div><div><dt>桌面执行</dt><dd>{state.computerUse?.available ? '可用' : '尚未就绪'}</dd></div></dl>
-          {Boolean(state.computerUse?.detail) && <p className="field-note">{String(state.computerUse?.detail)}</p>}
+          <dl className="service-grid"><div><dt>本地服务</dt><dd>{state.connected ? '已连接' : '未连接'}</dd></div><div><dt>语音引擎</dt><dd>{names[state.voice] || state.voice}</dd></div><div><dt>模型凭据</dt><dd>{state.apiKeyConfigured === undefined ? '尚未检查' : state.apiKeyConfigured ? '已配置' : '未配置'}</dd></div></dl>
           {state.modelUsage && <p className="field-note">最近请求：输入 {String(state.modelUsage.prompt_tokens ?? '未知')} tokens · 缓存 {String(state.modelUsage.prompt_cache_hit_tokens ?? '未知')} tokens</p>}
           <div className="service-actions"><Button type="button" disabled={!state.connected} onClick={() => void bridge.send({ type: 'settings.get' })}>刷新状态</Button><Button type="button" disabled={restarting || saving || dirty} onClick={async () => { setRestarting(true); try { await bridge.restart(); setMessage('正在重启服务…'); } catch (reason) { setError(String(reason)); } finally { setRestarting(false); } }}>重启服务</Button></div>
         </details>

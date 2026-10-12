@@ -4,7 +4,7 @@ import { build } from 'esbuild';
 const compiled = await build({ entryPoints: ['renderer/dialogueWaiting.ts'], bundle: true, format: 'esm', write: false });
 const { dialogueWaiting, activeWaitingTool } = await import('data:text/javascript;base64,' + Buffer.from(compiled.outputFiles[0].text).toString('base64'));
 const state = { connected: true, generation: 7, cancelledGeneration: 6, task: 'thinking',
-  questions: [{ id: 'question', generation: 7 }], speeches: [], approvals: [], tools: [], settings: {} };
+  questions: [{ id: 'question', generation: 7 }], speeches: [], tools: [], settings: {} };
 assert(dialogueWaiting(state), 'An unanswered question displays the waiting effect.');
 const queued = { id: 'reply', generation: 7, state: 'generated' };
 assert(dialogueWaiting({ ...state, task: 'idle', speeches: [queued] }), 'Audio preparation still needs a waiting effect after generation ends.');
@@ -15,16 +15,13 @@ assert(!dialogueWaiting({ ...state, speeches: [{ ...queued, state: 'played' }] }
 assert(!dialogueWaiting({ ...state, cancelledGeneration: 7 }));
 assert(!dialogueWaiting({ ...state, error: 'Network failed' }));
 assert(!dialogueWaiting({ ...state, connected: false }));
-assert(!dialogueWaiting({ ...state, approvals: [{}] }));
-assert(!dialogueWaiting({ ...state, activeTask: { state: 'waiting_approval' } }));
-assert(!dialogueWaiting({ ...state, activeTask: { state: 'needs_input' } }));
 assert(!dialogueWaiting({ ...state, task: 'failed' }));
 assert(!dialogueWaiting({ ...state, task: 'idle' }));
 assert(!dialogueWaiting({ ...state, questions: [] }));
 assert(!dialogueWaiting({ ...state, generation: 8 }));
-console.log('PASS: waiting follows unanswered turns and audio preparation; presentation, cancellation, errors and approvals clear it.');
+console.log('PASS: waiting follows unanswered turns and audio preparation; presentation, cancellation and errors clear it.');
 
-const started = { type: 'tool.started', generation_id: 7, call_id: 'slow-work', tool: 'shell.run' };
+const started = { type: 'tool.started', generation_id: 7, call_id: 'slow-work', tool: 'desktop.observe' };
 const finished = { ...started, type: 'tool.completed' };
 const working = { ...state, speeches: [{ ...queued, state: 'played' }], presented: 'reply', tools: [started] };
 assert(dialogueWaiting(working), 'A spoken acknowledgment must not hide ongoing tool work.');
@@ -34,18 +31,16 @@ assert(!dialogueWaiting({ ...working, task: 'idle' }), 'Finished turns cannot le
 assert(!dialogueWaiting({ ...working, task: 'paused' }));
 assert(!dialogueWaiting({ ...working, cancelledGeneration: 7 }));
 assert(!activeWaitingTool({ ...working, generation: 8 }), 'Old tools cannot label a new question.');
-const concurrent = { ...started, tool: 'files.read', call_id: 'read-first' };
+const concurrent = { ...started, tool: 'web.fetch', call_id: 'read-first' };
 assert.equal(activeWaitingTool({ ...working, tools: [concurrent, started, finished] }).call_id, 'read-first', 'A receipt finishes its own call, not another active call.');
 assert(!activeWaitingTool({ ...working, tools: [started, { ...finished, type: 'tool.failed' }] }));
 assert(dialogueWaiting({ ...working, task: 'idle', tools: [started, finished], speeches: [...working.speeches, { ...queued, id: 'final-pending' }] }), 'Preparing a final answer after an acknowledgment remains visible.');
-assert(dialogueWaiting({ ...working, tools: [], activeTask: { state: 'running' } }), 'A running task stays visible between its calls.');
 
 const activityCompiled = await build({ entryPoints: ['renderer/waitingActivity.ts'], bundle: true, format: 'esm', write: false });
 const { waitingActivity } = await import('data:text/javascript;base64,' + Buffer.from(activityCompiled.outputFiles[0].text).toString('base64'));
 assert.equal(waitingActivity(state).stage, 'thinking');
 assert.equal(waitingActivity({ ...state, tools: [concurrent] }).stage, 'reading');
-assert.equal(waitingActivity(working).stage, 'working');
-assert(!waitingActivity(working).title.includes('shell'));
+assert.equal(waitingActivity(working).stage, 'reading');
 assert.equal(waitingActivity({ ...state, tools: [started, finished] }).stage, 'organizing');
 assert.equal(waitingActivity({ ...state, tools: [started, finished, { ...finished, type: 'tool.failed', call_id: 'failed-later' }] }).stage, 'thinking', 'The latest failed receipt cannot claim an earlier successful result.');
 assert.equal(waitingActivity({ ...state, speeches: [queued] }).stage, 'voice');

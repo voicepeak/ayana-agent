@@ -16,13 +16,10 @@ import { resolveTheme } from '../renderer/companionThemes';
 
 type Event = Record<string, unknown> & { type: string; protocol_version: number };
 const commands = new Set([
-  'session.start', 'session.close', 'turn.start', 'generation.cancel', 'target.bind',
-  'target.capture', 'windows.list', 'repository.inspect', 'repository.read',
-  'repository.search', 'settings.get', 'settings.update', 'history.get', 'tool.execute', 'utterance.displayed', 'mode.set', 'input.audio',
-  'capabilities.get', 'directory.grant', 'directory.revoke', 'task.pause', 'task.resume', 'task.cancel',
-  'approval.resolve', 'artifact.get', 'artifact.open', 'artifact.restore', 'source.open',
-  'computer.start',
-  'conversations.get', 'conversation.create', 'conversation.select', 'conversation.rename', 'conversation.materials.clear', 'subtitles.translate',
+  'session.start', 'session.close', 'turn.start', 'generation.cancel',
+  'settings.get', 'settings.update', 'history.get', 'utterance.displayed', 'input.audio',
+  'capabilities.get', 'source.open',
+  'conversations.get', 'conversation.create', 'conversation.select', 'conversation.rename', 'subtitles.translate',
   'conversation.history', 'conversation.search', 'conversation.export', 'conversation.delete',
   'memory.get', 'memory.update', 'memory.forget',
 ]);
@@ -36,7 +33,6 @@ protocol.registerSchemesAsPrivileged([
 let chat: BrowserWindow | undefined;
 let settingsWindow: BrowserWindow | undefined;
 let designWindow: BrowserWindow | undefined;
-let highlight: BrowserWindow | undefined;
 let tray: Tray | undefined;
 let child: ChildProcess | undefined;
 let socket: WebSocket | undefined;
@@ -53,10 +49,8 @@ let companionShown = false;
 let summonRaised = false;
 let refreshSummon = false;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
-let highlightTimer: ReturnType<typeof setTimeout> | undefined;
 let focusTimer: ReturnType<typeof setTimeout> | undefined;
 let recentEvents: Event[] = [];
-let repositoryRoot = '';
 let summonShortcut = 'Control+Alt+A';
 let cancelShortcut = 'Control+Alt+Space';
 let inputAfterCapture = true;
@@ -64,7 +58,6 @@ let composerRequested = false;
 let companionMenuOpen = false;
 let companionPositionTimer: ReturnType<typeof setTimeout> | undefined;
 let companionSettings: Record<string, unknown> = {};
-let companionMode = 'teach';
 let designPreview = { ...defaults.companion_ui };
 let designDraft = { ...designPreview };
 let designPreviewReverted = true;
@@ -168,25 +161,16 @@ function broadcast(event: Event, remember = true) {
     if (event.type === 'conversation.changed') {
       const retained = new Set(['settings.ready', 'service.state', 'desktop.service', 'desktop.shortcuts', 'capabilities.ready']);
       recentEvents = recentEvents.filter(previous => retained.has(previous.type));
-      repositoryRoot = String((event.materials as Record<string, unknown>)?.repository_root || '');
-    }
-    if (event.type === 'repository.cleared') {
-      recentEvents = recentEvents.filter(previous => !['repository.inspected', 'evidence.ready', 'repository.file'].includes(previous.type));
-      repositoryRoot = '';
-    }
-    if (event.type === 'repository.inspected') repositoryRoot = String(event.root || (event.repository as Record<string, unknown>)?.root || '');
-    if (event.type === 'snapshot.invalidated') {
-      recentEvents = recentEvents.filter(previous => previous.type !== 'snapshot.ready');
     }
     if (event.type === 'conversation.deleted') recentEvents = recentEvents.filter(previous => previous.conversation_id !== event.deleted_id);
-    if (['snapshot.ready', 'repository.inspected', 'settings.ready', 'history.ready', 'conversations.ready', 'context.state', 'memory.ready'].includes(event.type)) {
+    if (['settings.ready', 'history.ready', 'conversations.ready', 'context.state', 'memory.ready'].includes(event.type)) {
       recentEvents = recentEvents.filter(previous => previous.type !== event.type);
     }
     recentEvents.push(event);
-    const snapshots = new Set(['snapshot.ready', 'repository.inspected', 'settings.ready', 'history.ready', 'conversations.ready', 'conversation.changed', 'context.state', 'memory.ready']);
+    const snapshots = new Set(['settings.ready', 'history.ready', 'conversations.ready', 'conversation.changed', 'context.state', 'memory.ready']);
     recentEvents = recentEvents.filter((previous, index) => snapshots.has(previous.type) || index >= recentEvents.length - 160);
   }
-  for (const window of [chat, settingsWindow, designWindow, highlight]) {
+  for (const window of [chat, settingsWindow, designWindow]) {
     if (window !== chat && event.type.startsWith('audio.')) continue;
     if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) {
       window.webContents.send('ayana:event', event);
@@ -208,7 +192,6 @@ function cancel() {
   // This IPC event is emitted immediately, before waiting for the runtime.
   desktopEvent('desktop.cancelled', { cancelled_generation_id: currentGeneration });
   runtimeSend({ type: 'generation.cancel' });
-  highlight?.hide();
 }
 
 function hide() {
@@ -223,7 +206,6 @@ function hide() {
   cancel();
   runtimeSend({ type: 'session.close' });
   chat?.hide();
-  highlight?.hide();
   desktopEvent('desktop.hidden');
 }
 
@@ -282,7 +264,7 @@ function requestComposer() {
   broadcast({ protocol_version: 1, type: 'desktop.focus-input', generation_id: currentGeneration }, false);
 }
 
-function openManagement(tab?: 'tasks' | 'history') {
+function openManagement(tab?: 'history') {
   closeDesign();
   summonRaised = false;
   // The transparent companion must not cover the management window's controls.
@@ -304,12 +286,9 @@ function companionMenuItems(): Electron.MenuItemConstructorOptions[] {
     { label: '开始新话题', click: () => { requestComposer(); broadcast({ protocol_version: 1, type: 'desktop.new-topic' }, false); } },
     { label: `立即打断 · ${cancelShortcut}`, click: cancel },
     { type: 'separator' },
-    { label: '允许本次任务执行', type: 'checkbox', checked: companionSettings.full_access === true || companionMode === 'execute', enabled: companionSettings.full_access !== true,
-      click: item => { runtimeSend({ type: 'mode.set', mode: item.checked ? 'execute' : 'teach' }); } },
     { label: '显示中文字幕', type: 'checkbox', checked: companionSettings.subtitles !== false,
       click: item => { runtimeSend({ type: 'settings.update', settings: { subtitles: item.checked } }); } },
     { label: '话题与记录', click: () => openManagement('history') },
-    { label: '任务与结果', click: () => openManagement('tasks') },
     { label: '设置', click: () => openManagement() },
     { type: 'separator' },
     { label: '收起彩名', click: hide },
@@ -324,7 +303,7 @@ function windowHandle(window: BrowserWindow): number {
 function registerWindows() {
   runtimeSend({
     type: 'assistant.register',
-    hwnds: [chat, settingsWindow, designWindow, highlight].filter((win): win is BrowserWindow => !!win && !win.isDestroyed()).map(windowHandle),
+    hwnds: [chat, settingsWindow, designWindow].filter((win): win is BrowserWindow => !!win && !win.isDestroyed()).map(windowHandle),
   });
 }
 
@@ -345,30 +324,11 @@ function updateShortcuts(settings: Record<string, unknown>) {
     { label: `停止当前回复 · ${cancelShortcut}`, click: cancel },
     { label: '收起会话', click: hide },
     { label: '话题与记录', click: () => openManagement('history') },
-    { label: '任务与结果', click: () => openManagement('tasks') },
     { label: '设置与管理', click: () => openManagement() },
     { type: 'separator' },
     { label: '重新启动本地服务', click: () => { void restartRuntime(); } },
     { label: '退出 Ayana', click: () => { quitting = true; app.quit(); } },
   ]));
-}
-
-function showHighlight(event: Event) {
-  const result = (event.result ?? event) as Record<string, unknown>;
-  const rect = (result.screen_rect ?? result.rect ?? event.screen_rect) as Record<string, number> | undefined;
-  if (!rect || ![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite)) return;
-  // Native coordinates are physical screen pixels; Electron bounds use DIP.
-  const bounds = screen.screenToDipRect(chat!, { x: rect.x, y: rect.y, width: rect.width, height: rect.height });
-  const padding = 18;
-  highlight?.setBounds({
-    x: Math.floor(bounds.x - padding), y: Math.floor(bounds.y - padding),
-    width: Math.max(40, Math.ceil(bounds.width + padding * 2)),
-    height: Math.max(40, Math.ceil(bounds.height + padding * 2)),
-  });
-  highlight?.showInactive();
-  desktopEvent('desktop.target-cue', { cue_id: Date.now(), variant: 'hint' });
-  if (highlightTimer) clearTimeout(highlightTimer);
-  highlightTimer = setTimeout(() => highlight?.hide(), 6000);
 }
 
 function receive(event: Event) {
@@ -382,20 +342,6 @@ function receive(event: Event) {
   // make a desktop cancel reject newer audio from this running session.
   if (!['subtitle.translated', 'subtitle.translation-failed'].includes(event.type)
       && typeof event.generation_id === 'number') currentGeneration = Math.max(currentGeneration, event.generation_id);
-  if (event.type === 'artifact.open') {
-    const artifact = event.artifact as Record<string, unknown> | undefined;
-    const file = String(artifact?.absolute_path || '');
-    if (!artifact?.artifact_id || !path.isAbsolute(file) || !existsSync(file)) return;
-    if (/\.(md|txt|json|toml|ya?ml|csv|py|tsx?|jsx?|vue|html|css|sql|rs|go|cs|java|c|cpp|h)$/i.test(file)) {
-      // Source extensions can be associated with interpreters; always open as text.
-      const viewer = spawn('notepad.exe', [file], { windowsHide: false, stdio: 'ignore' });
-      viewer.on('error', () => desktopEvent('error', { message: '无法打开文本查看器。' }));
-      viewer.unref();
-    } else {
-      void shell.openPath(file).then(error => { if (error) desktopEvent('error', { message: '无法打开这个文件。' }); });
-    }
-    return;
-  }
   if (event.type === 'source.open') {
     try { const url = new URL(String(event.url)); if (['https:', 'http:'].includes(url.protocol) && !url.username && !url.password) void shell.openExternal(url.href); } catch { /* Invalid runtime URL. */ }
     return;
@@ -414,14 +360,8 @@ function receive(event: Event) {
     updateShortcuts(settings);
   }
   if (event.type === 'error' && designSaves.delete(String(event.request_id || ''))) revertDesignPreview();
-  if (event.type === 'mode.ready') companionMode = event.mode === 'execute' ? 'execute' : 'teach';
-  if (event.type === 'conversation.changed') highlight?.hide();
   if (event.type === 'session.started' && focusAfterCapture) focusChat();
-  if (event.type === 'target.bound' || event.type === 'snapshot.ready' || event.type === 'error') focusChat();
-  if (event.type === 'highlight.ready' || event.type === 'target.highlight'
-    || (event.type === 'tool.completed' && ((event.result as Record<string, unknown> | undefined)?.kind === 'highlight'))) {
-    showHighlight(event);
-  }
+  if (event.type === 'error') focusChat();
   broadcast(event);
 }
 
@@ -483,7 +423,6 @@ async function startRuntime() {
   token = randomBytes(32).toString('hex');
   port = await freePort();
   const root = backendRoot();
-  repositoryRoot = '';
   const bundled = path.join(process.resourcesPath, 'python', 'python.exe');
   const local = path.join(root, '.venv', 'Scripts', 'python.exe');
   const python = process.env.AYANA_PYTHON || (existsSync(bundled) ? bundled : existsSync(local) ? local : 'python');
@@ -555,7 +494,7 @@ function windowId(window: BrowserWindow | undefined) {
 }
 
 function trustedSender(id: number) {
-  return [chat, settingsWindow, designWindow, highlight].some(win => windowId(win) === id);
+  return [chat, settingsWindow, designWindow].some(win => windowId(win) === id);
 }
 
 function registerIpc() {
@@ -564,10 +503,9 @@ function registerIpc() {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return { ok: false, error: '命令格式无效。' };
     const command = value as Record<string, unknown>;
     if (!commands.has(String(command.type)) || JSON.stringify(command).length > 2_000_000) return { ok: false, error: '命令不在允许范围内。' };
-    if (['turn.start', 'generation.cancel', 'session.close', 'conversation.create', 'conversation.select', 'conversation.materials.clear'].includes(String(command.type))) {
+    if (['turn.start', 'generation.cancel', 'session.close', 'conversation.create', 'conversation.select'].includes(String(command.type))) {
       desktopEvent('desktop.cancelled', { cancelled_generation_id: currentGeneration });
     }
-    if (command.type === 'repository.inspect' && typeof command.root === 'string') repositoryRoot = command.root;
     const designRequest = command.type === 'settings.update' && typeof command.request_id === 'string'
       && Boolean((command.settings as Record<string, unknown> | undefined)?.companion_ui);
     if (designRequest) designSaves.set(String(command.request_id), { ...designDraft });
@@ -637,14 +575,7 @@ function registerIpc() {
   });
   ipcMain.handle('ayana:settings', (event, tab?: unknown) => {
     if (!trustedSender(event.sender.id)) return;
-    openManagement(tab === 'tasks' || tab === 'history' ? tab : undefined);
-  });
-  ipcMain.handle('ayana:reveal-path', (event, file: unknown) => {
-    if (![windowId(chat), windowId(settingsWindow)].includes(event.sender.id)) return false;
-    const target = String(file || '');
-    if (!path.isAbsolute(target) || !existsSync(target)) return false;
-    shell.showItemInFolder(target);
-    return true;
+    openManagement(tab === 'history' ? tab : undefined);
   });
   ipcMain.handle('ayana:note-background', async event => {
     if (![windowId(chat), windowId(designWindow)].includes(event.sender.id)) return { ok: false };
@@ -669,40 +600,29 @@ function registerIpc() {
   ipcMain.handle('ayana:hide-settings', event => {
     if (event.sender.id === windowId(settingsWindow)) hideManagement();
   });
-  ipcMain.handle('ayana:choose-repository', async (event) => {
-    if (event.sender.id !== windowId(settingsWindow)) return null;
-    const result = await dialog.showOpenDialog(settingsWindow!, { title: '选择仓库上下文', properties: ['openDirectory'] });
-    return result.canceled ? null : result.filePaths[0] ?? null;
-  });
-  ipcMain.handle('ayana:choose-directory', async (event) => {
-    if (event.sender.id !== windowId(settingsWindow)) return null;
-    const result = await dialog.showOpenDialog(settingsWindow!, { title: '选择 Ayana 可访问的文本目录', properties: ['openDirectory'] });
-    return result.canceled ? null : result.filePaths[0] ?? null;
-  });
   ipcMain.handle('ayana:restart', (event) => event.sender.id === windowId(settingsWindow) ? restartRuntime() : undefined);
   ipcMain.handle('ayana:state', (event) => {
     if (!trustedSender(event.sender.id)) return null;
-    return { connected: socket?.readyState === WebSocket.OPEN, service, version: app.getVersion(), repositoryRoot, events: recentEvents, composerRequested, designPreview, designDraft, designOpen: designWindow?.isVisible() === true };
+    return { connected: socket?.readyState === WebSocket.OPEN, service, version: app.getVersion(), events: recentEvents, composerRequested, designPreview, designDraft, designOpen: designWindow?.isVisible() === true };
   });
 }
 
-function createWindow(kind: 'chat' | 'settings' | 'design' | 'highlight') {
+function createWindow(kind: 'chat' | 'settings' | 'design') {
   const overlay = kind !== 'settings';
   const { workArea } = screen.getPrimaryDisplay();
   const window = new BrowserWindow({
-    width: kind === 'settings' ? Math.min(1160, workArea.width - 40) : kind === 'chat' ? companionSize(designPreview, workArea).width : kind === 'design' ? 336 : 300,
-    height: kind === 'settings' ? Math.min(830, workArea.height - 40) : kind === 'chat' ? companionSize(designPreview, workArea).height : kind === 'design' ? Math.min(600, workArea.height - 32) : 140,
+    width: kind === 'settings' ? Math.min(1160, workArea.width - 40) : kind === 'chat' ? companionSize(designPreview, workArea).width : 336,
+    height: kind === 'settings' ? Math.min(830, workArea.height - 40) : kind === 'chat' ? companionSize(designPreview, workArea).height : Math.min(600, workArea.height - 32),
     minWidth: kind === 'settings' ? 820 : kind === 'chat' ? Math.min(380, workArea.width - 32) : 40,
     minHeight: kind === 'settings' ? 480 : kind === 'chat' ? Math.min(320, workArea.height - 32) : undefined,
     show: false, frame: !overlay, transparent: overlay, backgroundColor: overlay ? '#00000000' : '#f5f7fb',
-    alwaysOnTop: overlay, focusable: kind !== 'highlight', skipTaskbar: overlay,
+    alwaysOnTop: overlay, skipTaskbar: overlay,
     title: kind === 'settings' ? 'Ayana · 设置与管理' : kind === 'design' ? '彩名 · 外观' : 'Ayana', autoHideMenuBar: true, hasShadow: !overlay,
     resizable: kind === 'settings' || kind === 'chat',
     movable: true,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   if (overlay) {
-    if (kind === 'highlight') window.setIgnoreMouseEvents(true, { forward: true });
     window.setAlwaysOnTop(true, 'screen-saver');
   }
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -730,7 +650,6 @@ function createWindow(kind: 'chat' | 'settings' | 'design' | 'highlight') {
     if (window === chat) { endCompanionDrag(); chat = undefined; }
     if (window === settingsWindow) settingsWindow = undefined;
     if (window === designWindow) designWindow = undefined;
-    if (window === highlight) highlight = undefined;
   });
   return window;
 }
@@ -788,7 +707,6 @@ async function ready() {
   chat = createWindow('chat');
   settingsWindow = createWindow('settings');
   designWindow = createWindow('design');
-  highlight = createWindow('highlight');
   placeCompanion(true);
   screen.on('display-metrics-changed', () => placeCompanion());
   screen.on('display-removed', () => placeCompanion());
@@ -815,7 +733,6 @@ app.on('before-quit', event => {
   endCompanionDrag(); persistCompanionPosition();
   globalShortcut.unregisterAll();
   if (reconnectTimer) clearTimeout(reconnectTimer);
-  if (highlightTimer) clearTimeout(highlightTimer);
   if (focusTimer) clearTimeout(focusTimer);
   socket?.terminate();
   tray?.destroy();

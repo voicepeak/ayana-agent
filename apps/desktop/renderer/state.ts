@@ -12,12 +12,8 @@ export interface Speech {
   state: 'generated' | 'playing' | 'played' | 'partial' | 'cancelled';
   played: number; total: number;
 }
-export interface Evidence { path: string; content: string; start_line?: number; line?: number; }
-export interface Target { hwnd?: number; target_id?: string; title?: string; process_id?: number; bounds?: Record<string, number>; }
-export interface Repository { root: string; name: string; files: string[]; evidence: Evidence[]; }
 export interface Conversation {
   conversation_id: string; title: string; preview: string; created: number; updated: number;
-  repository_root?: string;
 }
 export interface PersonalMemory {
   memory_id: string; content: string; edited?: boolean; updated: number;
@@ -28,22 +24,18 @@ export interface RecordPage {
 }
 export interface ModelState {
   connected: boolean; service: string; generation: number; cancelledGeneration: number;
-  task: string; voice: string; mode: 'teach' | 'execute'; target?: Target;
-  snapshot?: RuntimeEvent; observation?: { available: boolean; code?: string; message?: string }; speeches: Speech[]; current?: string; expression: string;
+  task: string; voice: string; speeches: Speech[]; current?: string; expression: string;
   expressionAt: number; inputState: string;
   settingsLoaded: boolean;
   apiKeyConfigured?: boolean;
   presented?: string; sentenceVersion: number;
-  summonVersion: number; workspaceHintAt: number; targetCue?: RuntimeEvent; attentionObserving: boolean;
-  progress: number; repository?: Repository; settings: Record<string, unknown>;
-  history: Record<string, unknown>[]; windows: Target[]; evidence: Evidence[];
-  actions: RuntimeEvent[]; tools: RuntimeEvent[]; error?: string; shortcuts?: RuntimeEvent;
+  summonVersion: number; attentionObserving: boolean;
+  progress: number; settings: Record<string, unknown>;
+  history: Record<string, unknown>[];
+  tools: RuntimeEvent[]; error?: string; shortcuts?: RuntimeEvent;
   questions: { text: string; generation: number; id: string; order?: number; startedAt?: number }[];
   modelUsage?: RuntimeEvent;
-  activeTask?: Record<string, unknown>; taskHistory: Record<string, unknown>[];
-  approvals: Record<string, unknown>[]; artifacts: Record<string, unknown>[];
-  sources: Record<string, unknown>[]; directories: Record<string, unknown>[]; searchConfigured: boolean;
-  computerUse?: Record<string, unknown>; computerProgress: RuntimeEvent[]; computerResult?: Record<string, unknown>;
+  sources: Record<string, unknown>[]; searchConfigured: boolean;
   conversation?: Conversation; conversations: Conversation[]; persistentHistory: boolean;
   contextSummary: string; contextState: string; retainedTurns: number;
   historyConversationId?: string; historyHasMore: boolean; historyBefore?: number;
@@ -52,10 +44,9 @@ export interface ModelState {
 }
 export const initialState: ModelState = {
   connected: false, service: 'starting', generation: 0, cancelledGeneration: -1,
-  task: 'idle', voice: 'starting', mode: 'teach', speeches: [], expression: 'neutral', expressionAt: 0, inputState: 'idle',
-  progress: 0, sentenceVersion: 0, summonVersion: 0, workspaceHintAt: 0, attentionObserving: false, settingsLoaded: false, settings: {}, history: [], windows: [], evidence: [], actions: [], tools: [], questions: [],
-  approvals: [], artifacts: [], sources: [], directories: [], taskHistory: [], searchConfigured: false,
-  computerProgress: [],
+  task: 'idle', voice: 'starting', speeches: [], expression: 'neutral', expressionAt: 0, inputState: 'idle',
+  progress: 0, sentenceVersion: 0, summonVersion: 0, attentionObserving: false, settingsLoaded: false, settings: {}, history: [], tools: [], questions: [],
+  sources: [], searchConfigured: false,
   conversations: [], persistentHistory: true, contextSummary: '', contextState: 'ready', retainedTurns: 0, historyHasMore: false,
   memories: [], memoryEnabled: true, memoryState: 'ready',
 };
@@ -64,7 +55,7 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
   const generation = ['subtitle.translated', 'subtitle.translation-failed'].includes(event.type) ? state.generation : Number(event.generation_id ?? state.generation);
   if (event.protocol_version !== 1) return state;
   // Late receipts belong to the original topic. They may update its stored record,
-  // but must never replace the active topic's visible reply or task.
+  // but must never replace the active topic's visible reply or state.
   if (event.conversation_id && state.conversation && event.conversation_id !== state.conversation.conversation_id
       && !['conversation.changed', 'conversations.ready', 'history.ready', 'conversation.review',
         'conversation.search-results', 'conversation.exported', 'conversation.deleted', 'memory.ready'].includes(event.type)) return state;
@@ -77,13 +68,12 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
     return {
       ...state, generation: Math.max(state.generation, generation),
       cancelledGeneration: Math.max(state.cancelledGeneration, cancelled),
-      current: undefined, presented: undefined, inputState: 'idle', progress: 0, task: 'idle', actions: [], approvals: [],
-      computerProgress: [], computerResult: undefined,
+      current: undefined, presented: undefined, inputState: 'idle', progress: 0, task: 'idle',
       speeches: state.speeches.map(s => s.generation <= cancelled && s.state !== 'played'
         ? { ...s, state: s.state === 'playing' ? 'partial' : 'cancelled' } : s),
     };
   }
-  const output = ['utterance.ready', 'utterance.displayed', 'desktop.present', 'subtitle.ready', 'audio.ready', 'action.proposed', 'evidence.ready', 'playback.started', 'playback.progress', 'approval.required', 'artifact.ready', 'source.ready'];
+  const output = ['utterance.ready', 'utterance.displayed', 'desktop.present', 'subtitle.ready', 'audio.ready', 'playback.started', 'playback.progress', 'source.ready'];
   if (output.includes(event.type) && generation <= state.cancelledGeneration) return state;
   let next = { ...state, generation: Math.max(state.generation, generation) };
   switch (event.type) {
@@ -113,13 +103,9 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
       const current = event.current as Conversation;
       if (event.type === 'conversation.changed' || state.conversation?.conversation_id !== current.conversation_id) {
         next = { ...next, speeches: [], questions: [], current: undefined, presented: undefined, task: 'idle',
-          activeTask: undefined, tools: [], actions: [], approvals: [], sources: [], history: [],
+          tools: [], sources: [], history: [],
           historyConversationId: undefined, historyHasMore: false, historyBefore: undefined,
-          computerProgress: [], computerResult: undefined, error: undefined, contextState: 'ready' };
-        next.repository = event.repository ? event.repository as unknown as Repository : undefined;
-        next.evidence = next.repository?.evidence || [];
-        next.target = event.target ? event.target as Target : undefined;
-        next.snapshot = undefined;
+          error: undefined, contextState: 'ready' };
       }
       next.conversation = current;
       next.conversations = event.conversations as Conversation[];
@@ -129,44 +115,13 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
       break;
     }
     case 'context.state': next.contextState = String(event.state); break;
-    case 'repository.cleared': next.repository = undefined; next.evidence = []; break;
     case 'capabilities.ready':
-      next.directories = (event.directories ?? []) as Record<string, unknown>[];
-      next.artifacts = (event.artifacts ?? []) as Record<string, unknown>[];
-      next.taskHistory = (event.tasks ?? []) as Record<string, unknown>[];
-      next.computerUse = event.computer_use as Record<string, unknown>;
       next.searchConfigured = Boolean(event.search_configured); break;
-    case 'computer.progress':
-      if (generation <= state.cancelledGeneration || generation < state.generation) break;
-      next.computerProgress = [...state.computerProgress, event.progress as RuntimeEvent].slice(-30); break;
-    case 'computer.completed':
-      if (generation <= state.cancelledGeneration || generation < state.generation) break;
-      next.computerResult = event.result as Record<string, unknown>; break;
-    case 'task.updated': {
-      const task = event.task as Record<string, unknown>;
-      if (generation < state.generation) break;
-      next.activeTask = task;
-      next.taskHistory = [task, ...state.taskHistory.filter(t => t.task_id !== task.task_id)].slice(0, 30);
-      break;
-    }
-    case 'approval.required': {
-      const approval = event.approval as Record<string, unknown>;
-      next.approvals = [...state.approvals.filter(a => a.approval_id !== approval.approval_id), approval]; break;
-    }
-    case 'approval.resolved':
-      next.approvals = state.approvals.filter(a => a.approval_id !== event.approval_id);
-      next.actions = state.actions.filter(a => (a.action as Record<string, unknown>)?.action_id !== event.approval_id); break;
-    case 'artifact.ready': {
-      const artifact = event.artifact as Record<string, unknown>;
-      next.artifacts = [artifact, ...state.artifacts.filter(a => a.artifact_id !== artifact.artifact_id)].slice(0, 60); break;
-    }
     case 'source.ready': {
       const source = event.source as Record<string, unknown>;
       next.sources = [source, ...state.sources.filter(s => s.source_id !== source.source_id)].slice(0, 100); break;
     }
     case 'desktop.summoned': next.summonVersion = state.summonVersion + 1; break;
-    case 'desktop.workspace-hint': next.workspaceHintAt = Date.now(); break;
-    case 'desktop.target-cue': next.targetCue = event; break;
     case 'attention.state': next.attentionObserving = event.observing === true; break;
     case 'desktop.dismiss-error': next.error = undefined; break;
     case 'desktop.service':
@@ -178,31 +133,9 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
       break;
     }
     case 'session.started':
-      next.target = event.target ? event.target as Target : undefined;
-      next.snapshot = undefined;
-      next.task = next.target ? 'observing' : 'idle'; next.error = undefined; break;
+      next.error = undefined; break;
     case 'task.state': next.task = String(event.state || 'idle'); break;
     case 'input.state': next.inputState = String(event.state || 'idle'); break;
-    case 'mode.ready': next.mode = event.mode === 'execute' ? 'execute' : 'teach'; break;
-    case 'target.bound': next.target = (event.target ?? event.window ?? event) as Target; next.snapshot = undefined; break;
-    case 'snapshot.ready': next.snapshot = event; next.observation = { available: true }; next.target = (event.target ?? next.target) as Target; if (next.task === 'observing') next.task = 'idle'; break;
-    case 'snapshot.invalidated': next.snapshot = undefined; next.actions = []; break;
-    case 'observation.unavailable':
-      next.snapshot = undefined;
-      next.observation = { available: false, code: String(event.code || ''), message: String(event.message || '目标窗口当前无法截图。') };
-      break;
-    case 'windows.list': next.windows = (event.windows ?? []) as Target[]; break;
-    case 'repository.inspected': {
-      const repo = (event.repository ?? event.result ?? event) as unknown as Repository;
-      next.repository = { root: repo.root || '', name: repo.name || '', files: repo.files || [], evidence: repo.evidence || [] };
-      next.evidence = repo.evidence || []; break;
-    }
-    case 'repository.file':
-    case 'evidence.ready': {
-      const evidence = (event.evidence ?? event.result ?? event) as unknown as Evidence;
-      if (evidence.path) next.evidence = [...state.evidence.filter(e => e.path !== evidence.path), evidence];
-      break;
-    }
     case 'settings.ready': {
       next.settings = (event.settings ?? {}) as Record<string, unknown>;
       next.apiKeyConfigured = typeof event.api_key_configured === 'boolean' ? event.api_key_configured : state.apiKeyConfigured;
@@ -277,16 +210,14 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
       }
       break;
     }
-    case 'action.proposed': next.actions = [...state.actions, event]; break;
     case 'tool.started':
     case 'tool.progress':
     case 'tool.completed':
     case 'tool.failed':
-      // Keep starts for slow parallel calls through the bounded task's receipts.
       next.tools = [...state.tools, event].slice(-150); break;
     case 'error':
       // Correlated command errors are shown by the initiating form. They must
-      // neither duplicate its feedback nor mark an unrelated live task failed.
+      // neither duplicate its feedback nor mark an unrelated live reply failed.
       if (event.request_id) break;
       next.error = String(event.message || event.error || '发生了未知错误。'); next.task = 'failed'; break;
   }
@@ -301,9 +232,8 @@ const previewBridge: AyanaBridge = {
   beginCompanionDrag: () => {}, endCompanionDrag: () => {}, openDesign: async () => {}, closeDesign: async () => {}, previewDesign: () => {},
   revertDesignPreview: async () => {},
   chooseNoteBackground: async () => ({ ok: false, error: '请在桌面应用中选择图片。' }),
-  revealPath: async () => false,
-  chooseRepository: async () => null, chooseDirectory: async () => null, restart: async () => {},
-  getState: async () => ({ connected: false, service: 'preview', version: '0.3.3', repositoryRoot: '', events: [] }),
+  restart: async () => {},
+  getState: async () => ({ connected: false, service: 'preview', version: '0.3.3', events: [] }),
 };
 export const bridge = window.ayana ?? previewBridge;
 

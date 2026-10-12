@@ -55,7 +55,7 @@ export function ConversationSwitcher({ state, open, onOpenChange, onContinue }: 
     try {
       const result = await bridge.send(target
         ? { type: 'conversation.select', conversation_id: target, request_id: request }
-        : { type: 'conversation.create', keep_materials: false, request_id: request });
+        : { type: 'conversation.create', request_id: request });
       if (!result.ok) { setPending(undefined); setError(result.error || '本地服务未连接。'); }
     } catch (failure) { setPending(undefined); setError(failure instanceof Error ? failure.message : '切换未完成，请重试。'); }
   }

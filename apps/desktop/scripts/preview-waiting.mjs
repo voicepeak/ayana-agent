@@ -1,4 +1,4 @@
-/** Preview the actual compiled companion renderer with isolated fixture events. No backend or personal profile. */
+﻿/** Preview the actual compiled companion renderer with isolated fixture events. No backend or personal profile. */
 import { app, BrowserWindow, ipcMain, Menu, protocol } from 'electron';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -42,10 +42,10 @@ function setScene(next, text = '帮我把这份资料整理一下') {
       emit('utterance.ready', { utterance_id: `ack-${generation}`, speech_ja: '先に資料を見てみるね。', audio_enabled: false });
       emit('subtitle.ready', { utterance_id: `ack-${generation}`, display_zh: '我先看看资料，再帮你整理。' });
     }
-    emit('tool.started', { call_id: `work-${generation}`, tool: next === 'reading' ? 'files.read' : 'shell.run' });
+    emit('tool.started', { call_id: `work-${generation}`, tool: next === 'reading' ? 'web.fetch' : 'desktop.observe' });
   } else if (next === 'organizing') {
-    emit('tool.started', { call_id: `work-${generation}`, tool: 'files.read' });
-    emit('tool.completed', { call_id: `work-${generation}`, tool: 'files.read', result: {} });
+    emit('tool.started', { call_id: `work-${generation}`, tool: 'web.fetch' });
+    emit('tool.completed', { call_id: `work-${generation}`, tool: 'web.fetch', result: {} });
   } else if (next === 'voice' || next === 'complete') {
     emit('utterance.ready', { utterance_id: `reply-${generation}`, speech_ja: '資料を整理したよ。', audio_enabled: next === 'voice' });
     emit('subtitle.ready', { utterance_id: `reply-${generation}`, display_zh: '资料整理好了，重点都放在这里。' });
@@ -114,7 +114,7 @@ window.show();
 setTimeout(() => setScene('working'), 200);
 // Automation is confined to this separate preview main process.
 globalThis.ayanaWaitingPreview = { setScene, setTheme, setSize: (width, height) => window.setContentSize(width, height), finishHistory: () => {
-  emit('tool.completed', { call_id: `work-${generation}`, tool: 'shell.run', result: {} });
+  emit('tool.completed', { call_id: `work-${generation}`, tool: 'desktop.observe', result: {} });
   emit('utterance.ready', { utterance_id: `latest-${generation}`, speech_ja: '結果を整理したよ。', audio_enabled: false });
   emit('subtitle.ready', { utterance_id: `latest-${generation}`, display_zh: '这次的结果回来了，我已经整理好。' });
   emit('task.state', { state: 'idle' });

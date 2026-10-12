@@ -18,17 +18,14 @@ export function activeWaitingTool(state: ModelState): RuntimeEvent | undefined {
 export function dialogueWaiting(state: ModelState): boolean {
   const question = state.questions.at(-1);
   if (!state.connected || state.error || !question || question.generation !== state.generation
-    || question.generation <= state.cancelledGeneration || state.approvals.length
-    || ['failed', 'waiting_approval', 'paused'].includes(state.task)
-    || ['waiting_approval', 'paused', 'cancelled', 'failed', 'blocked', 'needs_input'].includes(String(state.activeTask?.state))) return false;
+    || question.generation <= state.cancelledGeneration || state.task === 'failed') return false;
   const replies = state.speeches.filter(item => item.generation === question.generation);
   // A spoken acknowledgment can precede a slow tool call. Keep that work visible.
-  const workStarted = state.activeTask?.state === 'running'
-    || state.tools.some(event => Number(event.generation_id) === state.generation);
-  if (['thinking', 'acting'].includes(state.task) && (activeWaitingTool(state) || workStarted)) return true;
+  const workStarted = state.tools.some(event => Number(event.generation_id) === state.generation);
+  if (state.task === 'thinking' && (activeWaitingTool(state) || workStarted)) return true;
   const presentedIndex = replies.findIndex(item => item.id === state.presented);
   if (!replies.some(item => item.state === 'playing')
     && replies.slice(presentedIndex + 1).some(item => item.state === 'generated')) return true;
   if (replies.some(item => item.id === state.presented || ['playing', 'played', 'partial'].includes(item.state))) return false;
-  return ['thinking', 'acting'].includes(state.task) || replies.some(item => item.state === 'generated');
+  return state.task === 'thinking' || replies.some(item => item.state === 'generated');
 }

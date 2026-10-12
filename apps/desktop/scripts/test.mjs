@@ -97,15 +97,6 @@ state = reduceEvent(state, event('input.state', { generation_id: 9, state: 'tran
 assert.equal(state.inputState, 'transcribing');
 state = reduceEvent(state, event('desktop.cancelled', { generation_id: 9, cancelled_generation_id: 9 }));
 assert.equal(state.inputState, 'idle');
-state = reduceEvent(state, event('snapshot.ready', { target: { title: 'old target' }, snapshot_id: 'old' }));
-state = reduceEvent(state, event('snapshot.invalidated'));
-assert.equal(state.snapshot, undefined);
-assert.equal(state.actions.length, 0);
-state = reduceEvent(state, event('snapshot.ready', { target: { title: 'old target' }, snapshot_id: 'old' }));
-state = reduceEvent(state, event('session.started', { target: null }));
-assert.equal(state.target, undefined);
-assert.equal(state.snapshot, undefined);
-assert.equal(state.task, 'idle');
 console.log('PASS: Worklet resampling, exact end/cancel sample counts, stale audio rejection; playback-only expressions, cancellation and low-intensity sentences hold the previous face.');
 
 let routed = reduceEvent(initialState, event('utterance.ready', { utterance_id: 'catalog-one', speech_ja: '大丈夫かな。', asset_id: 'aya_z1a0010__a0018', intensity: .1 }));
@@ -174,36 +165,19 @@ const options = await readFile(new URL('../../../characters/registry.json', impo
 assert.deepEqual(Object.keys(JSON.parse(options).characters), ['ayana', 'ayana-su']);
 console.log('PASS: switching character re-dresses the visible face from the selected catalog and back.');
 
-let taskState = reduceEvent(initialState, event('task.updated', { task: { task_id: 'task-a', state: 'waiting_approval', goal: 'Edit' } }));
-taskState = reduceEvent(taskState, event('approval.required', { approval: { approval_id: 'approve-a', task_id: 'task-a', diff: '-old\n+new' } }));
-taskState = reduceEvent(taskState, event('approval.required', { approval: { approval_id: 'approve-a', task_id: 'task-a', diff: '-old\n+new' } }));
-assert.equal(taskState.approvals.length, 1);
-taskState = reduceEvent(taskState, event('generation.cancelled', { cancelled_generation_id: 7, generation_id: 8 }));
-assert.equal(taskState.approvals.length, 0);
-taskState = reduceEvent(taskState, event('approval.required', { approval: { approval_id: 'stale' } }));
-assert.equal(taskState.approvals.length, 0);
-taskState = reduceEvent(taskState, event('task.updated', { generation_id: 8, task: { task_id: 'task-a', state: 'cancelled' } }));
-taskState = reduceEvent(taskState, event('task.updated', { task: { task_id: 'old', state: 'succeeded' } }));
-assert.equal(taskState.activeTask.state, 'cancelled');
-taskState = reduceEvent(taskState, event('capabilities.ready', { generation_id: 8, artifacts: [{ artifact_id: 'saved' }], directories: [{ root_id: 'output', write: true }], tasks: [{ task_id: 'task-a', state: 'cancelled' }], search_configured: true }));
-assert.equal(taskState.artifacts[0].artifact_id, 'saved');
-assert.equal(taskState.directories[0].root_id, 'output');
+let taskState = reduceEvent(initialState, event('capabilities.ready', { search_configured: true }));
 assert.equal(taskState.searchConfigured, true);
-taskState = reduceEvent(taskState, event('artifact.ready', { generation_id: 8, artifact: { artifact_id: 'saved', sha256: 'verified' } }));
-assert.equal(taskState.artifacts.length, 1);
-assert.equal(taskState.artifacts[0].sha256, 'verified');
-console.log('PASS: approval deduplication, cancellation and stale task rejection; reconnect restores files, grants and search state.');
+taskState = reduceEvent(taskState, event('source.ready', { source: { source_id: 'source-a', url: 'https://example.com/' } }));
+assert.equal(taskState.sources[0].source_id, 'source-a');
+console.log('PASS: reconnect restores search configuration and live source records.');
 
 let topics = reduceEvent(initialState, event('conversation.changed', { generation_id: 10, current: { conversation_id: 'a', title: '甲' }, conversations: [], persistent: true }));
 topics = reduceEvent(topics, event('utterance.ready', { generation_id: 11, conversation_id: 'a', utterance_id: 'old-topic', speech_ja: '覚えているよ。' }));
 topics = reduceEvent(topics, event('conversation.changed', { generation_id: 12, current: { conversation_id: 'b', title: '乙' }, conversations: [], persistent: false, summary: '' }));
 assert.equal(topics.speeches.length, 0);
-assert.equal(topics.activeTask, undefined);
 assert.equal(topics.persistentHistory, false);
 topics = reduceEvent(topics, event('subtitle.ready', { generation_id: 13, conversation_id: 'a', utterance_id: 'old-topic', display_zh: '旧话题' }));
-topics = reduceEvent(topics, event('task.updated', { generation_id: 13, conversation_id: 'a', task: { state: 'succeeded' } }));
 assert.equal(topics.speeches.length, 0);
-assert.equal(topics.activeTask, undefined);
 topics = reduceEvent(topics, event('history.ready', { history_conversation_id: 'b', history: [{ id: 3, role: 'user', text: '最新' }], has_more: true, before: 3 }));
 topics = reduceEvent(topics, event('history.ready', { history_conversation_id: 'a', history: [{ id: 9, role: 'user', text: '错误话题' }] }));
 assert.equal(topics.history[0].text, '最新');
@@ -211,7 +185,7 @@ topics = reduceEvent(topics, event('history.ready', { history_conversation_id: '
 assert.equal(topics.history.length, 2);
 assert.equal(topics.history[0].text, '更早');
 assert.equal(topics.historyHasMore, false);
-console.log('PASS: topic switching clears old output and tasks; late events and history cannot cross topics; transcript pagination deduplicates.');
+console.log('PASS: topic switching clears old output; late events and history cannot cross topics; transcript pagination deduplicates.');
 
 let bilingual = { ...initialState, generation: 3, cancelledGeneration: 2, speeches: [{ id: 'caption', ja: 'こんにちは。', zh: '你好。', generation: 1, state: 'played', played: 10, total: 10 }], history: [{ role: 'assistant', utterance_id: 'caption', display_zh: '你好。' }] };
 bilingual = reduceEvent(bilingual, event('subtitle.translated', { generation_id: 500, utterance_id: 'caption', display_en: 'Hello.' }));

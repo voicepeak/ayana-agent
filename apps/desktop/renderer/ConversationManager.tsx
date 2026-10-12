@@ -120,7 +120,7 @@ export function ConversationManager({ state, send }: { state: ModelState; send: 
       <div className="manager-grid"><aside className="manager-index" aria-label={searched ? '搜索结果' : '对话列表'}>
         <div className="manager-index-heading"><span>{searched ? '找到的记录' : '最近的对话'}</span><Button variant="light" disabled={!state.connected || creating} aria-label="开始新的对话" onClick={async () => {
           setResume(undefined); setCreating(true); setSearched(false);
-          if (!await send({ type: 'conversation.create', keep_materials: false })) setCreating(false);
+          if (!await send({ type: 'conversation.create' })) setCreating(false);
         }}><Icon name="plus" size={14}/></Button></div>
         {searching ? <p className="manager-empty" role="status">正在查找…</p> : searched ? <>
           {state.searchResults?.items.map(item => <button className="manager-search-hit" key={Number(item.id)} onClick={() => choose(String(item.conversation_id), Number(item.id))}>
@@ -140,7 +140,7 @@ export function ConversationManager({ state, send }: { state: ModelState; send: 
             <Button variant="light" disabled={!state.connected} onClick={() => exportChat('json')}>导出 JSON</Button>
             <Button variant="light" className="manager-danger" onClick={() => setConfirmDelete(true)}>删除</Button></div>
           {exportRequest && state.exportRequest === exportRequest && <p className="manager-export" role="status">已导出到本机，文件位置已打开。</p>}
-          {confirmDelete && <div className="manager-delete-confirm" role="alertdialog" aria-label="确认删除对话"><strong>删除「{record.title}」？</strong><p>这段记录和从中自动记住的内容会被删除。已经生成的文件保留。</p><div>
+          {confirmDelete && <div className="manager-delete-confirm" role="alertdialog" aria-label="确认删除对话"><strong>删除「{record.title}」？</strong><p>这段记录和从中自动记住的内容会被删除。</p><div>
             <Button variant="light" disabled={busy} onClick={() => setConfirmDelete(false)}>保留</Button><Button color="danger" disabled={busy || !state.connected} onClick={() => void remove()}>{busy ? '正在删除…' : '确认删除'}</Button></div></div>}
           {!reviewing ? <p className="manager-empty" role="status">正在读取…</p> : <>
             <div className="manager-page-actions">{state.review?.has_more && <Button variant="light" onClick={() => loadReview(selected!, state.review?.before)}>更早的记录</Button>}
