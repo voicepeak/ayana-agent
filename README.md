@@ -1,17 +1,19 @@
-# Ayana · Personal Agent
+# Ayana · 桌面聊天伙伴
 
-Windows 个性化 Agent：立绘、细宋体电影对白和紧凑的文字输入收在可定制的便签中，跳字跟随实际语音播放进度；日语 Ayana 音色、可打断播放。便签提供夜墨、茶白、苔绿、雾蓝四套主题，以及自定义图片或纯色。模型、声音、服装和桌面工具通过右键菜单或托盘进入独立管理窗口。正式人设见 `characters/ayana/persona.md`。
+Windows 聊天伙伴：立绘、细宋体电影对白和紧凑的文字输入收在可定制的便签中，跳字跟随实际语音播放进度；日语 Ayana 音色、可打断播放。便签提供夜墨、茶白、苔绿、雾蓝四套主题，以及自定义图片或纯色。模型、声音、服装与观察开关通过右键菜单或托盘进入独立管理窗口。正式人设见 `characters/ayana/persona.md`。
+
+Ayana 只聊天和陪伴：不读写你的文件、不执行命令、不操作应用。她可以联网查资料、按需看看屏幕，把结果用普通的话说出来。
+
+> 想要“做事的 Agent”版本（文件、命令、浏览器自动化、桌面操作、computer use）？它完整保留在 `beta` 分支，`main` 只维护这个聊天伴侣。
 
 ### 主动观察与对话管理
 
-本版已打包为 `apps/desktop/release/Ayana-0.3.22-win-x64.exe`，退出旧版后打开即可使用，个人设置和历史沿用原位置；发布记录见 [0.3.22](docs/RELEASE_0.3.22.md)。
-
 呼出快捷键第一次将彩名置于上层，再按一次隐藏。打开聊天不自动绑定窗口，也不持续截图。
 
-Agent 可调用 `desktop.observe` 按需查看前台窗口、指定窗口或整个桌面。桌面全景只用于观察，操作前仍需选择具体窗口并取得新截图。
-开启“允许彩名偶尔偷看”后，彩名在显示且空闲时按设定的随机区间（默认 45–90 秒，设置里可调整）获得一次观察机会；同一窗口至少间隔约 3 分钟重新关注，相同画面会跳过后续视觉请求。她可以保持安静，主动搭话至少间隔 5 分钟；“偷看时允许搭话”关闭后只看不说。隐藏、进行任务、播放语音或关闭屏幕观察时不会主动偷看。说“别看了”暂停，“继续看”恢复；明确要求看屏幕时仍可按需观察。
+彩名可调用 `desktop.observe` 按需查看前台窗口、指定窗口或整个桌面。
+开启“允许彩名偶尔偷看”后，彩名在显示且空闲时按设定的随机区间（默认 45–90 秒，设置里可调整）获得一次观察机会；同一窗口至少间隔约 3 分钟重新关注，相同画面会跳过后续视觉请求。她可以保持安静，主动搭话至少间隔 5 分钟；“偷看时允许搭话”关闭后只看不说。隐藏、播放语音或关闭屏幕观察时不会主动偷看。说“别看了”暂停，“继续看”恢复；明确要求看屏幕时仍可按需观察。
 
-对话切换列表提供删除按钮。确认删除后立即清理该对话的消息、模型上下文、摘要、任务和关联记忆，回收 SQLite 数据页并清理 WAL。其他对话和已经导出的文件保留。
+对话切换列表提供删除按钮。确认删除后立即清理该对话的消息、模型上下文、摘要与关联记忆，回收 SQLite 数据页并清理 WAL。其他对话和已经导出的文件保留。
 
 ## 项目主页
 
@@ -21,19 +23,9 @@ Agent 可调用 `desktop.observe` 按需查看前台窗口、指定窗口或整�
 
 ## 在本机运行
 
-本机新构建为 `apps/desktop/release/Ayana-0.3.22-win-x64.exe`（2026-10-10）：偷看间隔可调并新增“偷看时允许搭话”开关，表情引导优先使用本会话未展示的表情，思考回复回传推理轨迹并修复带工具请求的 400 错误，见 [0.3.22 发布记录](docs/RELEASE_0.3.22.md)。它保留 0.3.21 的按需观察、双角色与对话删除（见 [0.3.21 发布记录](docs/RELEASE_0.3.21.md)）、0.3.20 的重复观察熔断与等待卡片（见 [0.3.20 发布记录](docs/RELEASE_0.3.20.md)）、0.3.19 的聊天窗口对话切换（见 [聊天窗口切换对话](docs/RELEASE_0.3.19.md)）和 0.3.18 的工具恢复修复（见 [工具调用恢复修复](docs/RELEASE_0.3.18.md)）。此前连续聊天、对话管理和个人记忆功能继续保留，见 [连续对话与对话管理](docs/CONTINUOUS_CONVERSATION.md)。
-
 本机交付版可直接双击 `apps/desktop/release/Ayana-0.3.22-win-x64.exe`。它包含独立 Python、桌面程序与立绘；个人模型配置保存在 `%APPDATA%/Ayana/config/local.json`。首次解包和加载音色需要等待；此前版本首次语音冷启动实测约 43 秒，期间文字输入与界面保持可用。启动新版前请退出旧版。
 
-0.3.17 及之后的版本已上传到 GitHub Releases，当前公开版本为 [0.3.22](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.22)。0.3.16 的 `Ctrl+Alt+W` 固定注视已由 0.3.21 的按需观察取代；见 [0.3.16 发布记录](docs/RELEASE_0.3.16.md)。
-
 开发目录也可双击 `启动 Ayana.cmd`，后续修改仍按下面的流程构建。
-
-话题管理版为 `apps/desktop/release/Ayana-0.3.2-context-win-x64.exe`：点击小窗口的「正在聊」切换话题，点「＋」开始新话题；管理窗口的「话题与记录」可以改名、查完整记录和解除材料绑定。长对话自动整理摘要，重启恢复当前话题。具体逻辑与验证见 [话题与上下文管理](docs/CONVERSATION_MANAGEMENT.md)。
-
-Full access 版为 `apps/desktop/release/Ayana-0.3.2-full-access-win-x64.exe`，包含话题管理和访问权限开关。退出旧版后启动，在「任务与结果」开启 Full access 即可。
-
-0.3.2 的历史对话修复包为 `apps/desktop/release/Ayana-0.3.2-dialogue-fix-win-x64.exe`，包含上述功能及默认免 Key 的 Bing 搜索。新增非日语句子重试/单句修复、损坏末尾字幕补回和报错时有效语音保留，详情见 [对话异常修复](docs/DIALOGUE_RECOVERY.md)。
 
 ```powershell
 python -m venv .venv
@@ -53,62 +45,49 @@ npm --prefix apps/desktop start
 
 联网模型设置 `provider=openai`、`base_url=https://api.deepseek.com`、`model=deepseek-flash`。密钥通过 `AYANA_API_KEY` 或 `DEEPSEEK_API_KEY` 环境变量提供；本机已有密钥使用当前 Windows 用户的 DPAPI 加密保存，界面和日志不接收密钥。
 
-在线模型默认使用原生 function calling（配置项 `native_tools`，默认 `true`）：请求携带注册工具的 `tools` schema，流式解析 `delta.tool_calls`，并以 `role:"tool"` 回传真实结果。因此在对话框里直接描述需求，模型会自行选择工具（读取网页、写入授权文件等），无需在提示里点名工具。若目标端点不支持 `tools`，可将 `native_tools` 设为 `false` 退回既有 NDJSON 工具事件协议。
-
-「设置与管理 → 权限与隐私」提供 **Full access** 开关（`full_access`，默认关闭，选择保存在本机）。开启后在对话中直接使用任意本机路径，读写仓库、操作应用、运行 PowerShell 命令；文件修改与恢复会直接应用并保留备份，桌面步骤无需逐次确认。`shell.run` 返回真实退出码与有上限的输出，命令超时、取消、切换开关或关闭助手会停止其进程树；用于持久启动桌面应用请用应用打开工具。关闭开关会停止当前任务并恢复原有目录授权、执行模式与确认规则。Full access 使用当前 Windows 用户权限；在线模型、可选 Brave 搜索凭证和 UFO 桌面组件仍需按对应功能配置，默认 Bing 搜索无需凭证。
+在线模型默认使用原生 function calling（配置项 `native_tools`，默认 `true`）：请求携带注册工具的 `tools` schema，流式解析 `delta.tool_calls`，并以 `role:"tool"` 回传真实结果。因此在对话框里直接描述需求，模型会自行选择工具（联网搜索、查看屏幕等），无需在提示里点名工具。若目标端点不支持 `tools`，可将 `native_tools` 设为 `false` 退回既有 NDJSON 工具事件协议。
 
 ## 体验流程
 
 1. 按 **Ctrl+Alt+A** 呼出 Ayana 便签并聚焦输入；也可点击立绘输入，拖动立绘调整位置。标题栏的设计按钮可以调整便签背景、宽度、立绘和字幕，点「保存设计」保留配置。
-2. 右键立绘或托盘「设置与管理」打开独立管理窗口；历史、任务和执行模式也在菜单中。Esc 先关闭输入，再收起角色。
+2. 右键立绘或托盘「设置与管理」打开独立管理窗口；对话与记忆、设置和观察开关也在菜单中。Esc 先关闭输入，再收起角色。
 3. 素材目录完整包含 234 张原始透明 PNG：26 种表情、9 种服装与姿势组合。选择服装后，模型按每句语境选择表情和动作，路由器验证并限制在所选服装内。
 4. 有语音时，立绘跟随实际播放句切换；仅文字时逐句呈现。思考下一句时沿用当前立绘，只有表情真正变化时才下沉 12px 并在 300ms 内回到原位；可在设置关闭，系统减少动态效果也会禁用。
 5. 按住麦克风说话、松开识别，文本可修改后发送。**Ctrl+Alt+Space** 立即打断，关闭呼出面板也会停止输出。
-6. 需要读取代码时，直接在对话中提供路径；观察或操作窗口，可在「任务与结果 → 窗口操作」中选择目标，切换执行模式并确认步骤。
-7. 首批新增网页读取、联网搜索接入、文本创建/修改/恢复，以及可暂停和取消的任务循环。对话框启用执行模式后可保存文件；管理窗口的「任务与结果」展示来源、文件与修改差异。Bing 搜索无需凭据；完整用法与实测边界见 [首批交付说明](docs/FIRST_BATCH_DELIVERY.md)。
-8. 执行模式现在可直接要求“打开记事本”“打开计算器”“打开这个网址”，也能查找并打开授权目录中的文件/文件夹。应用启动后，模型可选定新窗口继续观察。工具清单及限制见 [系统打开工具交付](docs/SYSTEM_TOOLS_DELIVERY.md)。
+6. 想让她看屏幕时直接说，或让“偶尔偷看”在空闲时留意一眼；网页和屏幕内容只作为证据，不会被当成指令执行。
 
-联网搜索默认 `search_provider=auto`：没有搜索凭据时使用 Bing RSS，无需 API Key；配置 Brave Key 后使用 Brave，也可显式选择 `bing` 或 `brave`。Bing RSS 路线参考 ByteMind 的实现；返回结果保留真实 URL、摘要和来源 ID，空结果或验证页面会明确报错。搜索引擎可能调整 RSS 行为，应继续用 `web.fetch` 核对原文。
+联网搜索默认 `search_provider=auto`：没有搜索凭据时使用 Bing RSS，无需 API Key；配置 Brave Key 后使用 Brave，也可显式选择 `bing` 或 `brave`。返回结果保留真实 URL、摘要和来源 ID，空结果或验证页面会明确报错。搜索引擎可能调整 RSS 行为，应继续用 `web.fetch` 核对原文。
 
 Brave 凭据可通过 `.venv\Scripts\python.exe scripts/configure_search.py --installed` 隐藏输入并使用 Windows DPAPI 加密保存。若 Brave 直连失败，可加 `--proxy http://127.0.0.1:7892`（使用本机实际 HTTP 代理端口）；`search_proxy` 只作用于固定 Brave API，网页读取和 Bing RSS 仍使用原有公网地址验证。模型 API Key 与 Brave Search API Key 是独立凭据。
-
-安全演示窗口：`.\.venv\Scripts\python.exe -m native.windows.demo_target`。它仅是练习应用，不会操作其他用户软件。
 
 ## 模块与提交
 
 | 目录 | 职责 |
 | --- | --- |
 | `packages/protocol` | 完整模型对象解析、日语语句与表达验证 |
-| `services/agent` | 会话、流式模型、工具证据、背压、取消、SQLite 历史 |
+| `services/agent` | 会话、流式模型、工具结果、背压、取消、SQLite 历史 |
 | `services/tts` | 常驻独立推理进程、显式权重加载、参考缓存、单 worker |
-| `native/windows` | Win32 截图、独立 MTA UIA、单步输入与结果观察 |
+| `native/windows` | Win32 窗口截图与前台窗口观察 |
 | `apps/desktop` | Electron、受限 IPC、React、唯一 AudioWorklet 播放器 |
-| `characters` | 角色注册表、人设、工具政策与受控表情映射（ayana / ayana-su） |
-
-开发按文档、协议、Agent、Windows、语音、桌面、语音输入、发布验证分别提交。实施基线见 `docs/AYANA_IMPLEMENTATION_PLAN.md`，完成情况与实测结果见 `docs/DEMO_DELIVERY.md`。
+| `characters` | 角色注册表、人设、聊天观察策略与受控表情映射（ayana / ayana-su） |
 
 ## 验证与打包
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
-$env:AYANA_WINDOWS_INTEGRATION='1'
-.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_windows.py -v
 .\.venv\Scripts\python.exe scripts/check_model.py
 .\.venv\Scripts\python.exe scripts/benchmark_tts.py --config config/local.json
-.\.venv\Scripts\python.exe scripts/smoke_demo.py
+npm --prefix apps/desktop run typecheck
+npm --prefix apps/desktop test
 ```
 
-基准输出在被忽略的 `.runtime/benchmarks`。PCM 到达耗时不等于设备出声耗时；真实播放器回执以消费的样本数为准。打包步骤由 `scripts/package_backend.py` 准备嵌入式 Python 和非敏感后端文件，再执行 `npm --prefix apps/desktop run package`。
+基准输出在被忽略的 `.runtime/benchmarks`。PCM 到达耗时不等于设备出声耗时；真实播放器回执以消费的样本数为准。打包步骤由 `scripts/package_backend.py` 准备嵌入式 Python 和非敏感后端文件，再执行 `npm --prefix apps/desktop run package`。完整打包步骤见 `scripts/PACKAGING.md`。
 
-完整打包步骤见 `scripts/PACKAGING.md`。真实桌面回归脚本为 `scripts/verify_desktop.mjs`，需要指定 Playwright 所在的 `node_modules`；它只对自己的练习窗口进行输入和点击。
-
-模型输入缓存使用稳定的系统/仓库前缀和独立模型轮次历史；「高级设置 → 服务与诊断」显示最近一次 API 缓存 token 回执。真实对照可运行 `python scripts/benchmark_prompt_cache.py`（默认六次联网请求，不读取用户聊天历史）。修复、实测与剩余架构问题见 [缓存与架构审查](docs/ARCHITECTURE_REVIEW_2026-10-04.md)。
-
-管理窗口使用单层导航：外观与声音、模型与连接、权限与隐私；任务与结果、对话记录单独归入管理，低频参数收进高级设置。已移除仓库界面和重复说明，保留草稿与后端保存回执；实现、验证和后续建议见 [设置整理与项目审查](docs/SETTINGS_AND_PROJECT_REVIEW_2026-10-06.md)。此更新已整合到 0.3.6 便携 EXE 中。
+桌面端与语音相关的真实回归脚本包括 `scripts/verify_attention_companion.mjs`、`scripts/verify_conversation_manager.mjs`、`scripts/verify_conversation_switcher.mjs`、`scripts/verify_settings.mjs` 与 `scripts/verify_portable_demo.mjs`，需要指定 Playwright 所在的 `node_modules`。
 
 ## 实际边界
 
-普通权限、已解锁、可捕获且未最小化的窗口受到支持；受保护内容和管理员窗口返回明确失败。单步执行需要新鲜截图，动态页面变化会要求重新观察。发送输入不自动等于目标成功，只有实际观察结果可用于判断。
+屏幕观察支持普通权限、已解锁、可捕获且未最小化的窗口；受保护内容和管理员窗口返回明确失败。网页与截图都是不可信证据，聊天不会据此执行任何操作。
 
 模型权重、GPT-SoVITS 引擎、角色素材、缓存和密钥独立于 Git 管理。发布包提供 Python 与桌面壳，本地 Ayana 引擎通过配置加载。没有资源时可选择文字模式；不会用别的音色冒充 Ayana。
 
