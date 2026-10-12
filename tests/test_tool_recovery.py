@@ -1,4 +1,4 @@
-"""Regression cases from the failed search and malformed report audit."""
+"""Regression cases from the failed search and malformed tool-call audit."""
 import asyncio
 import base64
 import json
@@ -13,7 +13,7 @@ from services.agent.tools.web import WebTools
 from services.agent.tools.search_terms import restore_search_terms
 from test_capabilities import runtime, speech
 from test_runtime import Desktop
-from test_model import sse_response, VALID
+from test_model import sse_response
 
 
 def rss(title="音无彩名", url="https://example.com/ayana"):
@@ -135,11 +135,11 @@ async def test_web_fetch_keeps_links_and_complete_body_for_continuation():
 
 class Batch(CapabilityRuntime):
     def __init__(self, dispatch):
-        self._read_tool = dispatch
+        self._dispatch_tool = dispatch
 
 
 @pytest.mark.asyncio
-async def test_web_batch_overlaps_but_keeps_results_order_and_write_barriers():
+async def test_web_batch_overlaps_but_keeps_results_order():
     started, done = [], []
     both = asyncio.Event()
     async def dispatch(request):
@@ -151,17 +151,15 @@ async def test_web_batch_overlaps_but_keeps_results_order_and_write_barriers():
             await asyncio.wait_for(both.wait(), 1)
             if key == "slow":
                 await asyncio.sleep(.01)
-        elif key == "write":
-            assert set(done) == {"slow", "fast"}
-        elif key == "last":
-            assert "write" in done
+        elif key == "mid":
+            assert {"slow", "fast"} <= set(done)
         done.append(key)
         return {"call_id": key}
     requests = [{"name": name, "call_id": cid} for name, cid in [
-        ("web.search", "slow"), ("web.fetch", "fast"), ("files.create", "write"), ("web.fetch", "last")]]
+        ("web.search", "slow"), ("web.fetch", "fast"), ("attention.configure", "mid")]]
     result = await Batch(dispatch)._dispatch_tools(requests)
-    assert [item["call_id"] for item in result] == ["slow", "fast", "write", "last"]
-    assert done == ["fast", "slow", "write", "last"]
+    assert [item["call_id"] for item in result] == ["slow", "fast", "mid"]
+    assert done == ["fast", "slow", "mid"]
 
 
 @pytest.mark.asyncio
@@ -196,13 +194,13 @@ async def test_malformed_native_sibling_gets_error_without_dropping_success(tmp_
         calls.append(body)
         if len(calls) == 1:
             return native_calls([("good", "web__fetch", '{"url":"https://example.com/ok"}'),
-                                 ("bad", "files__create", '{"path":')])
+                                 ("bad", "attention__configure", '{"enabled":')])
         receipts = [json.loads(m["content"]) for m in body["messages"] if m["role"] == "tool"]
         assert [r["call_id"] for r in receipts] == ["good", "bad"]
         assert receipts[0]["result"]["content"] == "verified source"
         assert receipts[1]["code"] == "invalid_arguments"
         assistant = next(m for m in reversed(body["messages"]) if m["role"] == "assistant")
-        assert assistant["tool_calls"][1]["function"]["arguments"] == '{"path":'
+        assert assistant["tool_calls"][1]["function"]["arguments"] == '{"enabled":'
         return sse_response([speech()])
     agent = runtime(tmp_path, respond)
     async def fetch(**args):
@@ -212,131 +210,9 @@ async def test_malformed_native_sibling_gets_error_without_dropping_success(tmp_
     try:
         await agent.handle({"type": "turn.start", "text": "Find the source"})
         await agent.task
-        assert len(calls) == 2 and len(performed) == 1 and agent.active_task.calls == 2
-        assert agent.active_task.results["good"]["value"]["result"]["content"] == "verified source"
-        assert not list((tmp_path / "artifacts").glob("*.md"))
-    finally:
-        await agent.close()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("with_tools", [False, True])
-async def test_invalid_report_repairs_metadata_once_without_replaying_committed_work(tmp_path, with_tools):
-    calls, performed = [], []
-    bad = {"type": "task", "kind": "answer", "status": "complete", "extra_field": "wrong"}
-    def respond(request):
-        body = json.loads(request.content)
-        calls.append(body)
-        if len(calls) == 1:
-            initial = sse_response([VALID, {"type": "translation", "key": "s1", "display_zh": "一起看看吧。"}, bad])
-            if with_tools:
-                return httpx.Response(200, text=initial.text.replace("data: [DONE]\n\n", "") +
-                    native_calls([("found", "web__fetch", '{"url":"https://example.com/ayana"}')]).text)
-            return initial
-        assert "tools" not in body
-        if with_tools:
-            assert any(m["role"] == "tool" and m["tool_call_id"] == "found" for m in body["messages"])
-        return sse_response([{"type": "task", "kind": "answer", "status": "complete"}])
-    agent = runtime(tmp_path, respond)
-    async def fetch(**args):
-        performed.append(args)
-        return {"content": "real source"}
-    agent.registry.tools["web.fetch"].handler = fetch
-    try:
-        await agent.handle({"type": "turn.start", "text": "Explain this"})
-        await agent.task
-        assert len(calls) == 2 and len(performed) == int(with_tools)
-        assert agent.active_task.state == "succeeded"
+        assert len(calls) == 2 and len(performed) == 1
         events = next(iter(agent.clients)).events
-        assert len([e for e in events if e["type"] == "utterance.ready"]) == 1
-        assert not [e for e in events if e["type"] == "error"]
-        assert any(r["phase"] == "task_report_validation" for r in agent.prompt_trace.export()["requests"])
-    finally:
-        await agent.close()
-
-
-@pytest.mark.asyncio
-async def test_report_repair_cannot_execute_ndjson_tools_or_loop_forever(tmp_path):
-    calls = []
-    def respond(request):
-        calls.append(request)
-        if len(calls) == 1:
-            return sse_response([VALID, {"type": "task", "status": "invalid"}])
-        return sse_response([{"type": "tool", "name": "files.create", "arguments": {
-            "path": "do-not-write.md", "content": "bad"}}, {"type": "task", "status": "invalid"}])
-    agent = runtime(tmp_path, respond)
-    try:
-        await agent.handle({"type": "turn.start", "text": "Please write something", "mode": "execute"})
-        await agent.task
-        # The second repair miss keeps the committed speech and finishes as a
-        # plain reply instead of failing the whole turn.
-        assert len(calls) == 2 and agent.active_task.state == "replied"
-        assert agent.active_task.calls == 0 and not (tmp_path / "artifacts/do-not-write.md").exists()
-        assert len([e for e in next(iter(agent.clients)).events if e["type"] == "utterance.ready"]) == 1
-    finally:
-        await agent.close()
-
-
-@pytest.mark.asyncio
-async def test_second_report_repair_miss_keeps_committed_speech_without_error(tmp_path):
-    calls = []
-    bad = {"type": "task", "kind": "answer", "status": "complete", "extra_field": 1}
-    def respond(request):
-        calls.append(request)
-        return sse_response([VALID, bad])
-    agent = runtime(tmp_path, respond)
-    try:
-        await agent.handle({"type": "turn.start", "text": "Explain this"})
-        await agent.task
-        events = next(iter(agent.clients)).events
-        assert len(calls) == 2
-        assert not [e for e in events if e["type"] == "error"]
-        assert len([e for e in events if e["type"] == "utterance.ready"]) == 1
-    finally:
-        await agent.close()
-
-
-@pytest.mark.asyncio
-async def test_report_repair_can_supply_first_answer_without_repeating_tools(tmp_path):
-    calls = []
-    def respond(request):
-        body = json.loads(request.content)
-        calls.append(body)
-        if len(calls) == 1:
-            initial = sse_response([{"type": "task", "status": "not-valid"}]).text.replace("data: [DONE]\n\n", "")
-            return httpx.Response(200, text=initial + native_calls([
-                ("once", "files__read", '{"path":"evidence.txt","root_id":"output"}')]).text)
-        assert "tools" not in body
-        return sse_response([VALID, {"type": "task", "kind": "answer", "status": "complete"}])
-    agent = runtime(tmp_path, respond)
-    (tmp_path / "artifacts/evidence.txt").write_text("real evidence", encoding="utf-8")
-    try:
-        await agent.handle({"type": "turn.start", "text": "Read this file"})
-        await agent.task
-        assert len(calls) == 2 and agent.active_task.calls == 1
-        assert agent.active_task.state == "succeeded"
-    finally:
-        await agent.close()
-
-
-@pytest.mark.asyncio
-async def test_report_repair_cannot_change_the_agreed_task_kind_or_checks(tmp_path):
-    calls = []
-    plan = {"type": "task", "kind": "action", "status": "running",
-            "checks": [{"description": "Open and verify the requested page", "evidence": []}]}
-    def respond(request):
-        calls.append(request)
-        if len(calls) == 1:
-            return sse_response([plan, VALID, {"type": "task", "status": "invalid"}])
-        return sse_response([{"type": "task", "kind": "answer", "status": "complete", "checks": []}])
-    agent = runtime(tmp_path, respond)
-    try:
-        await agent.handle({"type": "turn.start", "text": "Open this page"})
-        await agent.task
-        # An unrepaired kind change keeps the agreed action and its checks; the
-        # reply stays and the task simply needs verification.
-        assert len(calls) == 2 and agent.active_task.state == "needs_verification"
-        assert agent.active_task.kind == "action" and agent.active_task.checks == plan["checks"]
+        assert any(event["type"] == "utterance.ready" for event in events)
     finally:
         await agent.close()
 
@@ -383,7 +259,7 @@ async def test_cancelled_native_batch_leaves_paired_history_for_the_next_questio
         assert [m["tool_call_id"] for m in replies] == ["finished", "pending"]
         assert json.loads(replies[0]["content"])["result"]["content"] == "preserved real evidence"
         unknown = json.loads(replies[1]["content"])
-        assert unknown["code"] == "interrupted" and unknown["receipt"]["execution"] == "uncertain"
+        assert unknown["code"] == "interrupted"
         return sse_response([speech()])
     agent = runtime(tmp_path, respond)
     agent.registry.tools["web.fetch"].handler = fetch
@@ -409,47 +285,19 @@ async def test_network_error_is_typed_and_other_call_succeeds(tmp_path):
     try:
         result = await agent._dispatch_tools([{ "type": "tool", "name": "web.fetch", "arguments": {
             "url": "https://example.com/" + suffix}, "call_id": suffix} for suffix in ["slow", "good"]])
-        assert result[0]["code"] == "tool_timeout" and result[0]["receipt"]["retryable"]
+        assert result[0]["code"] == "tool_timeout"
         assert "secret" not in result[0]["error"] and result[1]["result"]["content"] == "good"
     finally:
         await agent.close()
 
 
 @pytest.mark.asyncio
-async def test_repeated_observation_without_new_information_breaks_the_loop(tmp_path):
-    class Visual(Desktop):
-        status = {"available": True}
-    agent = runtime(tmp_path, lambda r: sse_response([speech()]), Visual())
-    agent.target = {"target_id": "win"}
-    async def observe(**args):
-        return [{"name": "新标签页 - Google Chrome"}]
-    agent.registry.tools["desktop.observe"].handler = observe
-    try:
-        await agent.handle({"type": "turn.start", "text": "打开网页给我看看"})
-        await agent.task
-        first = await agent._dispatch_tool({"type": "tool", "name": "desktop.observe", "arguments": {"scope": "list"}, "call_id": "obs-1"})
-        assert first["result"][0]["name"].startswith("新标签页")
-        second = await agent._dispatch_tool({"type": "tool", "name": "desktop.observe", "arguments": {"scope": "list"}, "call_id": "obs-2"})
-        assert second["code"] == "repeated_no_progress"
-        assert second["receipt"]["retryable"] is False
-        async def changed(**args):
-            return [{"name": "音无彩名 - 萌娘百科 - Google Chrome"}]
-        agent.registry.tools["desktop.observe"].handler = changed
-        third = await agent._dispatch_tool({"type": "tool", "name": "desktop.observe", "arguments": {"scope": "list"}, "call_id": "obs-3"})
-        assert third["result"][0]["name"].startswith("音无彩名")
-        assert [e["type"] for e in next(iter(agent.clients)).events].count("tool.failed") == 1
-    finally:
-        await agent.close()
-
-
-@pytest.mark.asyncio
-async def test_repeated_searches_stop_network_and_feedback_is_task_local(tmp_path):
+async def test_repeated_searches_stop_network_and_feedback_is_turn_local(tmp_path):
     calls = []
     agent = runtime(tmp_path, lambda r: sse_response([speech()]))
     await agent.web.close()
     agent.web = WebTools(lambda: "", httpx.MockTransport(lambda r: (calls.append(r) or httpx.Response(200, text=rss()))))
     try:
-        # Start a task to bind the search history to this user turn.
         await agent.handle({"type": "turn.start", "text": "Search"})
         await agent.task
         request = {"type": "tool", "name": "web.search", "arguments": {"query": "音无彩名"}}
@@ -465,46 +313,6 @@ async def test_repeated_searches_stop_network_and_feedback_is_task_local(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_repeated_read_of_an_unchanged_file_is_blocked(tmp_path):
-    agent = runtime(tmp_path, lambda r: sse_response([speech()]))
-    (tmp_path / "artifacts").mkdir(exist_ok=True)
-    (tmp_path / "artifacts/evidence.txt").write_text("stable evidence", encoding="utf-8")
-    try:
-        await agent.handle({"type": "turn.start", "text": "Read the evidence"})
-        await agent.task
-        request = {"type": "tool", "name": "files.read",
-                   "arguments": {"root_id": "output", "path": "evidence.txt"}}
-        first = await agent._dispatch_tool({**request, "call_id": "read-1"})
-        second = await agent._dispatch_tool({**request, "call_id": "read-2"})
-        assert "result" in first and second["code"] == "repeated_no_progress"
-        assert second["receipt"]["retryable"] is False
-    finally:
-        await agent.close()
-
-
-@pytest.mark.asyncio
-async def test_identical_failing_call_stops_after_one_retry(tmp_path):
-    calls = []
-    agent = runtime(tmp_path, lambda r: sse_response([speech()]))
-    async def fetch(url):
-        calls.append(url)
-        raise ToolError("web_http_error", "网页服务返回 HTTP 403")
-    agent.registry.tools["web.fetch"].handler = fetch
-    try:
-        await agent.handle({"type": "turn.start", "text": "Fetch it"})
-        await agent.task
-        request = {"type": "tool", "name": "web.fetch", "arguments": {"url": "https://example.com/blocked"}}
-        first = await agent._dispatch_tool({**request, "call_id": "fetch-1"})
-        second = await agent._dispatch_tool({**request, "call_id": "fetch-2"})
-        third = await agent._dispatch_tool({**request, "call_id": "fetch-3"})
-        assert first["code"] == "web_http_error"
-        assert second["code"] == "repeated_failure" and len(calls) == 2
-        assert third["code"] == "repeated_failure" and len(calls) == 2
-    finally:
-        await agent.close()
-
-
-@pytest.mark.asyncio
 async def test_tool_round_budget_ends_with_a_tools_free_summary(tmp_path):
     calls = []
     def respond(request):
@@ -513,9 +321,9 @@ async def test_tool_round_budget_ends_with_a_tools_free_summary(tmp_path):
         if "tools" in body:
             index = len([body for body in calls if "tools" in body])
             return native_calls([(f"call-{index}", "web__fetch", json.dumps({"url": f"https://example.com/{index}"}))])
-        return sse_response([speech(), {"type": "task", "kind": "answer", "status": "complete"}])
+        return sse_response([speech()])
     agent = runtime(tmp_path, respond)
-    agent.settings.values["task_limits"] = {"rounds": 2, "calls": 24, "seconds": 180}
+    agent.settings.values["max_tool_rounds"] = 2
     async def fetch(url):
         return {"content": f"page {url}"}
     agent.registry.tools["web.fetch"].handler = fetch
@@ -525,6 +333,6 @@ async def test_tool_round_budget_ends_with_a_tools_free_summary(tmp_path):
         events = next(iter(agent.clients)).events
         assert len(calls) == 3 and "tools" not in calls[-1]
         assert not [e for e in events if e["type"] == "error"]
-        assert agent.active_task.state == "succeeded"
+        assert any(e["type"] == "utterance.ready" for e in events)
     finally:
         await agent.close()

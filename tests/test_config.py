@@ -51,10 +51,10 @@ def test_voice_mode_update_preserves_model_paths_and_survives_restart(tmp_path):
 def test_recognition_language_patch_preserves_provider_paths_and_model(tmp_path):
     settings = Settings(root=ROOT, data_root=tmp_path)
     settings.update({"stt": {"provider": "openai", "model": "custom", "base_url": "https://example.com/v1", "model_path": "local-model"}})
-    settings.update({"stt": {"language": "zh"}, "task_limits": {"calls": 8}})
+    settings.update({"stt": {"language": "zh"}, "max_tool_rounds": 6})
     loaded = Settings(root=ROOT, data_root=tmp_path)
     assert loaded.values["stt"] == {"provider": "openai", "model": "custom", "base_url": "https://example.com/v1", "model_path": "local-model", "language": "zh"}
-    assert loaded.values["task_limits"] == {"rounds": 12, "calls": 8, "seconds": 180}
+    assert loaded.values["max_tool_rounds"] == 6
 
 
 def test_public_settings_keeps_output_budget_but_redacts_nested_credentials(tmp_path):
@@ -102,7 +102,7 @@ def test_removed_watch_shortcut_does_not_reserve_old_profile_key(tmp_path):
 @pytest.mark.parametrize("patch", [
     {"save_history": "false"}, {"subtitles": 1}, {"send_screenshot": None},
     {"voice": {"voice_mode": "missing"}}, {"stt": []}, {"stt": {"language": None}},
-    {"task_limits": {"seconds": 601}}, {"max_utterances": 0},
+    {"task_limits": {"seconds": 601}}, {"max_utterances": 0}, {"max_tool_rounds": 0}, {"max_tool_rounds": 25},
     {"ambient_speech": "no"}, {"ambient_interval_min": 5}, {"ambient_interval_max": 601},
     {"ambient_interval_min": 120, "ambient_interval_max": 60},
     {"provider": "openai", "model": " "}, {"hotkey": " "},

@@ -66,54 +66,6 @@ async def test_ndjson_tool_api_names_normalize_only_using_current_schema_mapping
 
 
 VALID = {"type": "speech", "key": "s1", "speech_ja": "一緒に見よう。", "intent": "explain"}
-TASK = {"type": "task", "kind": "answer", "goal": "解释代码", "status": "running", "checks": []}
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("tail", ["普通说明文字", "```json", '{"type":"speech","speech_ja":"未完'])
-async def test_initial_task_metadata_does_not_prevent_format_retry(tail):
-    calls = []
-    messages = [{"role": "user", "content": "解释高亮代码"}]
-    discarded_task = {**TASK, "kind": "action", "checks": [{"description": "discarded attempt", "evidence": []}]}
-    def respond(request):
-        calls.append(json.loads(request.content))
-        if len(calls) == 1:
-            chunk = {"choices": [{"delta": {"content": tail}, "finish_reason": None}]}
-            raw = sse_response([discarded_task]).text.replace("data: [DONE]", "data: " + json.dumps(chunk) + "\n\ndata: [DONE]")
-            return httpx.Response(200, text=raw)
-        return sse_response([TASK, VALID, {"type": "task", "status": "complete"}])
-    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
-        provider = OpenAIProvider(Settings(), client)
-        events = [event async for event in provider.stream_reply(messages)]
-    assert len(calls) == 2
-    assert events == [TASK, VALID, {"type": "task", "status": "complete"}]
-    assert "discarded attempt" not in provider.assistant_message()["content"]
-    assert calls[0]["messages"] == messages and len(messages) == 1
-
-
-@pytest.mark.asyncio
-async def test_task_only_structural_failures_exhaust_retry_without_committing_metadata():
-    calls, committed = [], []
-    def respond(request):
-        calls.append(request)
-        return sse_response([TASK, {"type": "unknown"}])
-    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
-        with pytest.raises(ModelEventError):
-            async for event in OpenAIProvider(Settings(), client).stream_reply([]):
-                committed.append(event)
-    assert len(calls) == 2 and committed == []
-
-
-@pytest.mark.asyncio
-async def test_valid_task_only_response_preserves_report_order_without_retry():
-    reports = [TASK, {"type": "task", "status": "complete"}]
-    calls = []
-    def respond(request):
-        calls.append(request)
-        return sse_response(reports)
-    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
-        events = [event async for event in OpenAIProvider(Settings(), client).stream_reply([])]
-    assert events == reports and len(calls) == 1
 
 
 @pytest.mark.asyncio
@@ -232,18 +184,17 @@ async def test_no_retry_for_model_refusal():
 
 @pytest.mark.asyncio
 async def test_all_committed_event_types_disable_retry():
-    for first in [VALID, {"type": "evidence", "path": "README.md", "line": 1},
-                  {"type": "tool", "name": "capture_target", "arguments": {}},
-                  {"type": "action", "action": {"kind": "highlight"}}]:
+    for first in [VALID,
+                  {"type": "tool", "name": "attention.configure", "arguments": {"enabled": True}}]:
         calls, committed = [], []
         def respond(request):
             calls.append(request)
-            return sse_response([TASK, first, {"type": None}])
+            return sse_response([first, {"type": None}])
         async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
             with pytest.raises(ModelEventError):
                 async for event in OpenAIProvider(Settings(), client).stream_reply([]):
                     committed.append(event)
-        assert len(calls) == 1 and committed == [TASK, first]
+        assert len(calls) == 1 and committed == [first]
 
 
 @pytest.mark.asyncio
@@ -251,7 +202,7 @@ async def test_translation_without_speech_is_dropped_and_cannot_commit():
     calls, committed = [], []
     def respond(request):
         calls.append(request)
-        return sse_response([TASK, {"type": "translation", "key": "s1", "display_zh": "一句"}, {"type": None}])
+        return sse_response([{"type": "translation", "key": "s1", "display_zh": "一句"}, {"type": None}])
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
         with pytest.raises(ModelEventError):
             async for event in OpenAIProvider(Settings(), client).stream_reply([]):

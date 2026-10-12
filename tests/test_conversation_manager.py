@@ -96,7 +96,6 @@ async def test_export_all_pages_and_delete_records_context_memories_not_files(tm
     try:
         old = runtime.conversations.current_id
         await ask(runtime, '我喜欢红茶')
-        old_tasks = [record['task_id'] for record in runtime.store.records('task')]
         source = runtime.store.user_memory_sources()[0]
         runtime.memory.apply(fact(source), [source], runtime.memory.revision)
         for i in range(205):
@@ -117,7 +116,6 @@ async def test_export_all_pages_and_delete_records_context_memories_not_files(tm
         assert not runtime.store.search_history('留档')['items']
         assert not runtime.store.model_turns('conversation:' + old)
         assert not runtime.store.context_summary('conversation:' + old)
-        assert old_tasks and all(not runtime.store.get_record('task', tid) for tid in old_tasks)
         assert runtime.store.search_history('保留这段')['items']
         await runtime.handle({'type': 'conversation.delete', 'conversation_id': active})
         assert runtime.conversations.current_id not in {active, old}

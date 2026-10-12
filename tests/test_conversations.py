@@ -85,7 +85,7 @@ async def test_topic_isolation_return_model_change_and_restart(tmp_path, persist
 
 
 @pytest.mark.asyncio
-async def test_switch_cancels_audio_tasks_approvals_and_routes_late_receipts(tmp_path):
+async def test_switch_cancels_audio_tasks_and_routes_late_receipts(tmp_path):
     runtime = make_runtime(tmp_path, response)
     try:
         first = runtime.conversations.current_id
@@ -94,16 +94,14 @@ async def test_switch_cancels_audio_tasks_approvals_and_routes_late_receipts(tmp
         generation = runtime.generation
         runtime.utterances[uid].update(total_samples=1600, sample_rate=16000)
         await runtime.handle({"type": "playback.started", "utterance_id": uid, "generation_id": generation})
-        runtime.approvals["old"] = {"approval_id": "old"}
         runtime.target = {"target_id": "old", "title": "旧窗口"}
         runtime.snapshot = {"snapshot_id": "old"}
-        runtime.repository = {"root": "old", "files": [], "evidence": []}
         async def forever():
             await asyncio.Event().wait()
         task = runtime.task = asyncio.create_task(forever())
         await runtime.handle({"type": "conversation.create"})
-        assert task.cancelled() and not runtime.approvals and runtime.active_task is None
-        assert runtime.target is runtime.snapshot is runtime.repository is None
+        assert task.cancelled()
+        assert runtime.target is runtime.snapshot is None
         await runtime.handle({"type": "playback.cancelled", "utterance_id": uid,
                               "generation_id": generation, "played_samples": 800})
         assert runtime.conversations.history(runtime.conversations.current_id)["items"] == []
@@ -225,33 +223,6 @@ async def test_unfinished_question_survives_leaving_and_invalid_selection_is_har
         assert task.cancelled()
         await runtime.handle({"type": "conversation.select", "conversation_id": cid})
         assert "还没回答的原始目标" in json.dumps(runtime.prompt_history.messages(), ensure_ascii=False)
-        assert "unconfirmed proposals were cancelled" in json.dumps(runtime.prompt_history.messages())
-    finally:
-        await runtime.close()
-
-
-@pytest.mark.asyncio
-async def test_materials_are_optional_and_repository_restores_without_old_window(tmp_path):
-    runtime = make_runtime(tmp_path, response)
-    class CapturingDesktop(Desktop):
-        def capture(self, target):
-            return {"snapshot_id": "fresh", "png_base64": "image", "target": {"target_id": target}}
-    runtime.desktop = CapturingDesktop()
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    (repo / "readme.md").write_text("repository evidence", encoding="utf-8")
-    try:
-        first = runtime.conversations.current_id
-        await runtime.handle({"type": "repository.inspect", "root": str(repo)})
-        runtime.target = {"target_id": "window", "title": "当前窗口"}
-        await runtime.handle({"type": "conversation.create", "keep_materials": True})
-        assert runtime.repository["root"] == str(repo.resolve())
-        assert runtime.target["target_id"] == "window" and runtime.snapshot["snapshot_id"] == "fresh"
-        await runtime.handle({"type": "conversation.create"})
-        assert runtime.target is runtime.repository is runtime.snapshot is None
-        await runtime.handle({"type": "conversation.select", "conversation_id": first})
-        assert runtime.repository["root"] == str(repo.resolve()) and runtime.target is None
-        await runtime.handle({"type": "conversation.materials.clear"})
-        assert runtime.repository is None and runtime.conversations.current["repository_root"] is None
+        assert "Interrupted reply evidence" in json.dumps(runtime.prompt_history.messages())
     finally:
         await runtime.close()

@@ -98,32 +98,6 @@ async def test_bounded_audio_wait_is_released_by_cancel(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_long_desktop_action_does_not_block_cancel_command(tmp_path):
-    import threading
-    import time
-    started, cancelled = threading.Event(), threading.Event()
-    class SlowDesktop(Desktop):
-        def cancel(self):
-            cancelled.set()
-        def execute(self, action, snapshot):
-            started.set()
-            cancelled.wait(2)
-            return {"status": "stopped"}
-    runtime = AgentRuntime(settings(tmp_path), desktop=SlowDesktop(), tts=Tts())
-    runtime.clients.add(Ws())
-    runtime.target = {"target_id": "target"}
-    runtime.snapshot = {"snapshot_id": "snap"}
-    runtime.mode = "execute"
-    await runtime.handle({"type": "tool.execute", "snapshot_id": "snap", "action": {"kind": "type", "text": "demo"}})
-    await asyncio.to_thread(started.wait, 1)
-    before = time.perf_counter()
-    await runtime.handle({"type": "generation.cancel"})
-    assert time.perf_counter() - before < .15
-    assert cancelled.is_set()
-    await runtime.close()
-
-
-@pytest.mark.asyncio
 async def test_stt_settings_replaces_cached_recognizer_and_cancel_restores_input(tmp_path):
     from unittest.mock import AsyncMock
     runtime = AgentRuntime(settings(tmp_path), desktop=Desktop(), tts=Tts())
@@ -136,24 +110,6 @@ async def test_stt_settings_replaces_cached_recognizer_and_cancel_restores_input
     assert runtime.stt is None
     assert runtime.settings.values["stt"]["provider"] == "disabled"
     assert any(e["type"] == "input.state" and e["state"] == "idle" for e in ws.events)
-    await runtime.close()
-
-
-@pytest.mark.asyncio
-async def test_highlight_result_can_keep_its_action_kind(tmp_path):
-    class HighlightDesktop(Desktop):
-        def execute(self, action, snapshot):
-            return {"kind": "highlight", "screen_rect": {"x": 10, "y": 20, "width": 90, "height": 40}}
-    runtime = AgentRuntime(settings(tmp_path), desktop=HighlightDesktop(), tts=Tts())
-    ws = Ws()
-    runtime.clients.add(ws)
-    runtime.target = {"target_id": "target"}
-    runtime.snapshot = {"snapshot_id": "snap"}
-    await runtime.handle({"type": "tool.execute", "snapshot_id": "snap", "action": {"kind": "highlight"}})
-    await runtime.action_task
-    result = next(e for e in ws.events if e["type"] == "highlight.ready")
-    assert result["kind"] == "highlight" and result["screen_rect"]["width"] == 90
-    assert not any(e["type"] == "tool.failed" for e in ws.events)
     await runtime.close()
 
 
@@ -238,33 +194,7 @@ async def test_chat_expires_stale_image_without_capturing_hidden_window(tmp_path
     assert "stale-image" not in json.dumps(calls[0])
     assert any(event["type"] == "utterance.ready" for event in ws.events)
     assert not any(event["type"] == "error" for event in ws.events)
-    before = desktop.calls
-    await runtime.handle({"type": "target.capture", "watch": True})
-    await runtime.handle({"type": "target.capture", "watch": True})
-    assert desktop.calls == before + 2
-    assert sum(event["type"] == "observation.unavailable" for event in ws.events) == 2
-    assert not any(event["type"] == "error" for event in ws.events)
     runtime.settings.values["send_screenshot"] = False
-    await runtime.handle({"type": "target.capture", "watch": True})
-    assert desktop.calls == before + 2
-    await runtime.close()
-
-
-@pytest.mark.asyncio
-async def test_capture_failure_invalidates_old_image_and_actions(tmp_path):
-    class ClosedDesktop(Desktop):
-        def capture(self, target):
-            raise RuntimeError("Target closed")
-    runtime = AgentRuntime(settings(tmp_path), desktop=ClosedDesktop(), tts=Tts())
-    ws = Ws()
-    runtime.clients.add(ws)
-    runtime.target = {"target_id": "closed"}
-    runtime.snapshot = {"snapshot_id": "old", "png_base64": "old-image"}
-    runtime.actions["old"] = {"kind": "click"}
-    with pytest.raises(RuntimeError, match="Target closed"):
-        await runtime.capture()
-    assert runtime.snapshot is None and not runtime.actions
-    assert ws.events[-1]["type"] == "snapshot.invalidated"
     await runtime.close()
 
 
@@ -316,28 +246,6 @@ async def test_save_ack_is_correlated_and_search_capability_is_refreshed(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_proposed_highlight_allowed_in_teach_mode_but_click_rejected(tmp_path):
-    class ActionDesktop(Desktop):
-        def execute(self, action, snapshot):
-            return {"kind": action["kind"], "screen_rect": {"x": 0, "y": 0, "width": 30, "height": 30}}
-    runtime = AgentRuntime(settings(tmp_path), desktop=ActionDesktop(), tts=Tts())
-    ws = Ws()
-    runtime.clients.add(ws)
-    runtime.target = {"target_id": "target"}
-    runtime.snapshot = {"snapshot_id": "snap"}
-    await runtime._propose_action({"action": {"kind": "highlight"}})
-    action_id = next(iter(runtime.actions))
-    await runtime.handle({"type": "tool.execute", "action_id": action_id, "snapshot_id": "snap"})
-    await runtime.action_task
-    assert any(event["type"] == "highlight.ready" for event in ws.events)
-    await runtime._propose_action({"action": {"kind": "click"}})
-    action_id = next(iter(runtime.actions))
-    with pytest.raises(ValueError, match="单步执行"):
-        await runtime.handle({"type": "tool.execute", "action_id": action_id, "snapshot_id": "snap"})
-    await runtime.close()
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("save_history", [True, False])
 async def test_online_context_preserves_request_prefix_across_turns_and_receipts(tmp_path, save_history):
     import httpx
@@ -347,7 +255,6 @@ async def test_online_context_preserves_request_prefix_across_turns_and_receipts
     cfg.values.update(provider="openai", model="test", send_screenshot=False, save_history=save_history)
     cfg.key = lambda: "test-key"
     runtime = AgentRuntime(cfg, desktop=Desktop(), tts=Tts())
-    runtime.repository = {"root": "selected", "evidence": [{"content": "unique-repository-evidence"}], "files": []}
     ws = Ws()
     runtime.clients.add(ws)
     calls = []
@@ -365,7 +272,6 @@ async def test_online_context_preserves_request_prefix_across_turns_and_receipts
     assert len(calls) == 3
     assert calls[1][:len(calls[0])] == calls[0]
     assert calls[2][:len(calls[1])] == calls[1]
-    assert json.dumps(calls[2]).count("unique-repository-evidence") == 1
     assistant = calls[1][-2]
     assert json.loads(assistant["content"].splitlines()[0])["key"] == "s1"
     assert "played_samples" not in assistant["content"]
@@ -389,29 +295,6 @@ async def test_concurrent_commands_cannot_leave_an_untracked_old_turn(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_switching_back_to_teach_cancels_in_flight_input(tmp_path):
-    import threading
-    started, cancelled = threading.Event(), threading.Event()
-    class SlowDesktop(Desktop):
-        def cancel(self): cancelled.set()
-        def execute(self, action, snapshot):
-            cancelled.clear()
-            started.set()
-            cancelled.wait(2)
-            return {"status": "stopped"}
-    runtime = AgentRuntime(settings(tmp_path), desktop=SlowDesktop(), tts=Tts())
-    runtime.clients.add(Ws())
-    runtime.target = {"target_id": "target"}
-    runtime.snapshot = {"snapshot_id": "snap"}
-    runtime.mode = "execute"
-    await runtime.handle({"type": "tool.execute", "snapshot_id": "snap", "action": {"kind": "type", "text": "demo"}})
-    await asyncio.to_thread(started.wait, 1)
-    await runtime.handle({"type": "mode.set", "mode": "teach"})
-    assert cancelled.is_set() and runtime.mode == "teach" and runtime.action_task is None
-    await runtime.close()
-
-
-@pytest.mark.asyncio
 async def test_tool_rounds_and_interrupted_output_keep_factual_context(tmp_path):
     import httpx
     from tests.test_model import sse_response
@@ -420,13 +303,12 @@ async def test_tool_rounds_and_interrupted_output_keep_factual_context(tmp_path)
     cfg.values.update(provider="openai", model="test", send_screenshot=False)
     cfg.key = lambda: "test-key"
     runtime = AgentRuntime(cfg, desktop=Desktop(), tts=Tts())
-    runtime.repository = {"root": str(root), "files": [], "evidence": []}
     runtime.clients.add(Ws())
     calls = []
     def respond(request):
         calls.append(json.loads(request.content)["messages"])
         if len(calls) == 1:
-            return sse_response([{"type": "tool", "name": "files.find", "arguments": {"recursive": True, "text_only": True}}])
+            return sse_response([{"type": "tool", "name": "attention.configure", "arguments": {"enabled": True}}])
         speech = {"type": "speech", "key": "s1", "speech_ja": "一緒に見よう。"}
         if len(calls) == 3:
             return sse_response([speech, {"type": "unknown"}])
@@ -460,7 +342,6 @@ async def test_repeated_speech_key_across_tool_rounds_keeps_both_sentences(tmp_p
     cfg.values.update(provider="openai", model="test", send_screenshot=False)
     cfg.key = lambda: "test-key"
     runtime = AgentRuntime(cfg, desktop=Desktop(), tts=Tts())
-    runtime.repository = {"root": str(tmp_path), "files": [], "evidence": []}
     ws = Ws()
     runtime.clients.add(ws)
     calls = []
@@ -468,7 +349,7 @@ async def test_repeated_speech_key_across_tool_rounds_keeps_both_sentences(tmp_p
         calls.append(json.loads(request.content)["messages"])
         if len(calls) == 1:
             return sse_response([{"type": "speech", "key": "s1", "speech_ja": "まず入口を見よう。"},
-                                 {"type": "tool", "name": "files.find", "arguments": {"recursive": True, "text_only": True}}])
+                                 {"type": "tool", "name": "attention.configure", "arguments": {"enabled": True}}])
         return sse_response([{"type": "speech", "key": "s1", "speech_ja": "次に進もう。"},
                              {"type": "translation", "key": "s1", "display_zh": "接着往下。"}])
     runtime.model_client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
@@ -512,15 +393,11 @@ async def test_keyless_speech_with_stale_translation_key_delivers_turn(tmp_path)
     await runtime.close()
 
 
-def test_computer_tool_is_hidden_until_available(tmp_path):
+def test_unavailable_tools_are_hidden_from_the_model(tmp_path):
     runtime = AgentRuntime(settings(tmp_path), desktop=Desktop(), tts=Tts())
     names = [item["function"]["name"] for item in runtime.registry.openai_schemas()]
-    assert "computer__run" not in names
-    runtime.computer = type("Stub", (), {"status": {"available": True}})()
-    runtime.target = {"target_id": "selected"}
-    runtime.mode = "execute"
-    names = [item["function"]["name"] for item in runtime.registry.openai_schemas()]
-    assert "computer__run" in names
+    assert "desktop__observe" not in names
+    assert "attention__configure" in names and "web__fetch" in names
 
 
 @pytest.mark.asyncio
@@ -590,7 +467,7 @@ async def test_unavailable_tool_execution_is_rejected(tmp_path):
     runtime = AgentRuntime(settings(tmp_path), desktop=Desktop(), tts=Tts())
     try:
         with pytest.raises(ToolError) as failure:
-            await runtime.registry.execute("computer.run", {"goal": "打开设置"})
+            await runtime.registry.execute("desktop.observe", {})
         assert failure.value.code == "tool_unavailable"
     finally:
         await runtime.close()

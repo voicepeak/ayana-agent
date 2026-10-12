@@ -43,30 +43,21 @@ def test_protocol_schema_matches_the_runtime_limit():
     assert "key" in schema["properties"]
 
 
-def test_permission_branches_and_character_examples_are_consistent():
+def test_companion_policy_and_character_examples_are_consistent():
     catalog = AvatarCatalog(ROOT)
     assembler = PromptAssembler(ROOT, catalog)
     registry = ToolRegistry()
     examples = (ROOT / "characters/ayana/expression-examples.ndjson").read_text(encoding="utf-8")
     # Archived format samples must not become reusable lines in production prompts.
     sample_sentences = [json.loads(line)["speech_ja"] for line in examples.splitlines()]
-    for full in (False, True):
-        bundle = assembler.build(full_access=full, costume="校服",
-                                 tools=tool_prompt(registry, native_tools=True, full_access=full))
-        policies = [part for part in bundle.components if part["name"] == "permissions"]
-        assert len(policies) == 1
-        assert policies[0]["source"].endswith("full-access-policy.md" if full else "agent-policy.md")
-        if full:
-            assert "编辑和恢复必须等待" not in bundle.system
-            assert "The following directory, teaching-mode" not in bundle.system
-            assert "只访问用户所选仓库" not in bundle.system
-            assert "无需逐步确认" in bundle.system
-        else:
-            assert "任意本机路径、修改仓库" not in bundle.system
-            assert "等待用户在界面确认" in bundle.system
-        assert "Use fresh speech keys throughout" not in bundle.system
-        assert all(sentence not in bundle.system for sentence in sample_sentences)
-        assert "まず、入口を見てみよう。" not in bundle.system
+    bundle = assembler.build(costume="校服", tools=tool_prompt(registry, native_tools=True))
+    policies = [part for part in bundle.components if part["name"] == "permissions"]
+    assert len(policies) == 1
+    assert policies[0]["source"].endswith("agent-policy.md")
+    assert "不修改用户电脑上的任何内容" in bundle.system
+    assert "Use fresh speech keys throughout" not in bundle.system
+    assert all(sentence not in bundle.system for sentence in sample_sentences)
+    assert "まず、入口を見てみよう。" not in bundle.system
     for line in examples.splitlines():
         event = json.loads(line)
         validate_speech(event)

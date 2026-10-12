@@ -1,16 +1,16 @@
 from services.agent.tools.registry import ToolRegistry, arguments
 
 
-def test_access_descriptions_and_unavailable_reason_share_registry():
-    access = [False]
-    registry = ToolRegistry(lambda: access[0])
-    registry.add("file", "执行模式：在授权目录创建文本", arguments(), lambda: None, "write")
-    registry.set_visibility("file", lambda: access[0], "需要 Full access")
-    assert registry.catalog() == [{"name": "file", "available": False, "reason": "需要 Full access"}]
-    assert not registry.openai_schemas()
-    access[0] = True
-    assert registry.openai_schemas()[0]["function"]["description"] == "Full access：在本机目录创建文本"
-    assert 'Full access：在本机目录创建文本' in registry.prompt()
+def test_unavailable_tools_are_hidden_with_a_reason():
+    allowed = [False]
+    registry = ToolRegistry()
+    registry.add("web.fetch", "读取公网网页正文", arguments(), lambda: None)
+    registry.set_availability("web.fetch", lambda: allowed[0], "当前搜索服务尚未配置完成")
+    assert registry.catalog() == [{"name": "web.fetch", "available": False, "reason": "当前搜索服务尚未配置完成"}]
+    assert not registry.openai_schemas() and not registry.active_tools()
+    allowed[0] = True
+    assert registry.openai_schemas()[0]["function"]["description"] == "读取公网网页正文"
+    assert "读取公网网页正文" in registry.prompt()
     assert registry.catalog()[0]["available"]
 
 

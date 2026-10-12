@@ -149,12 +149,11 @@ async def test_attention_interval_follows_settings_and_reschedules(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_observe_overview_is_not_a_window_input_target_and_disabled_means_no_capture(tmp_path):
+async def test_observe_overview_is_not_a_window_target_and_disabled_means_no_capture(tmp_path):
     runtime = runtime_for(tmp_path, lambda request: sse_response([{"type": "silence"}]))
     try:
         await runtime.registry.execute("desktop.observe", {"scope": "desktop"})
         assert runtime.target is None and runtime.snapshot["actionable"] is False
-        assert not runtime.registry.available(runtime.registry.tools["desktop.step"])
         runtime.settings.values["send_screenshot"] = False
         with pytest.raises(ToolError):
             await runtime._observe_data()

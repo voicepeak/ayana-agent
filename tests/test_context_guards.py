@@ -6,8 +6,6 @@ import pytest
 
 from services.agent.context import PromptHistory, summary_batches
 from services.agent.storage import ConversationStore
-from services.agent.tasks import TaskRunner
-from services.agent.work import remember_result
 from tests.test_conversations import make_runtime, response
 from tests.test_model import sse_response
 
@@ -49,45 +47,42 @@ async def test_cap_request_does_not_subtract_fixed_prefix_twice(tmp_path, native
     try:
         # A long retained conversation still fits the full request ceiling.
         # The fixed prefix was already reserved when history was assembled.
-        result = {"name": "apps.search", "call_id": "find-steam", "result": [
-            {"app_id": "app-steam", "name": "Steam"}]}
-        tool_message = ({"role": "tool", "tool_call_id": "find-steam",
+        result = {"name": "web.search", "call_id": "find-example", "result": [
+            {"source_id": "src-example", "url": "https://example.com/"}]}
+        tool_message = ({"role": "tool", "tool_call_id": "find-example",
                          "content": json.dumps(result)} if native
                         else runtime._tool_message([result]))
         messages = [{"role": "system", "content": "s" * 14000},
                     {"role": "assistant", "content": "h" * 30000},
-                    {"role": "user", "content": "open Steam"},
+                    {"role": "user", "content": "open the page"},
                     {"role": "assistant", "content": ""}, tool_message]
         original = json.dumps(messages, ensure_ascii=False)
         assert len(original) < runtime.prompt_history.max_chars
         assert len(original) > runtime.prompt_history.max_chars - 23000
         runtime._cap_request(messages, prefix_length=2, reserve_chars=23000)
         assert json.dumps(messages, ensure_ascii=False) == original
-        assert "app-steam" in messages[-1]["content"]
+        assert "src-example" in messages[-1]["content"]
     finally:
         await runtime.close()
 
 
 @pytest.mark.asyncio
 async def test_failed_turn_seals_already_read_tool_evidence(tmp_path):
-    marker = "unique-proof-marker-9381"
-    artifacts = tmp_path / "artifacts"
-    artifacts.mkdir(exist_ok=True)
-    (artifacts / "proof.txt").write_text(marker, encoding="utf-8")
     calls = []
     def respond(request):
         calls.append(json.loads(request.content)["messages"])
         if len(calls) == 1:
-            return sse_response([{"type": "tool", "name": "files.read",
-                                  "arguments": {"root_id": "output", "path": "proof.txt"}}])
+            return sse_response([{"type": "tool", "name": "attention.configure",
+                                  "arguments": {"enabled": True}}])
         return httpx.Response(503)
     runtime = make_runtime(tmp_path, respond)
     try:
-        await runtime.handle({"type": "turn.start", "text": "read the proof"})
+        await runtime.handle({"type": "turn.start", "text": "toggle the setting"})
         await runtime.task
         assert len(calls) == 2
         sealed = json.dumps(runtime.prompt_history.turns, ensure_ascii=False)
-        assert marker in sealed  # the real tool result survived the failure
+        plain = sealed.replace('\\"', '"')
+        assert '"attention.configure"' in plain and '"enabled": true' in plain  # the real tool result survived the failure
         failed = next(e for e in next(iter(runtime.clients)).events if e["type"] == "error")
         assert "模型服务暂时不可用" in failed["message"]
     finally:
@@ -95,25 +90,20 @@ async def test_failed_turn_seals_already_read_tool_evidence(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_tool_rounds_stay_within_the_project_budget(tmp_path):
-    artifacts = tmp_path / "artifacts"
-    artifacts.mkdir(exist_ok=True)
-    for index in range(6):
-        (artifacts / f"big{index}.txt").write_text("z" * 16000, encoding="utf-8")
+async def test_tool_round_budget_ends_the_loop(tmp_path):
     calls = []
     def respond(request):
-        body = json.loads(request.content)
-        calls.append(len(json.dumps(body["messages"], ensure_ascii=False)))
-        if len(calls) <= 6:
-            return sse_response([{"type": "tool", "name": "files.read",
-                                  "arguments": {"root_id": "output", "path": f"big{len(calls) - 1}.txt"}}])
-        return sse_response([{"type": "speech", "key": "s1", "speech_ja": "読んだよ。"}])
+        calls.append(1)
+        return sse_response([{"type": "tool", "name": "attention.configure",
+                              "arguments": {"enabled": True}}])
     runtime = make_runtime(tmp_path, respond)
+    runtime.settings.values["max_tool_rounds"] = 3
     try:
-        await runtime.handle({"type": "turn.start", "text": "read repeatedly"})
+        await runtime.handle({"type": "turn.start", "text": "loop"})
         await runtime.task
-        assert len(calls) == 7
-        assert max(calls) <= runtime.prompt_history.max_chars
+        # Three tool rounds plus the tools-free wrap-up round.
+        assert len(calls) == 4
+        assert any(event["type"] == "error" for event in next(iter(runtime.clients)).events)
     finally:
         await runtime.close()
 
@@ -129,54 +119,3 @@ def test_summary_batches_split_and_truncate_oversized_turns():
     batches = summary_batches(huge, budget=10000)
     assert len(batches) == 1 and batches[0][0]["truncated"] is True
     assert "truncated for summary" in batches[0][0]["messages"][0]["content"]
-
-
-def test_file_reference_identity_prefers_stable_absolute_path():
-    context = {}
-    remember_result(context, "files.read", {}, {"call_id": "a", "result": {
-        "root_id": "repository", "path": "config.py", "absolute_path": "/repo-a/config.py"}})
-    remember_result(context, "files.read", {}, {"call_id": "b", "result": {
-        "root_id": "repository", "path": "config.py", "absolute_path": "/repo-b/config.py"}})
-    # Same root_id and relative path, but different real files: not merged.
-    assert len(context["objects"]) == 2
-
-
-def test_remember_result_binds_resolved_absolute_path():
-    context = {}
-    remember_result(context, "files.read", {"root_id": "output", "path": "a.txt"},
-                    {"call_id": "c", "result": {"root_id": "output", "path": "a.txt"}},
-                    resolver=lambda root_id, path: "C:/resolved/" + path)
-    assert context["objects"][0]["absolute_path"] == "C:/resolved/a.txt"
-
-
-@pytest.mark.asyncio
-async def test_prompt_context_marks_references_from_another_repository(tmp_path):
-    runtime = make_runtime(tmp_path, response)
-    try:
-        runtime.repository = {"root": str(tmp_path / "repo-b"), "files": [], "evidence": []}
-        remember_result(runtime._work_context(), "files.read", {}, {"call_id": "a", "result": {
-            "root_id": "repository", "path": "config.py",
-            "absolute_path": str(tmp_path / "repo-a" / "config.py")}})
-        prompt = runtime._prompt_work_context()
-        assert prompt["objects"][0].get("stale") is True
-    finally:
-        await runtime.close()
-
-
-@pytest.mark.asyncio
-async def test_restart_reconciles_work_context_task_state(tmp_path):
-    runtime = make_runtime(tmp_path, response)
-    task = TaskRunner("unfinished original task", {})
-    try:
-        runtime._work_context()["current_task"] = task.public()
-        runtime.conversations.save()
-        runtime.store.put_record("task", task.task_id, task.public())
-    finally:
-        await runtime.close()
-    reopened = make_runtime(tmp_path, response)
-    try:
-        assert reopened.store.get_record("task", task.task_id)["state"] == "interrupted"
-        context = reopened.conversations.current.get("work_context")
-        assert context["current_task"]["state"] == "interrupted"
-    finally:
-        await reopened.close()
