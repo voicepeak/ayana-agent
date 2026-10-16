@@ -319,18 +319,20 @@ class OpenAIProvider:
             raise ValueError("Configure a model and AYANA_API_KEY before using online mode")
         url = cfg["base_url"].rstrip("/") + "/chat/completions"
         body = {"model": cfg["model"], "messages": messages, "stream": True, "max_tokens": cfg.get("model_max_tokens", 6000)}
+        temperature = cfg.get("temperature", 1.0)
+        if type(temperature) in {int, float} and 0 <= temperature <= 2:
+            body["temperature"] = temperature
         if tools:
             body["tools"] = tools
             body["tool_choice"] = "auto"
+        body["stream_options"] = {"include_usage": True}
         if urlparse(url).hostname == "api.deepseek.com":
-            body["stream_options"] = {"include_usage": True}
             if self.thinking:
                 body["thinking"] = {"type": "enabled", "reasoning_effort": "max"}
                 body["max_tokens"] = max(body["max_tokens"], 65536)
                 self.thinking_applied = True
             else:
                 body["thinking"] = {"type": "disabled"}
-                body["temperature"] = 0.3
         if self.request_observer:
             self.request_observer(body, phase="main")
         owned = self.client is None

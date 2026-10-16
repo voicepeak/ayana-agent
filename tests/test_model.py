@@ -83,7 +83,7 @@ async def test_retry_missing_type_before_first_event_then_valid():
     assert calls[1]["messages"][-1]["role"] == "system"
     assert "No wrapper objects" in calls[1]["messages"][-1]["content"]
     assert len(messages) == 2  # caller's stable context was not mutated
-    assert calls[0]["temperature"] == .3
+    assert calls[0]["temperature"] == 1.0
 
 
 @pytest.mark.asyncio
@@ -96,8 +96,22 @@ async def test_conversation_thinking_uses_max_effort_with_output_headroom():
         provider = OpenAIProvider(Settings(), client, thinking=True)
         assert [event async for event in provider.stream_reply([])] == [VALID]
     assert calls[0]["thinking"] == {"type": "enabled", "reasoning_effort": "max"}
-    assert "temperature" not in calls[0]
+    assert calls[0]["temperature"] == 1.0
     assert calls[0]["max_tokens"] == 65536
+
+
+@pytest.mark.asyncio
+async def test_configured_temperature_is_sent_in_thinking_mode():
+    class WarmSettings(Settings):
+        values = {"base_url": "https://api.deepseek.com/v1", "model": "configured-model", "temperature": 1.4}
+    calls = []
+    def respond(request):
+        calls.append(json.loads(request.content))
+        return sse_response([VALID])
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        provider = OpenAIProvider(WarmSettings(), client, thinking=True)
+        assert [event async for event in provider.stream_reply([])] == [VALID]
+    assert calls[0]["temperature"] == 1.4
 
 
 @pytest.mark.asyncio
@@ -319,7 +333,7 @@ async def test_compatible_provider_cached_tokens_and_usage_reset_between_request
         assert provider.usage["cache_hit_ratio"] == .64
         _ = [event async for event in provider.stream_reply([])]
         assert provider.usage is None
-    assert "stream_options" not in calls[0]  # optional extensions must not break other endpoints
+    assert calls[0]["stream_options"] == {"include_usage": True}  # standard OpenAI field, also used for cost visibility
 
 
 @pytest.mark.asyncio
