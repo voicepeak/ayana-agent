@@ -39,54 +39,50 @@ def runtime_for(tmp_path, response):
 
 
 @pytest.mark.asyncio
-async def test_ambient_can_choose_silence_without_capturing_or_writing_history(tmp_path):
+async def test_ambient_glance_captures_first_and_silence_writes_nothing(tmp_path):
     requests = []
     def response(request):
         requests.append(json.loads(request.content))
-        return sse_response([{"type": "silence"}])
+        return sse_response([{"type": "silence", "observation_summary": "页面显示下载进度。"}])
     runtime = runtime_for(tmp_path, response)
     try:
         await runtime._attention_turn(runtime.desktop.front, runtime.conversations.current_id, runtime.generation)
-        assert runtime.desktop.calls == 0
+        assert runtime.desktop.calls == 1 and len(requests) == 1
+        assert "image_url" in json.dumps(requests[0])
+        assert "tools" not in requests[0]
+        assert requests[0]["max_tokens"] == 800
+        assert runtime.recent_observations[-1]["summary"] == "页面显示下载进度。"
         assert runtime.conversations.history(runtime.conversations.current_id)["items"] == []
         assert runtime.store.db.execute("SELECT count(*) FROM events").fetchone()[0] == 0
-        assert [tool["function"]["name"] for tool in requests[0]["tools"]] == ["desktop__observe"]
-        assert requests[0]["max_tokens"] == 800
     finally:
         await runtime.close()
 
 
 @pytest.mark.asyncio
-async def test_ambient_observes_once_stays_quiet_and_does_not_replace_action_target(tmp_path):
+async def test_ambient_glance_dedupes_identical_pixels_without_a_model_call(tmp_path):
     requests = []
     def response(request):
         requests.append(json.loads(request.content))
-        return sse_response([{"type": "tool", "name": "desktop.observe", "arguments": {"scope": "foreground"}}]
-                            if len(requests) % 2 else [{"type": "silence", "observation_summary": "页面显示下载进度。"}])
+        return sse_response([{"type": "silence", "observation_summary": "页面显示下载进度。"}])
     runtime = runtime_for(tmp_path, response)
     runtime.target = {"target_id": "task-window"}
     runtime.snapshot = {"snapshot_id": "task-snapshot"}
     try:
         await runtime._attention_turn(runtime.desktop.front, runtime.conversations.current_id, runtime.generation)
-        assert runtime.desktop.calls == 1 and len(requests) == 2
-        assert "image_url" in json.dumps(requests[-1])
+        assert runtime.desktop.calls == 1 and len(requests) == 1
         assert runtime.target["target_id"] == "task-window"
         assert runtime.snapshot["snapshot_id"] == "task-snapshot"
         assert runtime.recent_observations[-1]["summary"] == "页面显示下载进度。"
         assert not runtime.store.history()
         await runtime._attention_turn(runtime.desktop.front, runtime.conversations.current_id, runtime.generation)
-        assert len(requests) == 3  # Same pixels do not trigger a second visual model request.
+        assert runtime.desktop.calls == 2 and len(requests) == 1  # Same pixels do not reach the model again.
     finally:
         await runtime.close()
 
 
 @pytest.mark.asyncio
-async def test_ambient_speech_needs_real_observation_and_has_no_fake_user_turn(tmp_path):
-    calls = []
+async def test_ambient_speech_after_the_glance_has_no_fake_user_turn(tmp_path):
     def response(request):
-        calls.append(request)
-        if len(calls) == 1:
-            return sse_response([{"type": "tool", "name": "desktop.observe", "arguments": {}}])
         return sse_response([{"type": "speech", "key": "s1", "speech_ja": "もうすぐ終わりそうだね。", "intent": "acknowledge"},
                              {"type": "translation", "key": "s1", "display_zh": "看起来快结束了呢。"}])
     runtime = runtime_for(tmp_path, response)
@@ -102,31 +98,30 @@ async def test_ambient_speech_needs_real_observation_and_has_no_fake_user_turn(t
 
 
 @pytest.mark.asyncio
-async def test_ambient_drops_unsolicited_speech_without_a_screenshot(tmp_path):
+async def test_ambient_speech_without_its_translation_is_dropped(tmp_path):
     runtime = runtime_for(tmp_path, lambda request: sse_response([
-        {"type": "speech", "key": "s1", "speech_ja": "見ているよ。"},
-        {"type": "translation", "key": "s1", "display_zh": "我在看。"}]))
+        {"type": "speech", "key": "s1", "speech_ja": "見ているよ。"}]))
     try:
         await runtime._attention_turn(runtime.desktop.front, runtime.conversations.current_id, runtime.generation)
-        assert not runtime.store.history() and runtime.desktop.calls == 0
+        assert runtime.desktop.calls == 1
+        assert runtime.recent_observations[-1]["summary"] == ""
+        assert not runtime.store.history()
     finally:
         await runtime.close()
 
 
 @pytest.mark.asyncio
-async def test_disabled_ambient_speech_observes_but_never_records_or_plays_speech(tmp_path):
+async def test_disabled_ambient_speech_still_glances_but_never_records_or_plays_speech(tmp_path):
     requests = []
     def response(request):
         requests.append(json.loads(request.content))
-        if len(requests) % 2:
-            return sse_response([{"type": "tool", "name": "desktop.observe", "arguments": {"scope": "foreground"}}])
         return sse_response([{"type": "speech", "key": "s1", "speech_ja": "見えたよ。"},
                              {"type": "translation", "key": "s1", "display_zh": "看到了。"}])
     runtime = runtime_for(tmp_path, response)
     runtime.settings.values["ambient_speech"] = False
     try:
         await runtime._attention_turn(runtime.desktop.front, runtime.conversations.current_id, runtime.generation)
-        assert runtime.desktop.calls == 1 and len(requests) == 2
+        assert runtime.desktop.calls == 1 and len(requests) == 1
         assert "disabled proactive speaking" in requests[0]["messages"][0]["content"]
         assert runtime.recent_observations[-1]["summary"] == ""
         assert not runtime.store.history()
