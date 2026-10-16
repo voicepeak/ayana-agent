@@ -184,7 +184,7 @@ class ConversationRuntime:
         try:
             async with asyncio.timeout(48):
                 summary = self.prompt_history.summary
-                for batch in summary_batches(turns):
+                for batch in summary_batches(turns, self._summary_budget()):
                     summary = await summarize_history(self.settings, self.model_client, summary, batch,
                                                       request_observer=self._record_prompt)
                     if gen != self.generation:

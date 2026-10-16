@@ -76,6 +76,16 @@ def test_ambient_speech_and_interval_round_trip(tmp_path):
     assert loaded.values["ambient_interval_max"] == 120
 
 
+def test_temperature_and_history_budget_round_trip(tmp_path):
+    settings = Settings(root=ROOT, data_root=tmp_path)
+    assert settings.values["temperature"] == 1.0
+    assert settings.values["history_budget_chars"] == 128000
+    settings.update({"temperature": 1.3, "history_budget_chars": 200000})
+    loaded = Settings(root=ROOT, data_root=tmp_path)
+    assert loaded.values["temperature"] == 1.3
+    assert loaded.values["history_budget_chars"] == 200000
+
+
 def test_failed_settings_write_keeps_memory_and_disk_consistent(tmp_path, monkeypatch):
     settings = Settings(root=ROOT, data_root=tmp_path)
     settings.update({"volume": .5})
@@ -105,6 +115,8 @@ def test_removed_watch_shortcut_does_not_reserve_old_profile_key(tmp_path):
     {"task_limits": {"seconds": 601}}, {"max_utterances": 0}, {"max_tool_rounds": 0}, {"max_tool_rounds": 25},
     {"ambient_speech": "no"}, {"ambient_interval_min": 5}, {"ambient_interval_max": 601},
     {"ambient_interval_min": 120, "ambient_interval_max": 60},
+    {"temperature": -0.1}, {"temperature": 2.5}, {"temperature": "warm"},
+    {"history_budget_chars": 8000}, {"history_budget_chars": 600000}, {"history_budget_chars": True},
     {"provider": "openai", "model": " "}, {"hotkey": " "},
     {"hotkey": "Control+A", "cancel_hotkey": "control+a"},
     {"watch_hotkey": "CommandOrControl+Alt+A"},

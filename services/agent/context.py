@@ -33,7 +33,7 @@ def text_messages(messages):
 
 
 class PromptHistory:
-    def __init__(self, store, max_chars=64000):
+    def __init__(self, store, max_chars=128000):
         self.store = store
         self.max_chars = max_chars
         self.scope = None

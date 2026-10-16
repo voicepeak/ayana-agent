@@ -147,7 +147,7 @@ async def test_summary_replaces_only_complete_old_turns_and_survives_restart(tmp
     runtime = make_runtime(tmp_path, respond)
     try:
         runtime._select_history()
-        for i in range(8):
+        for i in range(16):
             runtime.prompt_history.append(str(i), [{"role": "user", "content": "原始细节" * 2300}], {}, True)
         original = len(runtime.prompt_history.turns)
         await runtime._compact_history(10000, runtime.generation)
@@ -168,7 +168,7 @@ async def test_failed_or_cancelled_summary_never_discards_context(tmp_path):
     runtime = make_runtime(tmp_path, lambda request: httpx.Response(503))
     try:
         runtime._select_history()
-        runtime.prompt_history.append("old", [{"role": "user", "content": "原始" * 35000}], {}, True)
+        runtime.prompt_history.append("old", [{"role": "user", "content": "原始" * 80000}], {}, True)
         original = runtime.prompt_history.messages()
         with pytest.raises(RuntimeError, match="原始上下文已保留"):
             await runtime._compact_history(10000, runtime.generation)

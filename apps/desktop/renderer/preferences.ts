@@ -7,7 +7,7 @@ export interface Preferences {
   volume: number; subtitles: boolean; sentence_motion: boolean;
   hotkey: string; cancel_hotkey: string; ambient_attention: boolean; ambient_speech: boolean; save_history: boolean; send_screenshot: boolean;
   native_tools: boolean; search_provider: string; search_proxy: string;
-  max_utterances: number; max_tool_rounds: number; model_max_tokens: number;
+  max_utterances: number; max_tool_rounds: number; model_max_tokens: number; temperature: number; history_budget_chars: number;
   ambient_interval_min: number; ambient_interval_max: number;
   voice: { voice_mode: string }; stt: { language: string };
 }
@@ -24,7 +24,8 @@ export function preferences(settings: Record<string, unknown>): Preferences {
     send_screenshot: cfg.send_screenshot, native_tools: cfg.native_tools,
     search_provider: cfg.search_provider, search_proxy: cfg.search_proxy,
     max_utterances: cfg.max_utterances, max_tool_rounds: cfg.max_tool_rounds,
-    model_max_tokens: cfg.model_max_tokens, ambient_interval_min: cfg.ambient_interval_min, ambient_interval_max: cfg.ambient_interval_max, voice: { voice_mode: String(voice.voice_mode || 'auto') },
+    model_max_tokens: cfg.model_max_tokens, temperature: cfg.temperature, history_budget_chars: cfg.history_budget_chars,
+    ambient_interval_min: cfg.ambient_interval_min, ambient_interval_max: cfg.ambient_interval_max, voice: { voice_mode: String(voice.voice_mode || 'auto') },
     stt: { language: String(stt.language || 'auto') },
   };
 }

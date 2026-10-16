@@ -43,7 +43,7 @@ npm --prefix apps/desktop start
 
 第二套「彩名（白制服）」立绘与音色同样先导入（`--su-avatar-root` 指向带 `素材索引.json` 的立绘目录，`--su-voice-root` / `--base-voice-root` 指向各自的语音目录），之后在「设置与管理 → 外观与声音 → 角色」中切换。两套资源只替换立绘和声音，人设、记忆与使用设置共用；表情目录、服装和对话中的表情动作随所选角色自动切换。
 
-联网模型设置 `provider=openai`、`base_url=https://api.deepseek.com`、`model=deepseek-flash`。密钥通过 `AYANA_API_KEY` 或 `DEEPSEEK_API_KEY` 环境变量提供；本机已有密钥使用当前 Windows 用户的 DPAPI 加密保存，界面和日志不接收密钥。
+联网模型设置 `provider=openai`、`base_url=https://api.deepseek.com`、`model=deepseek-flash`。`temperature`（默认 1.0，0–2）控制采样随机度，`history_budget_chars`（默认 128000）决定原样保留的历史字符预算，接近上限时自动摘要；两者均可在「设置与管理 → 模型与连接」中调整并立即生效。密钥通过 `AYANA_API_KEY` 或 `DEEPSEEK_API_KEY` 环境变量提供；本机已有密钥使用当前 Windows 用户的 DPAPI 加密保存，界面和日志不接收密钥。
 
 在线模型默认使用原生 function calling（配置项 `native_tools`，默认 `true`）：请求携带注册工具的 `tools` schema，流式解析 `delta.tool_calls`，并以 `role:"tool"` 回传真实结果。因此在对话框里直接描述需求，模型会自行选择工具（联网搜索、查看屏幕等），无需在提示里点名工具。若目标端点不支持 `tools`，可将 `native_tools` 设为 `false` 退回既有 NDJSON 工具事件协议。
 

@@ -60,7 +60,7 @@ export function Settings({ state, section }: { state: ModelState; section: Setti
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setSaving(false); }
   }
-  const count = (key: 'max_utterances' | 'max_tool_rounds' | 'model_max_tokens' | 'ambient_interval_min' | 'ambient_interval_max', title: string, min: number, max: number) =>
+  const count = (key: 'max_utterances' | 'max_tool_rounds' | 'model_max_tokens' | 'history_budget_chars' | 'ambient_interval_min' | 'ambient_interval_max', title: string, min: number, max: number) =>
     <label>{title}<Input type="number" min={min} max={max} step={1} required value={draft[key]} onChange={event => update(key, Number(event.target.value))}/></label>;
   return <section className="settings-workspace" aria-label="设置中心">
     <form className="settings-form" onSubmit={event => { event.preventDefault(); void save(); }}>
@@ -79,7 +79,7 @@ export function Settings({ state, section }: { state: ModelState; section: Setti
       </>}
       {section === 'model' && <>
         <div className="form-section"><h3>对话模型</h3><label>模型模式<select aria-label="模型模式" value={draft.provider} onChange={event => update('provider', event.target.value)}><option value="local">本地演示</option><option value="openai">在线模型</option></select></label>
-        {draft.provider === 'openai' && <><label>服务地址<Input type="url" required value={draft.base_url} onChange={event => update('base_url', event.target.value)} placeholder="https://api.openai.com/v1"/></label><label>模型名称<Input required value={draft.model} onChange={event => update('model', event.target.value)} placeholder="模型名称"/></label><p className="field-note">API 凭据{state.apiKeyConfigured === undefined ? '尚未检查' : state.apiKeyConfigured ? '已配置' : '未配置 · 请使用本机环境变量或凭据文件'}</p></>}
+        {draft.provider === 'openai' && <><label>服务地址<Input type="url" required value={draft.base_url} onChange={event => update('base_url', event.target.value)} placeholder="https://api.openai.com/v1"/></label><label>模型名称<Input required value={draft.model} onChange={event => update('model', event.target.value)} placeholder="模型名称"/></label><div className="form-grid"><label>温度<Input type="number" min={0} max={2} step={0.1} required value={draft.temperature} onChange={event => update('temperature', Number(event.target.value))}/></label>{count('history_budget_chars', '历史预算（字符）', 16000, 512000)}</div><p className="form-hint">温度越高回复越多变；历史预算越大保留的原样对话越多，接近上限时自动摘要。</p><p className="field-note">API 凭据{state.apiKeyConfigured === undefined ? '尚未检查' : state.apiKeyConfigured ? '已配置' : '未配置 · 请使用本机环境变量或凭据文件'}</p></>}
         </div>
         <div className="form-section"><h3>联网搜索</h3><label>搜索引擎<select aria-label="搜索引擎" value={draft.search_provider} onChange={event => update('search_provider', event.target.value)}><option value="auto">自动选择</option><option value="bing">Bing</option><option value="brave">Brave</option></select></label>{draft.search_provider === 'brave' && !state.searchConfigured && <p className="field-note">需要配置独立的 Brave 搜索凭据。</p>}</div>
       </>}

@@ -52,8 +52,8 @@ async def test_cap_request_does_not_subtract_fixed_prefix_twice(tmp_path, native
         tool_message = ({"role": "tool", "tool_call_id": "find-example",
                          "content": json.dumps(result)} if native
                         else runtime._tool_message([result]))
-        messages = [{"role": "system", "content": "s" * 14000},
-                    {"role": "assistant", "content": "h" * 30000},
+        messages = [{"role": "system", "content": "s" * 30000},
+                    {"role": "assistant", "content": "h" * 80000},
                     {"role": "user", "content": "open the page"},
                     {"role": "assistant", "content": ""}, tool_message]
         original = json.dumps(messages, ensure_ascii=False)
@@ -104,6 +104,19 @@ async def test_tool_round_budget_ends_the_loop(tmp_path):
         # Three tool rounds plus the tools-free wrap-up round.
         assert len(calls) == 4
         assert any(event["type"] == "error" for event in next(iter(runtime.clients)).events)
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_history_budget_setting_applies_immediately_and_scales_summaries(tmp_path):
+    runtime = make_runtime(tmp_path, response)
+    try:
+        assert runtime.prompt_history.max_chars == 128000
+        assert runtime._summary_budget() == 80000
+        await runtime.handle({"type": "settings.update", "settings": {"history_budget_chars": 200000}})
+        assert runtime.prompt_history.max_chars == 200000
+        assert runtime._summary_budget() == 125000
     finally:
         await runtime.close()
 

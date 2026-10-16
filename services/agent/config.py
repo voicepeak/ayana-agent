@@ -57,7 +57,7 @@ class Settings:
         return options
 
     def validate(self, patch: dict):
-        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "remember_user", "ambient_attention", "ambient_speech", "ambient_interval_min", "ambient_interval_max", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "max_tool_rounds", "character", "avatar_costume", "sentence_motion", "volume", "model_max_tokens", "native_tools", "search_proxy", "search_provider", "companion_ui"}
+        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "remember_user", "ambient_attention", "ambient_speech", "ambient_interval_min", "ambient_interval_max", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "max_tool_rounds", "character", "avatar_costume", "sentence_motion", "volume", "model_max_tokens", "temperature", "history_budget_chars", "native_tools", "search_proxy", "search_provider", "companion_ui"}
         if not isinstance(patch, dict) or set(patch) - allowed:
             raise ValueError("Unsupported settings field")
         for key in ("send_screenshot", "subtitles", "save_history", "remember_user", "ambient_attention", "ambient_speech"):
@@ -153,6 +153,10 @@ class Settings:
             raise ValueError("偷看间隔的最小值不能大于最大值")
         if "model_max_tokens" in patch and (type(patch["model_max_tokens"]) is not int or not 1000 <= patch["model_max_tokens"] <= 12000):
             raise ValueError("model_max_tokens out of range")
+        if "temperature" in patch and (type(patch["temperature"]) not in {int, float} or not 0 <= patch["temperature"] <= 2):
+            raise ValueError("temperature out of range")
+        if "history_budget_chars" in patch and (type(patch["history_budget_chars"]) is not int or not 16000 <= patch["history_budget_chars"] <= 512000):
+            raise ValueError("history_budget_chars out of range")
         if "voice" in patch:
             if not isinstance(patch["voice"], dict):
                 raise ValueError("voice must be an object")

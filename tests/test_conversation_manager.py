@@ -218,7 +218,7 @@ async def test_automatic_summary_keeps_recent_six_and_complete_visible_records(t
         cid = runtime.conversations.current_id
         for i in range(8):
             await runtime.emit('user.message',text=f'第{i}次原话')
-            runtime.prompt_history.append(str(i),[{'role':'user','content':'长对话'+str(i)+'x'*6200}],{},True)
+            runtime.prompt_history.append(str(i),[{'role':'user','content':'长对话'+str(i)+'x'*12600}],{},True)
         runtime._queue_maintenance(10000)
         assert runtime.context_job is not None
         await runtime.context_job
