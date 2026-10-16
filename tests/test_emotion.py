@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from services.agent.config import Settings
-from services.agent.emotion import EmotionState
+from services.agent.emotion import EmotionState, suggest_faces
 from services.agent.runtime import AgentRuntime
 from services.agent.storage import ConversationStore
 from tests.test_runtime import Desktop, Tts, Ws
@@ -113,6 +113,27 @@ def test_dimensions_stay_within_bounds_under_repeated_pressure(tmp_path):
         emotion.apply_turn([face("卖萌"), face("得意")], now=now + 600 + index * 5, hour=12)
     assert 0 <= emotion.state["energy"] <= 100
     assert emotion.state["mood"] == "愉快"
+    store.close()
+
+
+def test_flavor_suggestions_rotate_and_respect_mood():
+    pool = ["休闲", "正经", "卖萌", "脸红卖萌", "得意", "嘟哝", "担忧", "委屈", "哭", "病娇"]
+    assert suggest_faces(pool, "平静") == ["卖萌", "脸红卖萌"]
+    assert suggest_faces(pool, "愉快") == ["卖萌", "脸红卖萌"]
+    assert suggest_faces(pool, "别扭") == ["嘟哝", "卖萌"]
+    assert suggest_faces(pool, "低落") == ["委屈", "卖萌"]
+    assert suggest_faces(["哭", "病娇"], "平静") == []
+
+
+def test_su_vocabulary_feeds_the_same_moods(tmp_path):
+    store, emotion = state_for(tmp_path)
+    now = time.time()
+    emotion.apply_turn([face("闭眼嘟嘴")], now=now, hour=12)
+    assert emotion.state["mood"] == "别扭"
+    emotion.apply_turn([face("自然微笑")], now=now + 310, hour=12)
+    assert emotion.state["mood"] == "愉快"
+    emotion.apply_turn([face("脸红委屈")], now=now + 620, hour=12)
+    assert emotion.state["mood"] == "低落"
     store.close()
 
 

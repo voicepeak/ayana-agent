@@ -89,20 +89,27 @@ def test_displayed_expressions_track_receipts_per_conversation(tmp_path):
     store.close()
 
 
-def test_expression_coverage_lists_only_unshown_faces(tmp_path):
+def test_expression_coverage_lists_unshown_faces_and_flavor_suggestions(tmp_path):
     cfg = Settings(ROOT, data_root=tmp_path)
     cfg.values["save_history"] = False
     cfg.values["avatar_costume"] = "校服"
     runtime = AgentRuntime(cfg, desktop=object(), tts=object())
     labels = runtime.avatars.labels("校服")
     assert labels == list(runtime.avatars.guide)
-    assert runtime._expression_coverage() == {"unused": labels}
+    coverage = runtime._expression_coverage()
+    assert coverage["unused"] == labels
+    assert coverage["suggest"] == ["掩饰", "卖萌"]
     runtime.utterances["shown"] = {"displayed": True, "conversation_id": runtime.conversations.current_id,
                                    **runtime.avatars.resolve({"expression": "担忧", "intent": "caution"})}
     runtime.utterances["queued"] = {"conversation_id": runtime.conversations.current_id,
                                     **runtime.avatars.resolve({"expression": "哭", "intent": "caution"})}
     try:
-        assert runtime._expression_coverage() == {"unused": [label for label in labels if label != "担忧"]}
+        coverage = runtime._expression_coverage()
+        assert coverage["unused"] == [label for label in labels if label != "担忧"]
+        assert "担忧" not in coverage["suggest"] and "哭" not in coverage["suggest"]
+        runtime.utterances["suggested"] = {"displayed": True, "conversation_id": runtime.conversations.current_id,
+                                           **runtime.avatars.resolve({"expression": "掩饰", "intent": "playful"})}
+        assert runtime._expression_coverage()["suggest"] == ["卖萌", "脸红卖萌"]
     finally:
         runtime.store.close()
 

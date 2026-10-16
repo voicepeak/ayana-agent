@@ -14,13 +14,17 @@ from datetime import datetime
 MOODS = ("平静", "愉快", "认真", "低落", "别扭", "生气", "担心", "困倦")
 
 # Faces shown this session are the primary evidence. affect/intent are only a
-# fallback for events without a resolved face, never a second vote.
+# fallback for events without a resolved face, never a second vote. Both
+# catalogs share the eight moods, so mood tracking works for either character.
 FACE_MOOD = {
-    "休闲": "平静", "掩饰": "平静",
-    "正经": "认真",
+    "休闲": "平静", "掩饰": "平静", "平静": "平静", "脸红平静": "平静",
+    "正经": "认真", "疑惑": "认真", "脸红疑惑": "认真", "吃惊": "认真", "脸红吃惊": "认真",
     "卖萌": "愉快", "脸红卖萌": "愉快", "得意": "愉快", "脸红得意": "愉快",
+    "自然微笑": "愉快", "脸红自然微笑": "愉快", "坏笑": "愉快", "病娇惊讶": "愉快",
     "愤怒": "生气",
     "不屑": "别扭", "不同意": "别扭", "脸红不同意": "别扭", "嘟哝": "别扭", "流汗嘟哝": "别扭",
+    "闭眼嘟嘴": "别扭", "脸红闭眼嘟嘴": "别扭", "不满": "别扭", "脸红不满": "别扭",
+    "无奈": "别扭", "脸红无奈": "别扭",
     "担忧": "担心", "脸红担忧": "担心", "害怕": "担心", "脸红害怕": "担心",
     "失望": "低落", "脸红失望": "低落", "懊悔": "低落", "委屈": "低落", "脸红委屈": "低落",
     "欲哭": "低落", "脸红预哭": "低落", "哭": "低落",
@@ -37,6 +41,12 @@ CLUSTER_DELTAS = {
     "生气": {"patience": -2.0, "warmth": -0.6},
     "低落": {"energy": -0.5, "warmth": -0.1},
 }
+
+# Neutral fallbacks and faces whose own descriptions reserve them for explicit
+# situations are never pushed as suggestions; they stay freely choosable.
+NEVER_SUGGEST = {"休闲", "正经", "平静", "病娇", "背影", "愤怒", "害怕", "脸红害怕",
+                 "欲哭", "脸红预哭", "哭"}
+SUGGEST_LIMIT = 2
 
 BASELINE = {"energy": 65.0, "patience": 70.0, "warmth": 55.0}
 RELAX_RATE = 0.02
@@ -57,6 +67,18 @@ def _clamp(value, low, high):
 
 def local_hour(now):
     return datetime.fromtimestamp(now).astimezone().hour
+
+
+def suggest_faces(unused, mood):
+    """Two unshown, mood-compatible flavors worth trying this reply.
+
+    Guide order is preserved so consuming a suggestion rotates the catalog
+    instead of re-randomizing it. Neutral fallbacks and reserved faces are
+    never pushed; they stay freely choosable.
+    """
+    pool = [label for label in unused if label not in NEVER_SUGGEST]
+    preferred = [label for label in pool if FACE_MOOD.get(label) == mood]
+    return (preferred + [label for label in pool if label not in preferred])[:SUGGEST_LIMIT]
 
 
 class EmotionState:
