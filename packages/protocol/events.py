@@ -68,15 +68,28 @@ def validate_speech(value: dict) -> dict:
 
 
 class SpeechParser:
-    """Incremental JSON decoder, handling arrays and NDJSON without regex slicing."""
+    """Incremental JSON decoder, handling arrays and NDJSON without regex slicing.
+
+    Some OpenAI-compatible providers emit a short lead-in or wrap the events in a
+    markdown fence. A bounded prefix before the first event and a closing fence are
+    skipped; everything between and after committed events stays strict.
+    """
     def __init__(self):
         self.buffer = ""
         self.decoder = json.JSONDecoder()
         self.array_open = False
         self.finished = False
+        self.started = False
+
+    def _skip_fence_line(self):
+        boundary = self.buffer.find("\n")
+        if boundary == -1:
+            return False
+        self.buffer = self.buffer[boundary + 1:]
+        return True
 
     def feed(self, chunk: str) -> list[dict]:
-        if self.finished and chunk.strip():
+        if self.finished and chunk.strip().strip("`"):
             raise ValueError("Content after the event array")
         self.buffer += chunk
         if len(self.buffer) > 65536:
@@ -86,8 +99,19 @@ class SpeechParser:
             self.buffer = self.buffer.lstrip()
             if not self.buffer:
                 break
+            if self.buffer.startswith("```"):
+                if not self._skip_fence_line():
+                    break
+                continue
+            if not self.started and self.buffer[0] not in "{[":
+                first = self.buffer.find("{")
+                if first == -1:
+                    break
+                self.buffer = self.buffer[first:]
+                continue
             if self.buffer.startswith("[") and not self.array_open:
                 self.array_open = True
+                self.started = True
                 self.buffer = self.buffer[1:]
                 continue
             if self.array_open and self.buffer.startswith(","):
@@ -96,7 +120,7 @@ class SpeechParser:
             if self.array_open and self.buffer.startswith("]"):
                 self.buffer = self.buffer[1:]
                 self.finished = True
-                if self.buffer.strip():
+                if self.buffer.strip().strip("`"):
                     raise ValueError("Content after event array")
                 break
             try:
@@ -105,10 +129,11 @@ class SpeechParser:
                 break
             if not isinstance(obj, dict):
                 raise ValueError("Model events must be JSON objects")
+            self.started = True
             out.append(obj)
             self.buffer = self.buffer[end:]
         return out
 
     def finish(self):
-        if self.buffer.strip() or (self.array_open and not self.finished):
+        if self.buffer.replace("`", "").strip() or (self.array_open and not self.finished):
             raise ValueError("Model output was truncated or malformed; no partial speech committed")
