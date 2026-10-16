@@ -160,6 +160,7 @@ async def test_committed_faces_update_emotion_and_reach_next_turn_context(tmp_pa
             return {"role": "assistant", "content": self.response_text}
 
     monkeypatch.setattr("services.agent.runtime.OpenAIProvider", Model)
+    monkeypatch.setattr("services.agent.emotion.local_hour", lambda now: 14)
     cfg = Settings(ROOT, data_root=tmp_path)
     cfg.values.update(provider="openai", voice={"voice_mode": "silent"})
     tts = Tts()
