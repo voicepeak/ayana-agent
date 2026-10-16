@@ -17,13 +17,14 @@ from .prompts import PromptAssembler, character_text, update_budget, subtitle_la
 from .prompts import TOOL_RESULT_PREFIX, INTERRUPTED_PREFIX, USER_MEMORY_PREFIX
 from .prompts.trace import PromptTrace
 from .storage import ConversationStore, without_media
-from .context import PromptHistory
+from .context import PromptHistory, SUMMARY_INPUT_BUDGET
 from .tools.registry import ToolError
 from .tools.web import WebTools
 from .capabilities import CapabilityRuntime
 from .conversations import Conversations
 from .conversation_runtime import ConversationRuntime
 from .memory import PersonalMemory, extract_memories
+from .emotion import EmotionState
 from .attention import AttentionRuntime
 
 
@@ -61,8 +62,9 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
             tts = TtsService(settings.values.get("voice", {}))
         self.desktop, self.tts = desktop, tts
         self.store = store or ConversationStore(settings.data_root / ".runtime/history.sqlite3")
-        self.prompt_history = PromptHistory(self.store)
+        self.prompt_history = PromptHistory(self.store, max_chars=self._history_budget())
         self.memory = PersonalMemory(self.store)
+        self.emotion = EmotionState(self.store)
         self.memory_task = None
         self.context_job = None
         self.memory_retry_at = 0
@@ -287,6 +289,8 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
             previous_character = self.settings.values.get("character")
             previous_history = self.settings.values.get("save_history", True)
             self.settings.update(patch)
+            if "history_budget_chars" in patch:
+                self.prompt_history.max_chars = self._history_budget()
             if any(key in validated for key in ("ambient_interval_min", "ambient_interval_max")):
                 self._attention_reschedule()
             if self.settings.values.get("character") != previous_character:
@@ -301,7 +305,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                 await self.cancel("settings_changed")
             if self.settings.values.get("save_history", True) != previous_history:
                 self.conversations = Conversations(self.store, self.settings.values.get("save_history", True))
-                self.prompt_history = PromptHistory(self.store)
+                self.prompt_history = PromptHistory(self.store, max_chars=self._history_budget())
                 self.snapshot = None
                 self.last_reply_turn = None
                 self.last_reply_keys = {}
@@ -459,6 +463,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         queue = asyncio.Queue(maxsize=3)
         speaker = asyncio.create_task(self._speech_worker(queue, gen))
         keys = {}
+        faces = []
         count = 0
         audio_count = 0
         streams = []
@@ -495,7 +500,8 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                            "expression_coverage": self._expression_coverage(),
                            "snapshot_id": self.snapshot.get("snapshot_id") if self.snapshot else None,
                            "previous_reply_reception": self.prompt_history.last_reception(self.utterances),
-                           "previous_interrupted_reply": self._interrupted_reply(), "question": text}
+                           "previous_interrupted_reply": self._interrupted_reply(),
+                           "emotion": self.emotion.prompt(), "question": text}
                 memories = self.memory.prompt() if self._memory_enabled() else []
                 memory_prefix = [{'role': 'system', 'content': USER_MEMORY_PREFIX + json.dumps(memories, ensure_ascii=False)}] if memories else []
                 content = [{"type": "text", "text": json.dumps(context, ensure_ascii=False)}]
@@ -557,6 +563,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                         self.last_reply_keys = keys
                         self.last_reply_turn = self.turn_id
                         self.utterances[uid] = {"generation_id": gen, "conversation_id": self.conversations.current_id, **speech}
+                        faces.append(speech)
                         await self.emit("utterance.ready", utterance_id=uid, **speech)
                         if event.get("display_zh"):
                             await self.emit("subtitle.ready", utterance_id=uid, display_zh=str(event["display_zh"])[:1200],
@@ -659,6 +666,11 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                 speaker.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await speaker
+            # Mood tracking is best-effort and must never replace the turn's
+            # own result, especially during cancellation.
+            if faces:
+                with contextlib.suppress(Exception):
+                    self.emotion.apply_turn(faces)
             # Success seals in the try block; failure or cancellation must still
             # persist the confirmed exchange so tool evidence is not lost.
             if messages is not None and not sealed:
@@ -730,6 +742,13 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
     def _memory_enabled(self):
         return bool(self.settings.values.get('save_history', True) and self.settings.values.get('remember_user', True))
 
+    def _history_budget(self):
+        value = self.settings.values.get("history_budget_chars", 128000)
+        return value if type(value) is int and 16000 <= value <= 512000 else 128000
+
+    def _summary_budget(self):
+        return max(SUMMARY_INPUT_BUDGET, self._history_budget() * SUMMARY_INPUT_BUDGET // 64000)
+
     async def _memory_snapshot(self, request_id=None):
         await self.emit('memory.ready',memories=self.memory.public(),enabled=self._memory_enabled(),state=self.memory_state,request_id=request_id)
 
@@ -794,7 +813,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                 turn['reply_reception'] = self.store.reception(turn['turn_id'],turn['keys'])
             summary = previous
             async with asyncio.timeout(48):
-                for batch in summary_batches(turns):
+                for batch in summary_batches(turns, self._summary_budget()):
                     summary = await summarize_history(self.settings,self.model_client,summary,batch,
                                                        request_observer=trace,usage_observer=usage)
             async with self.command_lock:
