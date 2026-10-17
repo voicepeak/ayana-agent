@@ -213,3 +213,9 @@ management = reduceEvent(management, event('conversation.deleted', { deleted_id:
 assert.equal(management.review, undefined); assert.equal(management.searchResults, undefined);
 assert.equal(management.conversation.conversation_id, 'live'); assert.equal(management.speeches.length, 1);
 console.log('PASS: independent record browsing, anchor replacement, pagination deduplication and memory snapshots preserve live dialogue; deletion clears reviewed/search records.');
+
+let restoredSources = reduceEvent({ ...initialState, generation: 8, cancelledGeneration: 7, conversation: { conversation_id: 'topic-a' } }, { protocol_version: 1, type: 'sources.ready', generation_id: 0, sources_conversation_id: 'topic-a', sources: [{ source_id: 'saved-link', url: 'https://example.com/' }] });
+assert.equal(restoredSources.sources.length, 1, 'Saved sources survive startup generation cancellation.');
+restoredSources = reduceEvent(restoredSources, { protocol_version: 1, type: 'sources.ready', sources_conversation_id: 'other-topic', sources: [] });
+assert.equal(restoredSources.sources.length, 1, 'A different topic snapshot cannot replace current links.');
+console.log('PASS: restored source snapshots survive generation cancellation and remain scoped to the current topic.');

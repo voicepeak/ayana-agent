@@ -117,6 +117,9 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
     case 'context.state': next.contextState = String(event.state); break;
     case 'capabilities.ready':
       next.searchConfigured = Boolean(event.search_configured); break;
+    case 'sources.ready':
+      if (event.sources_conversation_id === state.conversation?.conversation_id) next.sources = (event.sources || []) as Record<string, unknown>[];
+      break;
     case 'source.ready': {
       const source = event.source as Record<string, unknown>;
       next.sources = [source, ...state.sources.filter(s => s.source_id !== source.source_id)].slice(0, 100); break;

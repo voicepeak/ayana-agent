@@ -179,11 +179,11 @@ function broadcast(event: Event, remember = true) {
       recentEvents = recentEvents.filter(previous => retained.has(previous.type));
     }
     if (event.type === 'conversation.deleted') recentEvents = recentEvents.filter(previous => previous.conversation_id !== event.deleted_id);
-    if (['settings.ready', 'history.ready', 'conversations.ready', 'context.state', 'memory.ready'].includes(event.type)) {
+    if (['settings.ready', 'history.ready', 'conversations.ready', 'context.state', 'memory.ready', 'sources.ready'].includes(event.type)) {
       recentEvents = recentEvents.filter(previous => previous.type !== event.type);
     }
     recentEvents.push(event);
-    const snapshots = new Set(['settings.ready', 'history.ready', 'conversations.ready', 'conversation.changed', 'context.state', 'memory.ready']);
+    const snapshots = new Set(['settings.ready', 'history.ready', 'conversations.ready', 'conversation.changed', 'context.state', 'memory.ready', 'sources.ready']);
     recentEvents = recentEvents.filter((previous, index) => snapshots.has(previous.type) || index >= recentEvents.length - 160);
   }
   for (const window of [chat, settingsWindow, designWindow]) {
@@ -359,7 +359,16 @@ function receive(event: Event) {
   if (!['subtitle.translated', 'subtitle.translation-failed'].includes(event.type)
       && typeof event.generation_id === 'number') currentGeneration = Math.max(currentGeneration, event.generation_id);
   if (event.type === 'source.open') {
-    try { const url = new URL(String(event.url)); if (['https:', 'http:'].includes(url.protocol) && !url.username && !url.password) void shell.openExternal(url.href); } catch { /* Invalid runtime URL. */ }
+    void (async () => {
+      try {
+        const url = new URL(String(event.url));
+        if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new Error('invalid source URL');
+        await shell.openExternal(url.href);
+        broadcast({ protocol_version: 1, type: 'source.opened', source_id: event.source_id, request_id: event.request_id }, false);
+      } catch {
+        broadcast({ protocol_version: 1, type: 'error', source: 'source.open', request_id: event.request_id, message: '网页未打开，请检查默认浏览器后重试。' }, false);
+      }
+    })();
     return;
   }
   if (event.type === 'settings.ready') {

@@ -17,6 +17,9 @@ class ConversationRuntime:
         await self.emit("conversation.changed" if changed else "conversations.ready",
                         **self.conversations.snapshot(), summary=self.prompt_history.summary,
                         retained_turns=len(self.prompt_history.turns))
+        await self.emit("sources.ready", sources=[source for source in self.web.sources.values()
+                        if source.get("conversation_id") == self.conversations.current_id],
+                        sources_conversation_id=self.conversations.current_id)
 
     async def _history_snapshot(self, cid=None, before=None):
         cid = cid or self.conversations.current_id

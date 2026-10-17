@@ -72,17 +72,21 @@ class CapabilityRuntime:
                 "guidance": "重复结果不能当作新线索；先核对名称与摘要，再读取相关来源。"}}
         self.search_urls = seen | urls
         for source in result:
-            if self.settings.values.get("save_history", True):
-                await asyncio.to_thread(self.store.put_record, "source", source["source_id"], source)
-            await self.emit("source.ready", source=source)
+            await self._publish_source(source)
         return result
 
     async def _web_fetch(self, **args):
         result = await self.web.fetch(**args)
-        if self.settings.values.get("save_history", True):
-            await asyncio.to_thread(self.store.put_record, "source", result["source_id"], {k: v for k, v in result.items() if k != "content"})
-        await self.emit("source.ready", source={k: v for k, v in result.items() if k != "content"})
+        await self._publish_source(result)
         return result
+
+    async def _publish_source(self, source):
+        record = {k: v for k, v in source.items() if k != "content"}
+        record.update(conversation_id=self.conversations.current_id, turn_id=self.turn_id)
+        self.web.sources[source["source_id"]] = record
+        if self.settings.values.get("save_history", True):
+            await asyncio.to_thread(self.store.put_record, "source", source["source_id"], record)
+        await self.emit("source.ready", source=record)
 
     def _tool_message(self, results, include_image=False):
         text = TOOL_RESULT_PREFIX + json.dumps(results, ensure_ascii=False)
@@ -177,9 +181,11 @@ class CapabilityRuntime:
             await self._capabilities_snapshot()
         elif kind == "source.open":
             source = self.web.sources.get(cmd.get("source_id"))
+            if not source and self.settings.values.get("save_history", True):
+                source = await asyncio.to_thread(self.store.get_record, "source", cmd.get("source_id"))
             if not source:
                 raise ValueError("来源记录已失效")
-            await self.emit("source.open", url=source["url"])
+            await self.emit("source.open", url=source["url"], source_id=source["source_id"], request_id=cmd.get("request_id"))
         else:
             return False
         return True
