@@ -27,7 +27,7 @@ Ayana 只聊天和陪伴：不读写你的文件、不执行命令、不操作�
 
 ## 在本机运行
 
-本机交付版可直接双击 `apps/desktop/release/Ayana-0.3.25-win-x64.exe`。它包含独立 Python、桌面程序与立绘；个人模型配置保存在 `%APPDATA%/Ayana/config/local.json`。首次解包和加载音色需要等待；此前版本首次语音冷启动实测约 43 秒，期间文字输入与界面保持可用。启动新版前请退出旧版。
+新用户可运行 `apps/desktop/release/Ayana-0.3.25-win-x64-setup.exe`：per-user 一键安装，不要求管理员权限，安装后自动启动。也可以直接双击便携版 `Ayana-0.3.25-win-x64.exe`。两者都包含独立 Python、桌面程序与立绘；个人配置保存在 `%APPDATA%/Ayana/config/local.json`。默认先进入文字模式，语音包在主页气泡或设置中按需下载，下载和安装期间仍可正常聊天。启动新版前请退出旧版。
 
 根目录可双击 `启动 Ayana.cmd`，优先打开当前项目版本对应的便携 EXE；尚未打包时回退到开发启动。后续修改仍按下面的流程构建。
 

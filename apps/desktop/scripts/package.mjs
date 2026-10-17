@@ -28,7 +28,7 @@ if (cache) {
     environment.ELECTRON_BUILDER_NSIS_RESOURCES_DIR = resources;
   }
 }
-const child = spawn(process.execPath, ['node_modules/electron-builder/cli.js', '--win', 'portable'], { stdio: 'inherit', env: environment });
+const child = spawn(process.execPath, ['node_modules/electron-builder/cli.js', '--win', 'nsis', 'portable'], { stdio: 'inherit', env: environment });
 try {
   const code = await new Promise((resolve, reject) => {
     child.once('close', resolve);

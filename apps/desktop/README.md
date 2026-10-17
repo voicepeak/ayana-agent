@@ -109,8 +109,9 @@ controlled avatars and an optional speech-recognition model. After staging:
 npm run package
 ```
 
-The Windows portable executable is written to `release/`. Personal settings,
-credentials and history are deliberately excluded from the package. Packaged
+The Windows one-click installer and portable executable are written to
+`release/`. Personal settings, credentials and history are deliberately
+excluded from the package. Packaged
 runtime data lives in `%APPDATA%/Ayana`, and its settings can reference the user's
 external GPT-SoVITS model environment. The source tree and lockfile remain the
 reproducible build inputs. No development machine model path is hardcoded into

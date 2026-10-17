@@ -6,7 +6,7 @@ import path from 'node:path';
 export async function writeReleaseChecksums(directory, version) {
   const prefix = `Ayana-${version}-win-`;
   const artifacts = (await readdir(directory)).filter(name => name.startsWith(prefix) && name.endsWith('.exe')).sort();
-  if (!artifacts.length) throw new Error(`No portable release artifacts for ${version}`);
+  if (!artifacts.length) throw new Error(`No release artifacts for ${version}`);
   const lines = [];
   for (const name of artifacts) {
     const hash = createHash('sha256');

@@ -67,9 +67,25 @@
       }
     ],
     "win": {
-      "target": "portable",
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "icon": "public/icon.ico",
       "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "shortcutName": "Ayana",
+      "uninstallDisplayName": "Ayana",
+      "artifactName": "Ayana-${version}-win-${arch}-setup.exe"
     },
     "portable": {
       "artifactName": "Ayana-${version}-win-${arch}.exe",
