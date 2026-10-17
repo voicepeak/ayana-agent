@@ -82,8 +82,14 @@ try {
   assert.equal((await native()).top, true);
   report.checks.push('second toggle hides even if Windows declines focus; next toggle restores topmost');
   await chat.evaluate(() => window.ayana.hideSettings());
+  await chat.evaluate(() => {
+    window.__attentionReady = false;
+    const off = window.ayana.onEvent(event => { if (event.type === 'settings.ready') { window.__attentionReady = true; off(); } });
+    return window.ayana.send({ type: 'settings.get' });
+  });
+  await chat.waitForFunction(() => window.__attentionReady === true);
   const hwnd = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.webContents.getURL().includes('window=chat')).getNativeWindowHandle().readUInt32LE(0));
-  execFileSync(path.join(root, '.venv/Scripts/python.exe'), ['-c', 'from native.windows.win32 import Win32; import sys; print(Win32().focus(int(sys.argv[1])))', String(hwnd)], { cwd: root, windowsHide: true });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.webContents.getURL().includes('window=chat')).focus());
   await chat.bringToFront();
   await chat.waitForTimeout(500);
   const captureNative = name => execFileSync(path.join(root, '.venv/Scripts/python.exe'), ['-c',

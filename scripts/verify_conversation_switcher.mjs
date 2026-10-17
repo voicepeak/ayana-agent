@@ -50,7 +50,7 @@ try{
  const input=chat.getByRole('textbox',{name:'输入问题'}),trigger=chat.getByRole('button',{name:'切换对话',exact:true});
  const picker=chat.getByRole('dialog',{name:'切换对话'});
  await trigger.filter({hasText:'今天的日常'}).waitFor();
- async function choose(title){await trigger.click();await picker.getByRole('button',{name:new RegExp(title)}).click();await picker.waitFor({state:'hidden'});}
+ async function choose(title){await trigger.click();await picker.locator('.conversation-switch-item').filter({hasText:title}).click();await picker.waitFor({state:'hidden'});}
  await input.fill('还没发送的日常问题');await trigger.click();
  await chat.getByRole('textbox',{name:'查找对话'}).waitFor();
  await chat.waitForFunction(()=>document.querySelectorAll('.conversation-switch-item').length===10);

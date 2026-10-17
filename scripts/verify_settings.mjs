@@ -13,7 +13,7 @@ const { _electron } = require(require.resolve('playwright', { paths: [option('--
 const directory = path.join(root, '.runtime', 'benchmarks', `settings-${Date.now()}`);
 const data = path.join(directory, 'profile');
 mkdirSync(path.join(data, 'config'), { recursive: true });
-const config = { provider: 'local', voice: { voice_mode: 'silent' },
+const config = { provider: 'local', voice: { voice_mode: 'silent', engine_root: 'preserved-engine-path' },
   stt: { provider: 'disabled', model: 'tiny', model_path: 'preserved-model-path' },
   hotkey: 'Control+Alt+F8', cancel_hotkey: 'Control+Alt+F9', save_history: true };
 writeFileSync(path.join(data, 'config', 'local.json'), JSON.stringify(config));
@@ -37,27 +37,26 @@ try {
     assert.equal(await page.getByRole('button', { name: '保存设置', exact: true }).isEnabled(), false);
   };
   const disk = () => JSON.parse(readFileSync(path.join(data, 'config', 'local.json'), 'utf8'));
-  await page.getByRole('checkbox', { name: '显示中文字幕', exact: true }).waitFor();
+  await page.getByRole('checkbox', { name: '表情切换动效', exact: true }).waitFor();
   await page.waitForFunction(() => !document.querySelector('.settings-fields').disabled);
   assert.equal(await page.locator('.settings-navigation').count(), 0);
   assert.equal(await page.getByRole('button', { name: '仓库文件', exact: true }).count(), 0);
   assert.equal(await page.locator('#repository-root').count(), 0);
   assert.equal(await page.getByRole('button', { name: '高级设置', exact: true }).count(), 1);
   report.checks.push('single navigation; repository and redundant settings navigation removed');
-  await page.getByRole('checkbox', { name: '显示中文字幕', exact: true }).uncheck();
+  await page.getByRole('checkbox', { name: '表情切换动效', exact: true }).uncheck();
   await go('高级设置');
   assert.equal(await page.locator('.preference-advanced[open]').count(), 0);
   await page.getByText('回复限制', { exact: true }).click();
   await page.getByLabel('最多工具轮数', { exact: true }).fill('7');
   await go('外观与声音');
-  assert.equal(await page.getByRole('checkbox', { name: '显示中文字幕', exact: true }).isChecked(), false);
-  await page.getByLabel('识别语言', { exact: true }).selectOption('zh');
+  assert.equal(await page.getByRole('checkbox', { name: '表情切换动效', exact: true }).isChecked(), false);
   await save();
-  assert.equal(disk().stt.language, 'zh');
+  assert.equal(disk().voice.engine_root, 'preserved-engine-path');
   assert.equal(disk().stt.model_path, 'preserved-model-path');
   assert.equal(disk().stt.provider, 'disabled');
   assert.equal(disk().max_tool_rounds, 7);
-  assert.equal(disk().subtitles, false);
+  assert.equal(disk().sentence_motion, false);
   await page.screenshot({ path: path.join(directory, 'appearance.png') });
   report.checks.push('draft survives navigation; backend receipt confirms partial updates preserve resource paths');
   await go('高级设置');
@@ -71,10 +70,10 @@ try {
   await go('撤销修改');
   report.checks.push('invalid proxy retains draft and leaves persisted settings intact');
   await go('外观与声音');
-  await page.getByRole('checkbox', { name: '显示中文字幕', exact: true }).check();
+  await page.getByRole('checkbox', { name: '表情切换动效', exact: true }).check();
   await page.evaluate(() => window.ayana.send({ type: 'settings.update', settings: { volume: .65 }, request_id: 'other-window' }));
   await page.waitForFunction(() => document.querySelector('.settings-form')?.textContent.includes('65%'));
-  assert.equal(await page.getByRole('checkbox', { name: '显示中文字幕', exact: true }).isChecked(), true);
+  assert.equal(await page.getByRole('checkbox', { name: '表情切换动效', exact: true }).isChecked(), true);
   await save();
   assert.equal(disk().volume, .65);
   report.checks.push('external settings refresh merges untouched fields and preserves edited fields');
@@ -84,7 +83,7 @@ try {
   await save();
   await page.screenshot({ path: path.join(directory, 'model.png') });
   await go('高级设置');
-  await page.getByText('回复与任务限制', { exact: true }).click();
+  await page.getByText('回复限制', { exact: true }).click();
   await page.getByLabel('单次请求输出上限（tokens）', { exact: true }).fill('4000');
   await save();
   assert.equal(disk().model_max_tokens, 4000);
@@ -93,7 +92,7 @@ try {
   assert.equal(await page.getByLabel('单次请求输出上限（tokens）', { exact: true }).inputValue(), '4000');
   report.checks.push('advanced output limit persists and survives settings refresh without a model request');
   await go('观察与隐私');
-  await page.getByText('允许彩名偶尔偷看', { exact: true }).waitFor();
+  await page.getByRole('checkbox', { name: /^允许彩名偶尔偷看/ }).waitFor();
   await page.screenshot({ path: path.join(directory, 'privacy.png') });
   report.checks.push('privacy observation toggles use the common save flow');
   await go('对话与记忆');
