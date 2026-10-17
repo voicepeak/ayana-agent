@@ -155,6 +155,26 @@ class Settings:
             if key in patch and not patch[key].strip():
                 raise ValueError(f"{key} must not be empty")
         candidate = {**self.values, **patch}
+        if "talk_hotkey" in patch:
+            from native.windows.hold_key import chord_codes
+            talk = chord_codes(patch["talk_hotkey"])
+            for field in ("hotkey", "cancel_hotkey"):
+                try:
+                    duplicate = talk == chord_codes(candidate.get(field, ""))
+                except ValueError:
+                    duplicate = False
+                if duplicate:
+                    raise ValueError("说话快捷键不能与呼出或打断快捷键相同")
+        elif any(key in patch for key in ("hotkey", "cancel_hotkey")):
+            from native.windows.hold_key import chord_codes
+            talk = chord_codes(candidate.get("talk_hotkey", "CommandOrControl+Shift+Space"))
+            for field in ("hotkey", "cancel_hotkey"):
+                try:
+                    duplicate = talk == chord_codes(candidate.get(field, ""))
+                except ValueError:
+                    duplicate = False
+                if duplicate:
+                    raise ValueError("说话快捷键不能与呼出或打断快捷键相同")
         if candidate.get("provider") == "openai" and any(key in patch for key in ("provider", "model")) and not candidate.get("model", "").strip():
             raise ValueError("在线模型需要填写模型名称")
         shortcuts = [candidate.get(key, "").strip().casefold() for key in ("hotkey", "cancel_hotkey")]

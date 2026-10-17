@@ -81,11 +81,13 @@ The Python backend dependencies must be installed using the root setup script.
 repository `.venv/Scripts/python.exe`. `AYANA_REPOSITORY_ROOT` overrides the
 backend root. The main process captures the original foreground target before
 focusing the assistant when summoned with **Ctrl+Alt+A**. **Ctrl+Alt+Space** stops
-the current generation. Both shortcuts can be configured in Preferences.
+the current generation. **Ctrl+Shift+Space** records speech while held and
+transcribes on release. All three shortcuts can be configured in Preferences.
 Every summon automatically focuses the question input, including repeated summons,
 so typing can begin without clicking the composer.
 
-Hold the microphone button to record up to 15 seconds; release to transcribe.
+Hold the microphone button or **Ctrl+Shift+Space** to record up to 60 seconds;
+release to transcribe. **Esc** cancels recording or pending recognition.
 Recording cancels existing speech and uses half duplex. The microphone permission
 is limited to audio capture by the chat renderer.
 Recognized text fills the question composer first. Review and correct it, then

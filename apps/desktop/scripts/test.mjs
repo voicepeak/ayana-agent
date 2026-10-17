@@ -17,6 +17,7 @@ import './test-caption-stack.mjs';
 import './test-dialogue-waiting.mjs';
 import './test-design-zoom.mjs';
 import './test-companion-palette.mjs';
+import './test-hold-talk.mjs';
 
 await verifyPortableIsolation();
 

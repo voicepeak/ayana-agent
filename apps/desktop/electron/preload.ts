@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('ayana', Object.freeze({
   playback: (receipt: Record<string, unknown>) => ipcRenderer.send('ayana:playback', receipt),
   summon: () => ipcRenderer.invoke('ayana:summon'),
   hide: () => ipcRenderer.invoke('ayana:hide'),
+  beginTalk: () => ipcRenderer.invoke('ayana:talk-start'),
+  endTalk: (id: string, cancelled?: boolean) => ipcRenderer.invoke('ayana:talk-end', id, cancelled),
   setCompanionInteractive: (interactive: boolean) => ipcRenderer.send('ayana:companion-interactive', interactive),
   moveCompanion: (dx: number, dy: number) => ipcRenderer.send('ayana:companion-move', dx, dy),
   beginCompanionDrag: () => ipcRenderer.send('ayana:companion-drag-start'),

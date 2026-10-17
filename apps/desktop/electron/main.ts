@@ -34,6 +34,9 @@ protocol.registerSchemesAsPrivileged([
 let chat: BrowserWindow | undefined;
 let settingsWindow: BrowserWindow | undefined;
 let designWindow: BrowserWindow | undefined;
+let welcomeWindow: BrowserWindow | undefined;
+let welcomeReplay = false;
+let welcomeRun = 0;
 let tray: Tray | undefined;
 let child: ChildProcess | undefined;
 let socket: WebSocket | undefined;
@@ -54,6 +57,8 @@ let focusTimer: ReturnType<typeof setTimeout> | undefined;
 let recentEvents: Event[] = [];
 let summonShortcut = 'Control+Alt+A';
 let cancelShortcut = 'Control+Alt+Space';
+let talkShortcut = defaults.talk_hotkey;
+let talkHold: { id: string; timer: ReturnType<typeof setTimeout> } | undefined;
 let inputAfterCapture = true;
 let composerRequested = false;
 let companionMenuOpen = false;
@@ -210,7 +215,31 @@ function cancel() {
   runtimeSend({ type: 'generation.cancel' });
 }
 
+function stopCurrent() { endTalking(true); cancel(); }
+
+function endTalking(cancelled = false, id?: string) {
+  if (!talkHold || (id && id !== talkHold.id)) return;
+  const hold = talkHold;
+  talkHold = undefined;
+  clearTimeout(hold.timer);
+  runtimeSend({ type: 'input.hold-cancel' });
+  broadcast({ protocol_version: 1, type: 'desktop.talk-ended', hold_id: hold.id, cancelled }, false);
+}
+
+function startTalking(global = false) {
+  if (talkHold || !windowId(chat) || welcomeWindow?.isVisible() || socket?.readyState !== WebSocket.OPEN) return { ok: false };
+  const id = randomBytes(12).toString('hex');
+  talkHold = { id, timer: setTimeout(() => endTalking(false, id), 60_000) };
+  cancel();
+  if (!chat!.isVisible()) summon(false);
+  requestComposer();
+  broadcast({ protocol_version: 1, type: 'desktop.talk-started', hold_id: id }, false);
+  if (global) runtimeSend({ type: 'input.hold-watch', hold_id: id });
+  return { ok: true, hold_id: id };
+}
+
 function hide() {
+  endTalking(true);
   endCompanionDrag(); closeDesign();
   composerRequested = false;
   focusAfterCapture = false;
@@ -300,7 +329,7 @@ function companionMenuItems(): Electron.MenuItemConstructorOptions[] {
     { label: '输入一句', click: requestComposer },
     { label: '调整外观', click: openDesign },
     { label: '开始新话题', click: () => { requestComposer(); broadcast({ protocol_version: 1, type: 'desktop.new-topic' }, false); } },
-    { label: `立即打断 · ${cancelShortcut}`, click: cancel },
+    { label: `立即打断 · ${cancelShortcut}`, click: stopCurrent },
     { type: 'separator' },
     { label: '显示中文字幕', type: 'checkbox', checked: companionSettings.subtitles !== false,
       click: item => { runtimeSend({ type: 'settings.update', settings: { subtitles: item.checked } }); } },
@@ -327,17 +356,22 @@ function updateShortcuts(settings: Record<string, unknown>) {
   const raw = settings.shortcuts as Record<string, unknown> | undefined;
   const nextSummon = String(raw?.summon || settings.hotkey || settings.summon_shortcut || summonShortcut);
   const nextCancel = String(raw?.cancel || settings.cancel_hotkey || settings.cancel_shortcut || cancelShortcut);
+  const nextTalk = String(settings.talk_hotkey || defaults.talk_hotkey);
+  if (nextTalk !== talkShortcut) endTalking(true);
   globalShortcut.unregisterAll();
   summonShortcut = nextSummon;
   cancelShortcut = nextCancel;
+  talkShortcut = nextTalk;
   let summonOk = false;
   let cancelOk = false;
+  let talkOk = false;
   try { summonOk = globalShortcut.register(summonShortcut, () => { summon(); }); } catch { /* Invalid accelerator. */ }
-  try { cancelOk = globalShortcut.register(cancelShortcut, cancel); } catch { /* Invalid accelerator. */ }
-  desktopEvent('desktop.shortcuts', { summon: summonShortcut, cancel: cancelShortcut, summon_ok: summonOk, cancel_ok: cancelOk });
+  try { cancelOk = globalShortcut.register(cancelShortcut, stopCurrent); } catch { /* Invalid accelerator. */ }
+  try { talkOk = globalShortcut.register(talkShortcut, () => { startTalking(true); }); } catch { /* Invalid accelerator. */ }
+  desktopEvent('desktop.shortcuts', { summon: summonShortcut, cancel: cancelShortcut, talk: talkShortcut, summon_ok: summonOk, cancel_ok: cancelOk, talk_ok: talkOk });
   if (tray) tray.setContextMenu(Menu.buildFromTemplate([
     { label: `呼出 Ayana · ${summonShortcut}`, click: () => { summon(); } },
-    { label: `停止当前回复 · ${cancelShortcut}`, click: cancel },
+    { label: `停止当前回复 · ${cancelShortcut}`, click: stopCurrent },
     { label: '收起会话', click: hide },
     { label: '话题与记录', click: () => openManagement('history') },
     { label: '设置与管理', click: () => openManagement() },
@@ -349,6 +383,13 @@ function updateShortcuts(settings: Record<string, unknown>) {
 
 function receive(event: Event) {
   if (event.protocol_version !== 1 || typeof event.type !== 'string') return;
+  if (event.type === 'desktop.reset') {
+    endTalking(true);
+  }
+  if (event.type === 'input.hold-ended') {
+    endTalking(event.reason === 'unavailable', String(event.hold_id));
+    return;
+  }
   if (event.type === 'conversation.exported') {
     const file = String(event.path || '');
     const directory = path.join(app.getPath('userData'), 'artifacts', 'conversations');
@@ -430,6 +471,7 @@ function connectRuntime(attempt = 0) {
   ws.on('error', (error) => diagnostic(`Connection: ${error.message}`));
   ws.on('close', () => {
     if (socket !== ws || quitting || restarting) return;
+    endTalking(true);
     service = child?.exitCode === null ? 'connecting' : 'failed';
     desktopEvent('desktop.cancelled', { cancelled_generation_id: currentGeneration });
     desktopEvent('desktop.service', { state: service, connected: false });
@@ -480,7 +522,7 @@ async function restartRuntime() {
   if (restarting || quitting) return;
   restarting = true;
   try {
-  cancel();
+  stopCurrent();
   if (reconnectTimer) clearTimeout(reconnectTimer);
   socket?.terminate();
   const previous = child;
@@ -524,6 +566,10 @@ function trustedSender(id: number) {
 }
 
 function registerIpc() {
+  ipcMain.handle('ayana:talk-start', event => event.sender.id === windowId(chat) ? startTalking() : { ok: false });
+  ipcMain.handle('ayana:talk-end', (event, id?: unknown, cancelled?: unknown) => {
+    if (event.sender.id === windowId(chat) && typeof id === 'string') endTalking(cancelled === true, id);
+  });
   ipcMain.handle('ayana:command', (event, value: unknown) => {
     if (![windowId(chat), windowId(settingsWindow), windowId(designWindow)].includes(event.sender.id)) return { ok: false, error: '不允许此窗口发送控制命令。' };
     if (!value || typeof value !== 'object' || Array.isArray(value)) return { ok: false, error: '命令格式无效。' };
@@ -756,6 +802,7 @@ app.on('window-all-closed', () => { if (quitting) app.quit(); });
 app.on('before-quit', event => {
   event.preventDefault();
   quitting = true;
+  endTalking(true);
   endCompanionDrag(); persistCompanionPosition();
   globalShortcut.unregisterAll();
   if (reconnectTimer) clearTimeout(reconnectTimer);

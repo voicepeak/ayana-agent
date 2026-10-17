@@ -31,6 +31,8 @@ export interface AyanaBridge {
   playback(receipt: RuntimeEvent): void;
   summon(): Promise<void>;
   hide(): Promise<void>;
+  beginTalk(): Promise<{ ok: boolean; hold_id?: string }>;
+  endTalk(id: string, cancelled?: boolean): Promise<void>;
   setCompanionInteractive(interactive: boolean): void;
   moveCompanion(dx: number, dy: number): void;
   beginCompanionDrag(): void;

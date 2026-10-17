@@ -91,6 +91,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         self.closed = False
         self.closing = False
         self.stt = None
+        self.hold_task = None
         self.command_lock = asyncio.Lock()
         self.close_lock = asyncio.Lock()
         self.window_choices = {}
@@ -280,6 +281,17 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
             await self.emit("session.closed")
         elif kind == "generation.cancel":
             await self.cancel()
+        elif kind == "input.hold-watch":
+            if self.hold_task:
+                self.hold_task.cancel()
+            hold_id = cmd.get("hold_id")
+            if not isinstance(hold_id, str) or not 1 <= len(hold_id) <= 64:
+                raise ValueError("Invalid hold ID")
+            self.hold_task = asyncio.create_task(self._watch_hold(hold_id))
+        elif kind == "input.hold-cancel":
+            if self.hold_task:
+                self.hold_task.cancel()
+                self.hold_task = None
         elif kind == "input.audio":
             await self.cancel("microphone_input")
             self.task = asyncio.create_task(self._transcribe(cmd, self.generation))
@@ -408,6 +420,16 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                 self.pending.pop(uid, None)
                 self.pending_condition.notify_all()
 
+    async def _watch_hold(self, hold_id):
+        from native.windows.hold_key import wait_for_release
+        try:
+            reason = await wait_for_release(self.settings.values.get("talk_hotkey", "CommandOrControl+Shift+Space"))
+            await self.emit("input.hold-ended", hold_id=hold_id, reason=reason)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            await self.emit("input.hold-ended", hold_id=hold_id, reason="unavailable")
+
     async def _transcribe(self, cmd, gen):
         try:
             from .providers.stt import SttService
@@ -421,7 +443,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                 return
             if not text.strip():
                 raise ValueError("没有识别到语音，请再试一次")
-            await self.emit("input.transcribed", text=text)
+            await self.emit("input.transcribed", text=text, request_id=cmd.get("request_id"))
             await self.emit("input.state", state="idle")
             # Small local ASR can misrecognize technical terms. The desktop
             # puts this text in the composer for review before a normal send.
@@ -971,6 +993,10 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
     async def _close(self):
         if self.closed:
             return
+        if self.hold_task:
+            self.hold_task.cancel()
+            await asyncio.gather(self.hold_task, return_exceptions=True)
+            self.hold_task = None
         await self.cancel("shutdown")
         if self.attention_runner:
             self.attention_runner.cancel()

@@ -236,6 +236,7 @@ const previewBridge: AyanaBridge = {
   revertDesignPreview: async () => {},
   chooseNoteBackground: async () => ({ ok: false, error: '请在桌面应用中选择图片。' }),
   restart: async () => {},
+  beginTalk: async () => ({ ok: false }), endTalk: async () => {},
   getState: async () => ({ connected: false, service: 'preview', version: '0.3.3', events: [] }),
 };
 export const bridge = window.ayana ?? previewBridge;
