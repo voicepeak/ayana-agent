@@ -203,6 +203,7 @@ class AttentionRuntime:
             while len(self.attention_hashes) > 12:
                 self.attention_hashes.pop(next(iter(self.attention_hashes)))
             bundle = self.prompts.build(costume=self.settings.values.get("avatar_costume", "校服"),
+                                        user_name=self.settings.values.get("user_name", ""),
                                         tools="No tools are available in this glance; the screenshot is already attached.")
             spoke_ago = time.monotonic() - self.attention_last_spoke
             context = {"event": "ambient_attention", "window": {k: target.get(k) for k in ("title", "class_name")},

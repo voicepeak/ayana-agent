@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import os
+import unicodedata
 from pathlib import Path
 
 from .characters import DEFAULT_CHARACTER, character_costumes, character_entry, character_map_path, load_registry
@@ -16,13 +17,19 @@ class Settings:
         self.data_root = Path(data_root or os.environ.get("AYANA_DATA_DIR", str(root))).resolve()
         self.path = self.data_root / "config/local.json"
         self.values = json.loads((root / "config/default.json").read_text(encoding="utf-8"))
+        personal_profile_exists = self.path.exists()
         # First personal packaged launch can seed local resource paths. No credentials in settings.
         seed = root / "config/local.json"
         if self.data_root != root and not self.path.exists() and seed.exists():
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.path.write_bytes(seed.read_bytes())
         if self.path.exists():
-            self.values.update(json.loads(self.path.read_text(encoding="utf-8")))
+            personal = json.loads(self.path.read_text(encoding="utf-8"))
+            self.values.update(personal)
+            # Profiles from before the welcome flow keep their former name and
+            # do not interrupt an existing installation with a first-run tour.
+            if personal_profile_exists and not {"user_name", "onboarding_version"} & personal.keys():
+                self.values.update(user_name="紀", onboarding_version=1)
         # The removed watch shortcut must not reserve a key in old profiles.
         self.values.pop("watch_hotkey", None)
         self.values.setdefault("character", DEFAULT_CHARACTER)
@@ -58,8 +65,19 @@ class Settings:
 
     def validate(self, patch: dict):
         allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "remember_user", "ambient_attention", "ambient_speech", "ambient_interval_min", "ambient_interval_max", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "max_tool_rounds", "character", "avatar_costume", "sentence_motion", "volume", "model_max_tokens", "temperature", "history_budget_chars", "native_tools", "search_proxy", "search_provider", "companion_ui"}
+        allowed |= {"user_name", "onboarding_version", "talk_hotkey"}
         if not isinstance(patch, dict) or set(patch) - allowed:
             raise ValueError("Unsupported settings field")
+        if "user_name" in patch:
+            name = patch["user_name"]
+            if (not isinstance(name, str) or not 1 <= len(name.strip()) <= 32
+                    or any(unicodedata.category(char).startswith("C") for char in name)):
+                raise ValueError("请填写 1–32 个字的称呼，不含换行或控制字符。")
+            patch = {**patch, "user_name": name.strip()}
+        if "onboarding_version" in patch and (type(patch["onboarding_version"]) is not int or patch["onboarding_version"] not in {0, 1}):
+            raise ValueError("Invalid onboarding version")
+        if patch.get("onboarding_version") == 1 and not patch.get("user_name", self.values.get("user_name", "")).strip():
+            raise ValueError("请先填写希望彩名称呼你的名字。")
         for key in ("send_screenshot", "subtitles", "save_history", "remember_user", "ambient_attention", "ambient_speech"):
             if key in patch and type(patch[key]) is not bool:
                 raise ValueError(f"{key} must be boolean")

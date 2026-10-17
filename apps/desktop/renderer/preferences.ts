@@ -3,6 +3,8 @@ import { bridge } from './state';
 import type { AyanaBridge } from './types';
 
 export interface Preferences {
+  user_name: string;
+  talk_hotkey: string;
   provider: string; base_url: string; model: string; character: string; avatar_costume: string;
   volume: number; subtitles: boolean; sentence_motion: boolean;
   hotkey: string; cancel_hotkey: string; ambient_attention: boolean; ambient_speech: boolean; save_history: boolean; send_screenshot: boolean;
@@ -17,6 +19,8 @@ export function preferences(settings: Record<string, unknown>): Preferences {
   const voice = cfg.voice as Record<string, unknown>;
   const stt = cfg.stt as Record<string, unknown>;
   return {
+    user_name: String(cfg.user_name || ''),
+    talk_hotkey: String(cfg.talk_hotkey || defaults.talk_hotkey),
     provider: cfg.provider, base_url: cfg.base_url, model: cfg.model,
     character: String(cfg.character || defaults.character || 'ayana'), avatar_costume: cfg.avatar_costume,
     volume: cfg.volume, subtitles: cfg.subtitles, sentence_motion: cfg.sentence_motion,

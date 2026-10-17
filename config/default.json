@@ -1,7 +1,10 @@
 {
+  "user_name": "",
+  "onboarding_version": 0,
   "hotkey": "CommandOrControl+Alt+A",
   "cancel_hotkey": "CommandOrControl+Alt+Space",
-  "ambient_attention": true,
+  "talk_hotkey": "CommandOrControl+Shift+Space",
+  "ambient_attention": false,
   "ambient_speech": true,
   "ambient_interval_min": 45,
   "ambient_interval_max": 90,

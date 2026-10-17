@@ -523,6 +523,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                     self.observation = {"available": False, "code": "stale_snapshot", "message": "上一次观察已过期，需要时可以重新看看。"}
                     await self.emit("snapshot.invalidated")
                 bundle = self.prompts.build(costume=self.settings.values.get("avatar_costume", "校服"),
+                                            user_name=self.settings.values.get("user_name", ""),
                                             tools=self._tool_prompt())
                 system = bundle.system + subtitle_language_instruction(self.settings.values)
                 self.prompt_history.select(system, self.settings.values, conversation_id=self.conversations.current_id)
