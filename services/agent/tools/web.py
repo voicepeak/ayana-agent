@@ -5,6 +5,7 @@ import asyncio
 import base64
 import ipaddress
 import json
+import re
 import socket
 import uuid
 import unicodedata
@@ -19,6 +20,26 @@ from .registry import ToolError
 
 # Clash/mihomo fake-ip DNS default range (RFC 2544 benchmarking block).
 FAKE_IP_NETWORK = ipaddress.ip_network("198.18.0.0/15")
+DEEPSEEK_SEARCH_URL = "https://api.deepseek.com/v1/tools/search"
+DEEPSEEK_FETCH_URL = "https://api.deepseek.com/v1/tools/fetch"
+FETCH_FALLBACK_CODES = {"web_http_error", "unsupported_web_format", "web_empty"}
+
+
+def api_failure_message(status, detail=None):
+    if status == 401:
+        return "DeepSeek 凭据无效或缺失"
+    if status == 402:
+        return "DeepSeek 账户余额不足"
+    if status == 403:
+        return "请求被服务端安全策略拒绝"
+    if status == 404:
+        return "网页无法读取，可能被站点策略拦截"
+    if status == 429:
+        return "请求过于频繁，请稍后再试"
+    if status >= 500:
+        return "搜索服务暂时不可用，请稍后再试"
+    detail = " ".join(str(detail or "").split())[:200]
+    return f"服务返回 HTTP {status}" + (f"：{detail}" if detail else "")
 
 
 def public_url(value):
@@ -175,10 +196,11 @@ def normalized(value):
 
 
 class WebTools:
-    def __init__(self, key_provider, transport=None, search_proxy=None, search_provider=None):
+    def __init__(self, key_provider, transport=None, search_proxy=None, search_provider=None, model_key_provider=None):
         self.key_provider = key_provider
         self.search_proxy = search_proxy or (lambda: "")
         self.search_provider = search_provider or (lambda: "auto")
+        self.model_key_provider = model_key_provider or (lambda: "")
         self.client = httpx.AsyncClient(transport=transport or PublicTransport(), timeout=25,
                                        follow_redirects=False, trust_env=False,
                                        headers={"User-Agent": "Ayana/0.3 public-evidence"})
@@ -193,6 +215,8 @@ class WebTools:
     @property
     def search_available(self):
         provider = self.selected_search_provider
+        if provider == "deepseek":
+            return bool(self.model_key_provider())
         return provider == "bing" or (provider == "brave" and bool(self.key_provider()))
 
     def remember(self, value):
@@ -226,6 +250,25 @@ class WebTools:
                 return url, response.headers.get("content-type", ""), bytes(raw), response.encoding or "utf-8"
         raise ToolError("redirect_limit", "网页重定向失败")
 
+    async def _post_json(self, url, payload, key, error_code):
+        public_url(url)
+        async with asyncio.timeout(25):
+            response = await self.client.post(url, json=payload, headers={"Authorization": f"Bearer {key}"})
+        if response.is_redirect:
+            raise ToolError("api_redirect", "搜索服务重定向被拒绝")
+        if response.status_code >= 400:
+            try:
+                detail = response.json().get("error", {}).get("message")
+            except (ValueError, AttributeError):
+                detail = None
+            raise ToolError(error_code, api_failure_message(response.status_code, detail))
+        if len(response.content) > 2 * 1024 * 1024:
+            raise ToolError("web_size_limit", "搜索响应超过 2 MiB")
+        try:
+            return response.json()
+        except ValueError:
+            raise ToolError("search_invalid_response", "搜索服务返回了无法解析的响应") from None
+
     def page(self, sid, offset, max_chars):
         page = self.pages[sid]
         content = page["content"]
@@ -237,19 +280,11 @@ class WebTools:
                 "next_offset": end if end < len(content) else None, "links": page["links"],
                 "links_total": page["links_total"], "links_truncated": page["links_total"] > len(page["links"])}
 
-    async def fetch(self, url, offset=0, max_chars=12000):
-        if type(offset) is not int or offset < 0 or type(max_chars) is not int or not 1000 <= max_chars <= 20000:
-            raise ToolError("invalid_arguments", "网页分页参数无效")
-        if url in self.pages and url in self.sources:
-            return self.page(url, offset, max_chars)
-        if offset:
-            raise ToolError("source_expired", "续读需要仍在缓存中的 source_id；请从网址重新读取")
-        if url in self.sources:
-            url = self.sources[url]["url"]
-        async with asyncio.timeout(25):
-            final, content_type, raw, encoding = await self.download(url)
+    async def _direct_fetch(self, url):
+        final, content_type, raw, encoding = await self.download(url)
         links = []
         seen = set()
+        title = ""
         if "html" in content_type:
             parser = BodyText()
             parser.feed(raw.decode(encoding, errors="replace"))
@@ -272,10 +307,54 @@ class WebTools:
             raise ToolError("unsupported_web_format", "首批网页读取仅支持 HTML 和纯文本")
         if len(content.strip()) < 30:
             raise ToolError("web_empty", "正文不足，可能需要浏览器加载或登录")
+        return final, title, content, links, len(seen)
+
+    def _deepseek_fetch_allowed(self, error):
+        if self.selected_search_provider != "deepseek" or not self.model_key_provider():
+            return False
+        if isinstance(error, ToolError):
+            return error.code in FETCH_FALLBACK_CODES
+        return isinstance(error, (TimeoutError, OSError, httpx.HTTPError))
+
+    async def _deepseek_fetch(self, url):
+        final = str(public_url(url))
+        data = await self._post_json(DEEPSEEK_FETCH_URL, {"url": final}, self.model_key_provider(), "web_http_error")
+        content = data.get("content") if isinstance(data, dict) else None
+        if not isinstance(content, str) or len(content.strip()) < 30:
+            raise ToolError("web_empty", "正文不足，可能需要浏览器加载或登录")
+        title = data.get("title") if isinstance(data, dict) else ""
+        links, seen = [], set()
+        for match in re.finditer(r"\[([^\]]*)\]\((https?://[^)\s]+)\)", content):
+            try:
+                link = str(public_url(match.group(2)))
+            except ToolError:
+                continue
+            if link not in seen:
+                seen.add(link)
+                if len(links) < 100:
+                    links.append({"url": link, "text": " ".join(match.group(1).split())[:300]})
+        return final, str(title or "").strip()[:500] or final, content.strip(), links, len(seen)
+
+    async def fetch(self, url, offset=0, max_chars=12000):
+        if type(offset) is not int or offset < 0 or type(max_chars) is not int or not 1000 <= max_chars <= 20000:
+            raise ToolError("invalid_arguments", "网页分页参数无效")
+        if url in self.pages and url in self.sources:
+            return self.page(url, offset, max_chars)
+        if offset:
+            raise ToolError("source_expired", "续读需要仍在缓存中的 source_id；请从网址重新读取")
+        if url in self.sources:
+            url = self.sources[url]["url"]
+        try:
+            async with asyncio.timeout(25):
+                final, title, content, links, total = await self._direct_fetch(url)
+        except (ToolError, OSError, TimeoutError, httpx.HTTPError) as error:
+            if not self._deepseek_fetch_allowed(error):
+                raise
+            final, title, content, links, total = await self._deepseek_fetch(url)
         source = self.remember({"url": final, "title": title or final,
                                "fetched_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()})
         sid = source["source_id"]
-        self.pages[sid] = {"content": content, "links": links, "links_total": len(seen)}
+        self.pages[sid] = {"content": content, "links": links, "links_total": total}
         # Bounded full-page cache; source metadata remains independently bounded.
         while len(self.pages) > 16 or sum(len(p["content"]) for p in self.pages.values()) > 8 * 1024 * 1024:
             self.pages.pop(next(iter(self.pages)))
@@ -286,21 +365,14 @@ class WebTools:
         if provider == "bing":
             async with asyncio.timeout(25):
                 result = await self._bing_search(query, count, progress)
-                exact = normalized(subject) if subject else ""
-                if exact and query.strip() != '"' + subject.strip('"') + '"' and not any(
-                        exact in normalized(item["title"] + " " + item["summary"]) for item in result):
-                    if progress:
-                        await progress("exact_search", "结果没有提到这个名称，正在按名称重新查找")
-                    result = await self._bing_search('"' + subject.strip('"') + '"', count, progress)
-                    for item in result:
-                        item["query_used"] = '"' + subject.strip('"') + '"'
-                if exact:
-                    for item in result:
-                        # A hint for inspecting results, never proof of relevance or identity.
-                        item["subject_mentioned"] = exact in normalized(item["title"] + " " + item["summary"])
-                return result
+                return await self._check_subject(result, query, subject, progress,
+                                                 lambda value: self._bing_search(value, count, progress))
+        if provider == "deepseek":
+            result = await self._deepseek_search(query, count)
+            return await self._check_subject(result, query, subject, progress,
+                                             lambda value: self._deepseek_search(value, count))
         if provider != "brave":
-            raise ToolError("search_unconfigured", "搜索方式必须为 auto、bing 或 brave")
+            raise ToolError("search_unconfigured", "搜索方式必须为 auto、bing、brave 或 deepseek")
         key = self.key_provider()
         if not key:
             raise ToolError("search_unconfigured", "搜索尚未配置 AYANA_SEARCH_API_KEY；仍可读取你提供的网址")
@@ -326,6 +398,61 @@ class WebTools:
                 continue
             result.append(self.remember({"title": str(item.get("title", ""))[:500], "url": verified_url,
                                          "summary": str(item.get("description", ""))[:1800], "published": item.get("page_age")}))
+        return result
+
+    async def _check_subject(self, result, query, subject, progress, search_again):
+        exact = normalized(subject) if subject else ""
+        if not exact:
+            return result
+        quoted = '"' + subject.strip('"') + '"'
+        if query.strip() != quoted and not any(
+                exact in normalized(item["title"] + " " + item["summary"]) for item in result):
+            if progress:
+                await progress("exact_search", "结果没有提到这个名称，正在按名称重新查找")
+            result = await search_again(quoted)
+            for item in result:
+                item["query_used"] = quoted
+        for item in result:
+            # A hint for inspecting results, never proof of relevance or identity.
+            item["subject_mentioned"] = exact in normalized(item["title"] + " " + item["summary"])
+        return result
+
+    async def _deepseek_search(self, query, count):
+        key = self.model_key_provider()
+        if not key:
+            raise ToolError("search_unconfigured", "DeepSeek 搜索需要模型 API Key；仍可读取你提供的网址")
+        data = await self._post_json(DEEPSEEK_SEARCH_URL, {"query": query, "count": max(1, min(count, 50))},
+                                     key, "search_http_error")
+        items = data.get("results") if isinstance(data, dict) else None
+        if not isinstance(items, list):
+            raise ToolError("search_invalid_response", "搜索服务返回了无法解析的结果")
+        result, seen = [], set()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            try:
+                verified_url = str(public_url(str(item.get("url", ""))))
+            except ToolError:
+                continue
+            if verified_url in seen:
+                continue
+            seen.add(verified_url)
+            summary = item.get("summary") or item.get("snippet") or ""
+            entry = {"title": str(item.get("title") or verified_url)[:500], "url": verified_url,
+                     "summary": str(summary)[:1800], "provider": "deepseek", "rank": len(result) + 1}
+            if isinstance(item.get("rerank_score"), (int, float)):
+                entry["score"] = item["rerank_score"]
+            if type(item.get("authority")) is int and item["authority"] >= 0:
+                entry["authority"] = item["authority"]
+            if isinstance(item.get("date"), str):
+                entry["published"] = item["date"]
+            if item.get("site_name"):
+                entry["site_name"] = str(item["site_name"])[:200]
+            result.append(self.remember(entry))
+            if len(result) >= count:
+                break
+        if not result:
+            raise ToolError("search_empty", "搜索未返回有效结果；请调整关键词或稍后再试")
         return result
 
     async def _bing_search(self, query, count, progress=None):

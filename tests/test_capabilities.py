@@ -87,6 +87,99 @@ async def test_search_proxy_uses_fixed_api_and_never_proxies_fetch_or_redirects(
 
 
 @pytest.mark.asyncio
+async def test_deepseek_search_uses_model_key_maps_summary_and_filters_private_results():
+    requests = []
+    def respond(request):
+        requests.append(request)
+        assert request.url.path == '/v1/tools/search'
+        assert request.headers['Authorization'] == 'Bearer model-secret'
+        assert json.loads(request.content) == {'query': 'Python asyncio', 'count': 2}
+        return httpx.Response(200, json={'results': [
+            {'title': 'Asyncio docs', 'url': 'https://docs.python.org/3/library/asyncio.html',
+             'snippet': 'short', 'summary': 'A long model friendly summary.', 'rerank_score': 2.4,
+             'site_name': 'Python', 'date': '2026-01-01T00:00:00+00:00', 'authority': 4},
+            {'title': 'Private', 'url': 'http://127.0.0.1/admin', 'summary': 'private'},
+            {'title': 'Duplicate', 'url': 'https://docs.python.org/3/library/asyncio.html', 'summary': 'duplicate'},
+            {'title': 'Second', 'url': 'https://example.com/second', 'summary': 'second result'},
+        ]})
+    tools = WebTools(lambda: '', httpx.MockTransport(respond), search_provider=lambda: 'deepseek',
+                     model_key_provider=lambda: 'model-secret')
+    try:
+        assert tools.search_available and tools.selected_search_provider == 'deepseek'
+        result = await tools.search('Python asyncio', count=2)
+        assert [item['title'] for item in result] == ['Asyncio docs', 'Second']
+        assert result[0]['summary'] == 'A long model friendly summary.'
+        assert result[0]['provider'] == 'deepseek' and result[0]['authority'] == 4
+        assert result[0]['score'] == 2.4 and result[0]['published'].startswith('2026')
+        assert [item['rank'] for item in result] == [1, 2]
+        assert result[0]['source_id'] in tools.sources
+    finally:
+        await tools.close()
+
+
+@pytest.mark.asyncio
+async def test_deepseek_search_without_model_key_is_unavailable():
+    tools = WebTools(lambda: '', httpx.MockTransport(lambda request: httpx.Response(500)),
+                     search_provider=lambda: 'deepseek', model_key_provider=lambda: '')
+    try:
+        assert not tools.search_available
+        with pytest.raises(ToolError) as error:
+            await tools.search('example')
+        assert error.value.code == 'search_unconfigured'
+    finally:
+        await tools.close()
+
+
+@pytest.mark.asyncio
+async def test_deepseek_search_surfaces_api_errors():
+    tools = WebTools(lambda: '', httpx.MockTransport(
+        lambda request: httpx.Response(401, json={'error': {'message': 'invalid key'}})),
+        search_provider=lambda: 'deepseek', model_key_provider=lambda: 'bad')
+    try:
+        with pytest.raises(ToolError) as error:
+            await tools.search('example')
+        assert error.value.code == 'search_http_error' and '凭据' in str(error.value)
+    finally:
+        await tools.close()
+
+
+@pytest.mark.asyncio
+async def test_fetch_falls_back_to_deepseek_markdown_when_direct_page_is_blocked():
+    requests = []
+    def respond(request):
+        requests.append(request)
+        if request.url.path == '/v1/tools/fetch':
+            assert request.headers['Authorization'] == 'Bearer model-secret'
+            assert json.loads(request.content) == {'url': 'https://example.com/article'}
+            return httpx.Response(200, json={'title': 'Fetched article',
+                'content': '# Fetched article\n\n' + '正文内容。' * 20 + '\n[Next page](https://example.com/next)'})
+        return httpx.Response(403)
+    tools = WebTools(lambda: '', httpx.MockTransport(respond), search_provider=lambda: 'deepseek',
+                     model_key_provider=lambda: 'model-secret')
+    try:
+        page = await tools.fetch('https://example.com/article')
+        assert page['title'] == 'Fetched article'
+        assert page['content'].startswith('# Fetched article')
+        assert page['links'] == [{'url': 'https://example.com/next', 'text': 'Next page'}]
+        assert [request.url.path for request in requests] == ['/article', '/v1/tools/fetch']
+    finally:
+        await tools.close()
+
+
+@pytest.mark.asyncio
+async def test_fetch_never_sends_blocked_urls_to_deepseek():
+    requests = []
+    tools = WebTools(lambda: '', httpx.MockTransport(lambda request: requests.append(request)),
+                     search_provider=lambda: 'deepseek', model_key_provider=lambda: 'model-secret')
+    try:
+        with pytest.raises(ToolError) as error:
+            await tools.fetch('http://127.0.0.1/private')
+        assert error.value.code == 'blocked_url' and not requests
+    finally:
+        await tools.close()
+
+
+@pytest.mark.asyncio
 async def test_keyless_bing_search_filters_deduplicates_and_retains_fetch_sources():
     calls = []
     feed = '''<rss><channel>

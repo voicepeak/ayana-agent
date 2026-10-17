@@ -8,6 +8,12 @@ from services.agent.config import Settings
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_deepseek_search_provider_round_trips(tmp_path):
+    settings = Settings(root=ROOT, data_root=tmp_path)
+    settings.update({'search_provider': 'deepseek'})
+    assert Settings(root=ROOT, data_root=tmp_path).values['search_provider'] == 'deepseek'
+
+
 def test_local_search_proxy_can_be_saved_and_disabled(tmp_path):
     settings = Settings(root=ROOT, data_root=tmp_path)
     settings.update({'search_proxy': 'http://127.0.0.1:7892'})

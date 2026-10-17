@@ -56,7 +56,7 @@ npm --prefix apps/desktop start
 5. 按住麦克风说话、松开识别，文本可修改后发送。**Ctrl+Alt+Space** 立即打断，关闭呼出面板也会停止输出。
 6. 想让她看屏幕时直接说，或让“偶尔偷看”在空闲时留意一眼；网页和屏幕内容只作为证据，不会被当成指令执行。
 
-联网搜索默认 `search_provider=auto`：没有搜索凭据时使用 Bing RSS，无需 API Key；配置 Brave Key 后使用 Brave，也可显式选择 `bing` 或 `brave`。返回结果保留真实 URL、摘要和来源 ID，空结果或验证页面会明确报错。搜索引擎可能调整 RSS 行为，应继续用 `web.fetch` 核对原文。
+联网搜索默认 `search_provider=auto`：没有搜索凭据时使用 Bing RSS，无需 API Key；配置 Brave Key 后使用 Brave，也可显式选择 `bing`、`brave` 或 `deepseek`。`deepseek` 直接复用对话模型的 API Key 调用 DeepSeek Search API，返回带权威性和时效性排序的模型友好摘要；网页直连失败时会自动改用 DeepSeek Fetch 读取 Markdown 正文。返回结果保留真实 URL、摘要和来源 ID，空结果或验证页面会明确报错。搜索引擎可能调整 RSS 行为，应继续用 `web.fetch` 核对原文。
 
 Brave 凭据可通过 `.venv\Scripts\python.exe scripts/configure_search.py --installed` 隐藏输入并使用 Windows DPAPI 加密保存。若 Brave 直连失败，可加 `--proxy http://127.0.0.1:7892`（使用本机实际 HTTP 代理端口）；`search_proxy` 只作用于固定 Brave API，网页读取和 Bing RSS 仍使用原有公网地址验证。模型 API Key 与 Brave Search API Key 是独立凭据。
 

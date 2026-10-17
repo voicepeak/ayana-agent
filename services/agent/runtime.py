@@ -97,7 +97,8 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         self.search_history = {}
         self.search_urls = set()
         self.web = WebTools(lambda: settings.search_key(), search_proxy=lambda: settings.values.get("search_proxy", ""),
-                            search_provider=lambda: settings.values.get("search_provider", "auto"))
+                            search_provider=lambda: settings.values.get("search_provider", "auto"),
+                            model_key_provider=lambda: settings.key())
         if settings.values.get("save_history", True):
             self.web.sources.update({s["source_id"]: s for s in self.store.records("source")})
         self.registry = self._make_tools()

@@ -83,8 +83,8 @@ class Settings:
                 raise ValueError(f"{key} must be boolean")
         if "native_tools" in patch and type(patch["native_tools"]) is not bool:
             raise ValueError("native_tools must be boolean")
-        if "search_provider" in patch and (not isinstance(patch["search_provider"], str) or patch["search_provider"] not in {"auto", "bing", "brave"}):
-            raise ValueError("search_provider must be auto, bing or brave")
+        if "search_provider" in patch and (not isinstance(patch["search_provider"], str) or patch["search_provider"] not in {"auto", "bing", "brave", "deepseek"}):
+            raise ValueError("search_provider must be auto, bing, brave or deepseek")
         if "search_proxy" in patch:
             from urllib.parse import urlparse
             value = patch["search_proxy"]
