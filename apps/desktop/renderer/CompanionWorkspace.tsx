@@ -17,10 +17,11 @@ export function CompanionWorkspace(props: {
   state: ModelState; speech?: Speech; textOnly: boolean; show: boolean; primaryLanguage: DialogueLanguage;
   translationLanguage: 'none' | DialogueLanguage; onVisibilityChange: (visible: boolean) => void;
   layout?: CaptionLayout;
+  passive?: boolean;
 }) {
   return <DialogueScene key={props.state.conversation?.conversation_id || 'initial'} {...props}/>;
 }
-function DialogueScene({ state, speech, textOnly, show, primaryLanguage, translationLanguage, onVisibilityChange, layout }: Parameters<typeof CompanionWorkspace>[0]) {
+function DialogueScene({ state, speech, textOnly, show, primaryLanguage, translationLanguage, onVisibilityChange, layout, passive = false }: Parameters<typeof CompanionWorkspace>[0]) {
   const [loading, setLoading] = useState(false);
   const [focusedId, setFocusedId] = useState<string>();
   const [reading, setReading] = useState(false);
@@ -35,7 +36,7 @@ function DialogueScene({ state, speech, textOnly, show, primaryLanguage, transla
   const readingRef = useRef(false);
   const mounted = useRef(false);
   const cid = state.conversation?.conversation_id;
-  useEffect(() => { if (state.connected && cid) void bridge.send({ type: 'history.get' }); }, [cid, state.connected]);
+  useEffect(() => { if (!passive && state.connected && cid) void bridge.send({ type: 'history.get' }); }, [cid, state.connected, passive]);
   useEffect(() => {
     setLoading(false);
     if (state.error) older.current = undefined;
@@ -95,7 +96,7 @@ function DialogueScene({ state, speech, textOnly, show, primaryLanguage, transla
     && (item.id === state.presented || ['playing', 'played', 'partial'].includes(item.state)));
   useEffect(() => {
     if (primaryLanguage !== 'en' && translationLanguage !== 'en') { translationsRequested.current.clear(); return; }
-    if (!state.connected || !show) return;
+    if (passive || !state.connected || !show) return;
     const ids = entries.filter((entry): entry is AssistantEntry => entry.role === 'assistant')
       .filter(entry => !entry.speech.en && !translationsRequested.current.has(entry.id)).slice(-30).map(entry => entry.id);
     if (!ids.length) return;
@@ -199,7 +200,7 @@ function DialogueScene({ state, speech, textOnly, show, primaryLanguage, transla
   const latestRef = useRef(latest); latestRef.current = latest;
   function loadOlder() {
     const node = list.current;
-    if (!node || loading || older.current || !state.historyHasMore || !state.connected) return;
+    if (passive || !node || loading || older.current || !state.historyHasMore || !state.connected) return;
     follow.current = false; syncReading();
     older.current = { height: node.scrollHeight, top: node.scrollTop, history: state.history }; setLoading(true);
     void bridge.send({ type: 'history.get', before: state.historyBefore }).then(result => {

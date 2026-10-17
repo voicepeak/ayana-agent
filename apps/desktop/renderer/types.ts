@@ -26,6 +26,8 @@ export interface DesktopState {
   designDraft?: Record<string, unknown>;
   designOpen?: boolean;
   voicePack?: VoicePackState;
+  welcomeReplay?: boolean;
+  welcomeRun?: number;
 }
 
 export interface AyanaBridge {
@@ -46,7 +48,11 @@ export interface AyanaBridge {
   revertDesignPreview(): Promise<void>;
   openCompanionMenu(): Promise<void>;
   chooseNoteBackground(): Promise<{ ok: boolean; error?: string; imageId?: string }>;
-  openSettings(tab?: 'history'): Promise<void>;
+  openSettings(tab?: 'history' | 'model'): Promise<void>;
+  openWelcome(): Promise<void>;
+  welcomeTarget(): Promise<{ x: number; y: number; width: number; height: number; asset: string } | null>;
+  finishWelcome(configure?: boolean): Promise<{ ok: boolean; error?: string }>;
+  closeWelcome(): Promise<void>;
   hideSettings(): Promise<void>;
   restart(): Promise<void>;
   restartApp(): Promise<void>;

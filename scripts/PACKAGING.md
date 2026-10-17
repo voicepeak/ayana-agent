@@ -28,6 +28,9 @@ cd apps/desktop
 npm run package
 ```
 
+
+首次启动开场的固定讲解在 `apps/desktop/public/welcome/*.wav`，Vite 会一起复制进桌面包；它们不依赖完整语音模型或网络。修改台词 `config/welcome-script.json` 后，运行 `./.venv/Scripts/python.exe scripts/build_welcome_audio.py --force`，使用本机已配置的 Ayana 音色重新生成，再构建桌面包。首次启动通过用户配置的 `onboarding_version` 判断，完成和跳过都要求先保存称呼；旧版个人配置自动沿用原来的“紀”，可在设置中重看。
+
 打包成功后会自动按最终 EXE 内容生成 `release/SHA256SUMS-<版本>.txt`；重新构建同一版本也会更新清单。打包失败时不会生成新的成功清单。发布前应再次核对 EXE 的 SHA256 与清单一致，并对该文件执行冒烟测试。
 
 先执行 `package_backend.py`，让打包内容包含最新的后端代码。脚本只重建 `.runtime/python` 和 `.runtime/backend` 两个生成目录；调用前关闭正在使用它们的便携版程序。

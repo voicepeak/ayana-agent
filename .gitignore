@@ -16,6 +16,7 @@ config/*.local.json
 assets/ayana/
 assets/ayana-su/
 *.wav
+!apps/desktop/public/welcome/*.wav
 *.ckpt
 *.pth
 *.log

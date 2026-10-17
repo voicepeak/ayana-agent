@@ -171,6 +171,7 @@ export default function App() {
     if (event.type === 'conversation.deleted') conversationDrafts.current.delete(String(event.deleted_id));
     if (event.type === 'desktop.navigate' && event.tab === 'history') { setTab('history'); void send({ type: 'history.get' }); void send({ type: 'conversations.get' }); }
     if (event.type === 'desktop.navigate' && event.tab === 'settings') { setTab('chat'); setSettingsSection('appearance'); }
+    if (event.type === 'desktop.navigate' && event.tab === 'model') { setTab('chat'); setSettingsSection('model'); }
   }), []);
 
   async function send(command: Record<string, unknown> & { type: string }) {

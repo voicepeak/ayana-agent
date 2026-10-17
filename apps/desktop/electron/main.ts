@@ -61,6 +61,7 @@ let summonShortcut = 'Control+Alt+A';
 let cancelShortcut = 'Control+Alt+Space';
 let talkShortcut = defaults.talk_hotkey;
 let talkHold: { id: string; timer: ReturnType<typeof setTimeout> } | undefined;
+let welcomeLeaving = false;
 let inputAfterCapture = true;
 let composerRequested = false;
 let companionMenuOpen = false;
@@ -293,7 +294,7 @@ function broadcast(event: Event, remember = true) {
     const snapshots = new Set(['settings.ready', 'history.ready', 'conversations.ready', 'conversation.changed', 'context.state', 'memory.ready', 'sources.ready']);
     recentEvents = recentEvents.filter((previous, index) => snapshots.has(previous.type) || index >= recentEvents.length - 160);
   }
-  for (const window of [chat, settingsWindow, designWindow]) {
+  for (const window of [chat, settingsWindow, designWindow, welcomeWindow]) {
     if (window !== chat && event.type.startsWith('audio.')) continue;
     if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) {
       window.webContents.send('ayana:event', event);
@@ -357,6 +358,7 @@ function hide() {
 }
 
 function summon(openInput = true) {
+  if (welcomeWindow?.isVisible()) { welcomeWindow.show(); welcomeWindow.focus(); return; }
   // The first explicit invocation raises her; the next hides her even when
   // Windows declines focus or changes focus while dispatching the shortcut.
   if (chat?.isVisible() && summonRaised) {
@@ -411,7 +413,7 @@ function requestComposer() {
   broadcast({ protocol_version: 1, type: 'desktop.focus-input', generation_id: currentGeneration }, false);
 }
 
-function openManagement(tab?: 'history') {
+function openManagement(tab?: 'history' | 'model') {
   closeDesign();
   summonRaised = false;
   // The transparent companion must not cover the management window's controls.
@@ -424,6 +426,21 @@ function openManagement(tab?: 'history') {
 function hideManagement() {
   settingsWindow?.hide();
   chat?.setAlwaysOnTop(true, 'screen-saver');
+}
+
+function openWelcome(replay = false) {
+  if (welcomeWindow?.isVisible()) { welcomeWindow.focus(); return; }
+  welcomeReplay = replay;
+  welcomeRun += 1;
+  hide();
+  settingsWindow?.hide();
+  if (!welcomeWindow || welcomeWindow.isDestroyed()) {
+    welcomeWindow = createWindow('welcome');
+    welcomeWindow.once('ready-to-show', () => { welcomeWindow?.show(); welcomeWindow?.focus(); registerWindows(); });
+  } else {
+    broadcast({ protocol_version: 1, type: 'desktop.welcome-open', replay, run: welcomeRun }, false);
+    welcomeWindow.show(); welcomeWindow.focus();
+  }
 }
 
 function companionMenuItems(): Electron.MenuItemConstructorOptions[] {
@@ -450,7 +467,7 @@ function windowHandle(window: BrowserWindow): number {
 function registerWindows() {
   runtimeSend({
     type: 'assistant.register',
-    hwnds: [chat, settingsWindow, designWindow].filter((win): win is BrowserWindow => !!win && !win.isDestroyed()).map(windowHandle),
+    hwnds: [chat, settingsWindow, designWindow, welcomeWindow].filter((win): win is BrowserWindow => !!win && !win.isDestroyed()).map(windowHandle),
   });
 }
 
@@ -539,6 +556,11 @@ function receive(event: Event) {
     companionSettings = settings;
     placeCompanion(); notifyDesignPreview();
     updateShortcuts(settings);
+    if (!startupSummonDone) {
+      startupSummonDone = true;
+      if (Number(settings.onboarding_version || 0) < 1) openWelcome();
+      else { summonPending = false; summon(false); }
+    }
   }
   if (event.type === 'error' && designSaves.delete(String(event.request_id || ''))) revertDesignPreview();
   if (event.type === 'session.started' && focusAfterCapture) focusChat();
@@ -571,7 +593,7 @@ function connectRuntime(attempt = 0) {
     runtimeSend({ type: 'settings.get' });
     runtimeSend({ type: 'history.get' });
     runtimeSend({ type: 'capabilities.get' });
-    if (summonPending || !startupSummonDone) {
+    if (startupSummonDone && summonPending) {
       const openInput = summonPending ? inputAfterCapture : false;
       summonPending = false;
       startupSummonDone = true;
@@ -677,7 +699,7 @@ function windowId(window: BrowserWindow | undefined) {
 }
 
 function trustedSender(id: number) {
-  return [chat, settingsWindow, designWindow].some(win => windowId(win) === id);
+  return [chat, settingsWindow, designWindow, welcomeWindow].some(win => windowId(win) === id);
 }
 
 function registerIpc() {
@@ -686,9 +708,10 @@ function registerIpc() {
     if (event.sender.id === windowId(chat) && typeof id === 'string') endTalking(cancelled === true, id);
   });
   ipcMain.handle('ayana:command', (event, value: unknown) => {
-    if (![windowId(chat), windowId(settingsWindow), windowId(designWindow)].includes(event.sender.id)) return { ok: false, error: '不允许此窗口发送控制命令。' };
+    if (!trustedSender(event.sender.id)) return { ok: false, error: '不允许此窗口发送控制命令。' };
     if (!value || typeof value !== 'object' || Array.isArray(value)) return { ok: false, error: '命令格式无效。' };
     const command = value as Record<string, unknown>;
+    if (event.sender.id === windowId(welcomeWindow) && !['settings.get', 'settings.update', 'capabilities.get'].includes(String(command.type))) return { ok: false, error: '开场窗口不支持此命令。' };
     if (!commands.has(String(command.type)) || JSON.stringify(command).length > 2_000_000) return { ok: false, error: '命令不在允许范围内。' };
     if (['turn.start', 'generation.cancel', 'session.close', 'conversation.create', 'conversation.select'].includes(String(command.type))) {
       desktopEvent('desktop.cancelled', { cancelled_generation_id: currentGeneration });
@@ -762,7 +785,65 @@ function registerIpc() {
   });
   ipcMain.handle('ayana:settings', (event, tab?: unknown) => {
     if (!trustedSender(event.sender.id)) return;
-    openManagement(tab === 'history' ? tab : undefined);
+    openManagement(tab === 'history' || tab === 'model' ? tab : undefined);
+  });
+  ipcMain.handle('ayana:welcome-open', event => {
+    if ([windowId(settingsWindow), windowId(chat)].includes(event.sender.id)) openWelcome(true);
+  });
+  ipcMain.handle('ayana:welcome-target', async event => {
+    if (event.sender.id !== windowId(welcomeWindow) || !chat || !welcomeWindow) return null;
+    const bounds = chat.getBounds();
+    const origin = welcomeWindow.getBounds();
+    try {
+      const portrait = await chat.webContents.executeJavaScript(`(() => {
+        const image = document.querySelector('.portrait-stage .character');
+        if (!image) return null;
+        const r = image.getBoundingClientRect();
+        const scale = Math.min(r.width / image.naturalWidth, r.height / image.naturalHeight);
+        const width = image.naturalWidth * scale, height = image.naturalHeight * scale;
+        return width > 0 && height > 0 ? { x: r.x + (r.width - width) / 2, y: r.y + (r.height - height) / 2,
+          width, height, asset: new URL(image.src).hostname } : null;
+      })()`);
+      return portrait ? { ...portrait, x: bounds.x - origin.x + portrait.x, y: bounds.y - origin.y + portrait.y } : null;
+    } catch { return null; }
+  });
+  ipcMain.handle('ayana:welcome-finish', async (event, configure?: unknown) => {
+    if (event.sender.id !== windowId(welcomeWindow)) return { ok: false };
+    if (Number(companionSettings.onboarding_version || 0) < 1 || !String(companionSettings.user_name || '').trim()) return { ok: false, error: '请先保存名字。' };
+    if (welcomeLeaving || !chat || chat.isDestroyed() || !welcomeWindow) return { ok: false };
+    welcomeLeaving = true;
+    const introduction = welcomeWindow, companion = chat;
+    try {
+      // Both native windows remain composited throughout the handoff.
+      companion.setOpacity(0);
+      companion.showInactive();
+      introduction.moveTop();
+      focusAfterCapture = false;
+      companionShown = true;
+      runtimeSend({ type: 'session.start' });
+      await new Promise<void>(resolve => {
+        const started = performance.now();
+        const timer = setInterval(() => {
+          const t = Math.min(1, (performance.now() - started) / 650);
+          const eased = t * t * (3 - 2 * t);
+          if (!companion.isDestroyed()) companion.setOpacity(eased);
+          if (!introduction.isDestroyed()) introduction.setOpacity(1 - eased);
+          if (t >= 1 || companion.isDestroyed() || introduction.isDestroyed()) { clearInterval(timer); resolve(); }
+        }, 16);
+      });
+      if (!introduction.isDestroyed()) introduction.hide();
+    } finally {
+      if (!companion.isDestroyed()) companion.setOpacity(1);
+      if (!introduction.isDestroyed()) introduction.setOpacity(1);
+      welcomeLeaving = false;
+    }
+    if (configure === true) openManagement('model');
+    return { ok: true };
+  });
+  ipcMain.handle('ayana:welcome-close', event => {
+    if (event.sender.id !== windowId(welcomeWindow)) return;
+    if (welcomeReplay) { welcomeWindow?.hide(); summon(false); }
+    else app.quit();
   });
   ipcMain.handle('ayana:note-background', async event => {
     if (![windowId(chat), windowId(designWindow)].includes(event.sender.id)) return { ok: false };
@@ -822,17 +903,18 @@ function registerIpc() {
   });
 }
 
-function createWindow(kind: 'chat' | 'settings' | 'design') {
+function createWindow(kind: 'chat' | 'settings' | 'design' | 'welcome') {
   const overlay = kind !== 'settings';
   const { workArea } = screen.getPrimaryDisplay();
   const window = new BrowserWindow({
-    width: kind === 'settings' ? Math.min(1160, workArea.width - 40) : kind === 'chat' ? companionSize(designPreview, workArea).width : 336,
-    height: kind === 'settings' ? Math.min(830, workArea.height - 40) : kind === 'chat' ? companionSize(designPreview, workArea).height : Math.min(600, workArea.height - 32),
+    ...(kind === 'welcome' ? { x: workArea.x, y: workArea.y } : {}),
+    width: kind === 'welcome' ? workArea.width : kind === 'settings' ? Math.min(1160, workArea.width - 40) : kind === 'chat' ? companionSize(designPreview, workArea).width : 336,
+    height: kind === 'welcome' ? workArea.height : kind === 'settings' ? Math.min(830, workArea.height - 40) : kind === 'chat' ? companionSize(designPreview, workArea).height : Math.min(600, workArea.height - 32),
     minWidth: kind === 'settings' ? 820 : kind === 'chat' ? Math.min(380, workArea.width - 32) : 40,
     minHeight: kind === 'settings' ? 480 : kind === 'chat' ? Math.min(320, workArea.height - 32) : undefined,
     show: false, frame: !overlay, transparent: overlay, backgroundColor: overlay ? '#00000000' : '#f5f7fb',
-    alwaysOnTop: overlay, skipTaskbar: overlay,
-    title: kind === 'settings' ? 'Ayana · 设置与管理' : kind === 'design' ? '彩名 · 外观' : 'Ayana', autoHideMenuBar: true, hasShadow: !overlay,
+    alwaysOnTop: overlay, skipTaskbar: overlay && kind !== 'welcome',
+    title: kind === 'welcome' ? 'Ayana · 初次见面' : kind === 'settings' ? 'Ayana · 设置与管理' : kind === 'design' ? '彩名 · 外观' : 'Ayana', autoHideMenuBar: true, hasShadow: !overlay,
     resizable: kind === 'settings' || kind === 'chat',
     movable: true,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
@@ -861,10 +943,18 @@ function createWindow(kind: 'chat' | 'settings' | 'design') {
   }
   if (kind === 'design') window.on('close', event => { if (!quitting) { event.preventDefault(); closeDesign(); } });
   if (kind === 'settings') window.on('close', event => { if (!quitting) { event.preventDefault(); hideManagement(); } });
+  if (kind === 'welcome') window.on('close', event => {
+    if (quitting) return;
+    event.preventDefault();
+    if (welcomeReplay) { window.hide(); summon(false); }
+    else app.quit();
+  });
+  if (kind === 'welcome') window.on('hide', () => broadcast({ protocol_version: 1, type: 'desktop.welcome-hidden' }, false));
   window.on('closed', () => {
     if (window === chat) { endCompanionDrag(); chat = undefined; }
     if (window === settingsWindow) settingsWindow = undefined;
     if (window === designWindow) designWindow = undefined;
+    if (window === welcomeWindow) welcomeWindow = undefined;
   });
   return window;
 }

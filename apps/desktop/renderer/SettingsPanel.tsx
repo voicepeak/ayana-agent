@@ -75,6 +75,11 @@ export function Settings({ state, section }: { state: ModelState; section: Setti
     <form className="settings-form" onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={saving || !state.settingsLoaded} className="settings-fields" key={section}>
       {section === 'appearance' && <>
+        <div className="form-section"><h3>与你相处</h3>
+          <label>彩名对你的称呼<Input required maxLength={32} value={draft.user_name} onChange={event => update('user_name', event.target.value)} placeholder="你希望被称呼的名字"/></label>
+          <p className="form-hint">保存后，聊天与主动搭话都会使用这个名字。</p>
+          <Button type="button" disabled={saving || dirty} onClick={() => void bridge.openWelcome()}>重看初次见面<Icon name="arrow" size={15}/></Button>
+        </div>
         <div className="form-section"><h3>形象与声音</h3>
           <label>角色<select aria-label="角色" value={draft.character} onChange={event => changeCharacter(event.target.value)}>{characters.map(item => <option key={item.id} value={item.id} disabled={readyCharacters.get(item.id) === false && item.id !== draft.character}>{item.name}{readyCharacters.get(item.id) === false ? '（资源未导入）' : ''}</option>)}</select></label>
           <p className="form-hint">切换角色会同时更换立绘和声音；人设、记忆与使用设置保持不变。</p>

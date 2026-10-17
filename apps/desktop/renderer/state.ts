@@ -246,6 +246,8 @@ const previewBridge: AyanaBridge = {
   restart: async () => {},
   restartApp: async () => {},
   beginTalk: async () => ({ ok: false }), endTalk: async () => {},
+  openWelcome: async () => {}, welcomeTarget: async () => null,
+  finishWelcome: async () => ({ ok: false, error: '请在桌面应用中打开初次见面。' }), closeWelcome: async () => {},
   voicePack: {
     get: async () => null,
     start: async () => null,
