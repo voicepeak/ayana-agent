@@ -105,7 +105,7 @@ async function launch(label) {
   instance.inspector = await inspector(inspect);
   instance.runtime = await instance.inspector.evaluate("(()=>{const {app}=process.getBuiltinModule('module').createRequire(process.resourcesPath+'/app.asar/package.json')('electron'); return {pid:process.pid,packaged:app.isPackaged,resources:process.resourcesPath,data:app.getPath('userData'),logs:app.getPath('logs')};})()");
   assert(instance.runtime.packaged);
-  instance.backend = await eventually(() => processes(instance.runtime.pid).find(p => /resources[\\/]python[\\/]python\.exe$/i.test(p.ExecutablePath || '')), 15000, 'owned embedded agent');
+  instance.backend = await eventually(() => processes(instance.runtime.pid).find(p => /[\\/]python[\\/]python\.exe$/i.test(p.ExecutablePath || '') && /-m services\.agent/.test(p.CommandLine || '')), 15000, 'owned embedded agent');
   await eventually(async () => { const result = await fetch(`http://127.0.0.1:${cdp}/json/version`, { signal: AbortSignal.timeout(1000) }); return result.ok; }, 15000, 'renderer CDP');
   instance.browser = await chromium.connectOverCDP(`http://127.0.0.1:${cdp}`);
   instance.page = await eventually(() => instance.browser.contexts().flatMap(context => context.pages()).find(page => page.url().includes('window=chat')), 15000, 'chat renderer');
@@ -141,7 +141,8 @@ async function launch(label) {
   return instance;
 }
 function resourceFiles(instance) {
-  return ['backend/services/tts/worker.py', 'backend/characters/ayana/persona.md', 'python/python311._pth'].map(relative => ({ relative, path: path.join(instance.runtime.resources, relative) }));
+  const base = path.dirname(path.dirname(instance.backend.ExecutablePath));
+  return ['backend/services/tts/worker.py', 'backend/characters/ayana/persona.md', 'python/python311._pth'].map(relative => ({ relative, path: path.join(base, relative) }));
 }
 function assertResources(instance) {
   for (const file of resourceFiles(instance)) assert(existsSync(file.path), `Portable runtime resource disappeared: ${file.relative}`);
@@ -205,7 +206,24 @@ try {
       report.checks.independent_settings = true;
     }
     await instance.page.evaluate(() => window.ayana.send({ type: 'generation.cancel' }));
+    const repeats = Number(option('--repeat-launches') || 0);
+    if (repeats > 0) {
+      assert(isolatedCompanion, 'Repeated QA launches require an isolated profile.');
+      const wrappers = Array.from({ length: repeats }, () => spawn(executable,
+        [`--user-data-dir=${isolatedProfile}`], { cwd: path.dirname(executable), windowsHide: true, stdio: 'ignore' }));
+      await Promise.all(wrappers.map(wrapper => eventually(() => wrapper.exitCode !== null || wrapper.signalCode !== null,
+        90000, 'repeated portable wrapper exit')));
+      wrappers.forEach(wrapper => assert.equal(wrapper.exitCode, 0));
+      assert(alive(instance.runtime.pid) && alive(instance.backend.ProcessId));
+      assertResources(instance);
+      assert(await instance.page.evaluate(() => window.ayana.getState().then(state => state.connected)));
+      report.checks.concurrent_duplicate_launches = repeats;
+      report.checks.active_runtime_preserved = true;
+    }
     await close(instance);
+    const stagedRoot = path.dirname(path.dirname(instance.backend.ExecutablePath));
+    report.checks.staged_runtime_removed_on_quit = !existsSync(stagedRoot);
+    assert(report.checks.staged_runtime_removed_on_quit, 'Owned staged runtime must be removed on quit.');
     report.checks.personal_profile_loaded = true;
     report.checks.graceful_shutdown = report.errors.length === 0;
     report.passed = true;

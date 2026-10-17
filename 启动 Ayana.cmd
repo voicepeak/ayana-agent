@@ -1,6 +1,8 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start_release.ps1"
+if not errorlevel 1 exit /b 0
 if not exist ".venv\Scripts\python.exe" (
   echo 请先运行 scripts\bootstrap.ps1 安装依赖。
   pause

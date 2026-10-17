@@ -12,6 +12,7 @@ import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 import defaults from '../../../config/default.json';
 import { clampCompanion, companionSize, companionDragBounds, inspectorBounds, type Bounds, type Point } from './companionGeometry';
+import { releasePortableRuntime, stagePortableRuntime, type PortableRuntime } from './portableRuntime';
 import { resolveTheme } from '../renderer/companionThemes';
 
 type Event = Record<string, unknown> & { type: string; protocol_version: number };
@@ -63,6 +64,7 @@ let designDraft = { ...designPreview };
 let designPreviewReverted = true;
 const designSaves = new Map<string, typeof designDraft>();
 let companionDrag: { origin: Bounds; cursor: Point; moved: boolean; timer: ReturnType<typeof setInterval> } | undefined;
+let portableRuntime: PortableRuntime | undefined;
 
 function storedDesign(settings: Record<string, unknown>) {
   const stored = settings.companion_ui as Partial<typeof designPreview> || {};
@@ -142,8 +144,22 @@ function endCompanionDrag() {
   if (moved) persistCompanionPosition();
 }
 
+// The portable NSIS target extracts the app into %TEMP%. Keep a hard-linked
+// duplicate of the runtime under userData so a temp cleaner cannot delete the
+// persona, assets or importable Python modules of a running session.
+function stageRuntime() {
+  if (portableRuntime || !app.isPackaged || !process.env.PORTABLE_EXECUTABLE_FILE) return;
+  try {
+    portableRuntime = stagePortableRuntime(process.resourcesPath, app.getPath('userData'));
+    diagnostic(`Portable runtime staged: ${portableRuntime.root}`);
+  } catch (error) {
+    diagnostic(`Portable runtime staging failed, using %TEMP%: ${String(error)}`);
+  }
+}
+
 function backendRoot(): string {
   return process.env.AYANA_REPOSITORY_ROOT
+    || portableRuntime?.backend
     || (app.isPackaged ? path.join(process.resourcesPath, 'backend') : path.resolve(__dirname, '../../..'));
 }
 
@@ -422,8 +438,9 @@ async function startRuntime() {
   desktopEvent('desktop.service', { state: service, connected: false });
   token = randomBytes(32).toString('hex');
   port = await freePort();
+  stageRuntime();
   const root = backendRoot();
-  const bundled = path.join(process.resourcesPath, 'python', 'python.exe');
+  const bundled = portableRuntime?.python ?? path.join(process.resourcesPath, 'python', 'python.exe');
   const local = path.join(root, '.venv', 'Scripts', 'python.exe');
   const python = process.env.AYANA_PYTHON || (existsSync(bundled) ? bundled : existsSync(local) ? local : 'python');
   diagnostic(`Runtime start: packaged=${app.isPackaged} backend=${root} python=${python} data=${app.getPath('userData')}`);
@@ -736,5 +753,8 @@ app.on('before-quit', event => {
   if (focusTimer) clearTimeout(focusTimer);
   socket?.terminate();
   tray?.destroy();
-  void stopRuntime().finally(() => app.exit(0));
+  void stopRuntime().finally(() => {
+    releasePortableRuntime(portableRuntime?.root);
+    app.exit(0);
+  });
 });
