@@ -21,7 +21,7 @@ export function CompanionWaiting({ state }: { state: ModelState }) {
     </div>
     <div className="waiting-copy">
       <div className="waiting-message" role="status" aria-live="polite" aria-atomic="true">
-        <p className="waiting-title">在终之空游荡中...</p>
+        <p className="waiting-title">{activity.title}</p>
         <p className="waiting-detail">{activity.detail}</p>
       </div>
       <div className="waiting-controls">

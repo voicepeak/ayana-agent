@@ -23,7 +23,7 @@
   "history_budget_chars": 128000,
   "max_audio_ahead_ms": 10000,
   "voice": {
-    "voice_mode": "auto"
+    "voice_mode": "silent"
   },
   "stt": {
     "provider": "local",

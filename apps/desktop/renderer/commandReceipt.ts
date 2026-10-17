@@ -18,7 +18,7 @@ export function commandReceipt(command: Record<string, unknown> & { type: string
       if (event.type === receipt) finish();
       if (event.type === 'error') finish(new Error(String(event.message || '操作未完成，请重试。')));
     });
-    const timer = setTimeout(() => finish(new Error('尚未收到保存回执，请核对后重试。')), 20000);
+    const timer = setTimeout(() => finish(new Error('尚未收到操作结果，请核对后重试。')), 20000);
     transport.send({ ...command, request_id: requestId })
       .then(result => { if (!result.ok) finish(new Error(result.error || '本地服务未连接。')); })
       .catch(error => finish(error instanceof Error ? error : new Error(String(error))));

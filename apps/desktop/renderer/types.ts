@@ -17,6 +17,8 @@ export interface RuntimeCommand {
 }
 
 export interface DesktopState {
+  companionViewport?: { width: number; height: number };
+  inspectorViewport?: { width: number; height: number; x: number; y: number };
   connected: boolean;
   service: string;
   version: string;

@@ -899,7 +899,11 @@ function registerIpc() {
   });
   ipcMain.handle('ayana:state', (event) => {
     if (!trustedSender(event.sender.id)) return null;
-    return { connected: socket?.readyState === WebSocket.OPEN, service, version: app.getVersion(), events: recentEvents, composerRequested, designPreview, designDraft, designOpen: designWindow?.isVisible() === true };
+    const card = windowId(chat) ? chat!.getContentBounds() : undefined;
+    const panel = card && inspectorBounds(card, screen.getDisplayMatching(card).workArea, designPreview.portrait_side as 'left' | 'right');
+    return { connected: socket?.readyState === WebSocket.OPEN, service, version: app.getVersion(), events: recentEvents, composerRequested, designPreview, designDraft, designOpen: designWindow?.isVisible() === true, voicePack: voicePackManager().getState(), welcomeReplay, welcomeRun,
+      companionViewport: card ? { width: card.width, height: card.height } : undefined,
+      inspectorViewport: panel && card ? { width: panel.width, height: panel.height, x: panel.x - card.x, y: panel.y - card.y } : undefined };
   });
 }
 
