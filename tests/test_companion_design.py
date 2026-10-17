@@ -46,7 +46,7 @@ def test_new_background_and_portrait_position_persist(tmp_path):
     assert settings.values['companion_ui']['background_color'] == '#e6dfd0'
 
 
-@pytest.mark.parametrize('design', [{'show_bubbles': 1}, {'bubble_color': '#fff'}, {'bubble_color': 'url(x)'}, {'background_x': -1}, {'background_y': 101}, {'background_x': True}, {'background_y': 2.5}, {'background_image': '../x'}, {'background_image': 3}, {'background_image': 'a' * 63}])
+@pytest.mark.parametrize('design', [{'show_bubbles': 1}, {'auto_palette': 1}, {'auto_palette': 'yes'}, {'background_dim': -1}, {'background_dim': 101}, {'background_dim': True}, {'input_transparency': -1}, {'input_transparency': 101}, {'input_transparency': 2.5}, {'bubble_color': '#fff'}, {'bubble_color': 'url(x)'}, {'background_x': -1}, {'background_y': 101}, {'background_x': True}, {'background_y': 2.5}, {'background_image': '../x'}, {'background_image': 3}, {'background_image': 'a' * 63}])
 def test_bubble_and_background_position_validation(tmp_path, design):
     settings = Settings(root=ROOT, data_root=tmp_path)
     with pytest.raises(ValueError):
@@ -83,3 +83,19 @@ def test_theme_image_zoom_and_extended_font_sizes_persist(tmp_path):
     settings.update({'companion_ui': {'theme': 'paper', 'font_size': 14}})
     loaded = Settings(root=ROOT, data_root=tmp_path).values['companion_ui']
     assert (loaded['theme'], loaded['background_zoom'], loaded['font_size']) == ('paper', 175, 14)
+
+
+def test_adaptive_background_palette_defaults_on_and_persists_opt_out(tmp_path):
+    import json
+    defaults = json.loads((ROOT / 'config/default.json').read_text(encoding='utf-8'))
+    assert defaults['companion_ui']['auto_palette'] is True
+    settings = Settings(root=ROOT, data_root=tmp_path)
+    settings.update({'companion_ui': {'auto_palette': False}})
+    assert Settings(root=ROOT, data_root=tmp_path).values['companion_ui']['auto_palette'] is False
+
+
+def test_image_tuning_sliders_persist(tmp_path):
+    settings = Settings(root=ROOT, data_root=tmp_path)
+    settings.update({'companion_ui': {'background_dim': 22, 'input_transparency': 73}})
+    loaded = Settings(root=ROOT, data_root=tmp_path).values['companion_ui']
+    assert (loaded['background_dim'], loaded['input_transparency']) == (22, 73)

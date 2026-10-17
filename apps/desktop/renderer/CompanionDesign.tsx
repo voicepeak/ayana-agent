@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { surfacePalette } from './companionPalette';
+import type { BackgroundSample } from './imagePalette';
 import defaults from '../../../config/default.json';
 import { Icon } from './components';
 import { wheelZoom } from './designZoom';
@@ -13,7 +14,8 @@ export interface CompanionDesign {
   background_color: string; portrait_side: 'left' | 'right'; portrait_x: number; portrait_y: number;
   show_bubbles: boolean; bubble_color: string; background_x: number; background_y: number;
   background_image: string;
-  theme: 'ink' | 'paper' | 'forest' | 'sea' | 'custom'; background_zoom: number;
+  theme: 'ink' | 'paper' | 'forest' | 'sea' | 'custom'; auto_palette: boolean;
+  background_dim: number; input_transparency: number; background_zoom: number;
 }
 export const defaultDesign = defaults.companion_ui as CompanionDesign;
 export function companionDesign(settings: Record<string, unknown>): CompanionDesign {
@@ -21,7 +23,7 @@ export function companionDesign(settings: Record<string, unknown>): CompanionDes
   const primary = stored.primary_language || (settings.subtitles === false ? 'ja' : defaultDesign.primary_language);
   const translation = stored.translation_language || (stored.show_japanese && primary !== 'ja' ? 'ja' : 'none');
   const theme = resolveTheme(stored);
-  return { ...defaultDesign, ...stored, theme, opacity: 100,
+  return { ...defaultDesign, ...stored, theme, auto_palette: stored.auto_palette !== false, opacity: 100,
     background_mode: ['transparent', 'frosted'].includes(stored.background_mode || '') ? 'solid' : stored.background_mode || defaultDesign.background_mode,
     primary_language: primary, translation_language: translation === primary ? 'none' : translation };
 }
@@ -40,20 +42,35 @@ export function useCompanionDesign(settings: Record<string, unknown>) {
   }, [settings.companion_ui]);
   return { draft, setDraft, patch: designPatch(saved, draft) };
 }
-export function designStyle(value: CompanionDesign): CSSProperties {
-  const bubble = surfacePalette(value.bubble_color);
-  const chrome = surfacePalette(value.background_color);
+export function designStyle(value: CompanionDesign, sample?: BackgroundSample | null): CSSProperties {
+  const adaptive = value.background_mode === 'image' && value.auto_palette && Boolean(sample);
+  const chromeColor = adaptive ? sample!.chrome : value.background_color;
+  const bubbleColor = adaptive ? sample!.bubble : value.bubble_color;
+  const bubble = surfacePalette(bubbleColor);
+  const chrome = surfacePalette(chromeColor);
+  const scrim = value.background_mode !== 'image'
+    ? { base: 'transparent', top: 'transparent', bottom: 'transparent' }
+    : adaptive
+      ? { base: sample!.scrim, top: sample!.scrimTop, bottom: sample!.scrimBottom }
+      : chrome.light
+        ? { base: 'rgba(255, 250, 240, .06)', top: 'rgba(255, 250, 240, .52)', bottom: 'rgba(255, 250, 240, .32)' }
+        : { base: 'rgba(8, 12, 16, .05)', top: 'rgba(8, 12, 16, .46)', bottom: 'rgba(8, 12, 16, .28)' };
   return { '--portrait-size': `${value.portrait_size}px`, '--portrait-scale': value.portrait_size / 320, '--frame-width': `${value.frame_width}px`,
-    '--background-position': `${value.background_x}% ${value.background_y}%`, '--bubble-color': value.bubble_color,
+    '--background-position': `${value.background_x}% ${value.background_y}%`, '--bubble-color': bubbleColor,
     '--bubble-text': bubble.text, '--bubble-secondary': bubble.muted, '--bubble-border': bubble.border,
     '--chrome-surface': chrome.background, '--chrome-text': chrome.text, '--chrome-muted': chrome.muted,
     '--chrome-border': chrome.border, '--chrome-accent': chrome.accent,
     '--bare-text': chrome.text, '--bare-secondary': chrome.muted,
-    '--note-color': value.background_color, '--portrait-x': `${value.portrait_x}px`, '--portrait-y': `${value.portrait_y}px`, '--dialogue-font': `${value.font_size}px`, '--frame-opacity': 1 } as CSSProperties;
+    '--note-color': value.background_color, '--portrait-x': `${value.portrait_x}px`, '--portrait-y': `${value.portrait_y}px`, '--dialogue-font': `${value.font_size}px`, '--frame-opacity': 1,
+    '--image-scrim': scrim.base, '--image-scrim-top': scrim.top, '--image-scrim-bottom': scrim.bottom,
+    '--image-scrim-opacity': `${Math.min(1.6, Math.max(0, (value.background_dim ?? 40) / 50))}`,
+    '--input-top': `${Math.round((100 - (value.input_transparency ?? 46)) * .4)}%`,
+    '--input-bottom': `${100 - (value.input_transparency ?? 46)}%` } as CSSProperties;
 }
 
-export function designTone(value: CompanionDesign) {
-  return surfacePalette(value.background_color).light ? 'light' : 'dark';
+export function designTone(value: CompanionDesign, sample?: BackgroundSample | null) {
+  const adaptive = value.background_mode === 'image' && value.auto_palette && Boolean(sample);
+  return surfacePalette(adaptive ? sample!.chrome : value.background_color).light ? 'light' : 'dark';
 }
 
 function BackgroundPosition({ value, onChange, revision }: { value: CompanionDesign; onChange: (patch: Partial<CompanionDesign>) => void; revision: number }) {
@@ -115,7 +132,7 @@ export function DesignControls({ value, onChange, portraitEditing, onPortraitEdi
   backgroundRevision?: number;
 }) {
   const [tab, setTab] = useState<'portrait' | 'dialogue' | 'frame'>('portrait');
-  const range = (key: 'portrait_size' | 'font_size', label: string, min: number, max: number, unit: string) =>
+  const range = (key: 'portrait_size' | 'font_size' | 'background_dim' | 'input_transparency', label: string, min: number, max: number, unit: string) =>
     <label className="design-range"><span>{label}<output>{key === 'portrait_size' ? Math.round(value[key] / 320 * 100) : value[key]}{unit}</output></span><input aria-label={label} type="range" min={min} max={max} step={1} value={value[key]} onChange={event => onChange({ [key]: Number(event.target.value) })}/></label>;
   return <aside className="design-controls design-inspector" aria-label="设计控件" data-companion-interactive onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); onClose(); } }}>
     <header><div><h2>彩名的外观</h2></div><div>
@@ -136,12 +153,14 @@ export function DesignControls({ value, onChange, portraitEditing, onPortraitEdi
       </>}
       {tab === 'dialogue' && <>
       <label className="design-toggle"><span>显示对话气泡</span><input type="checkbox" checked={value.show_bubbles} onChange={event => onChange({ show_bubbles: event.target.checked })}/></label>
-      <label className="design-select"><span>气泡颜色</span><input type="color" aria-label="气泡颜色" disabled={!value.show_bubbles} value={value.bubble_color} onChange={event => onChange({ bubble_color: event.target.value })}/></label>
+      <label className="design-select"><span>气泡颜色</span><input type="color" aria-label="气泡颜色" disabled={!value.show_bubbles || (value.background_mode === 'image' && value.auto_palette)} value={value.bubble_color} onChange={event => onChange({ bubble_color: event.target.value })}/></label>
       {range('font_size', '字幕字号', 14, 40, 'px')}
       <label className="design-toggle"><span>说话时显示字幕</span><input type="checkbox" checked={value.show_subtitles} onChange={event => onChange({ show_subtitles: event.target.checked })}/></label>
       <label className="design-select"><span>主语言</span><select aria-label="对白主语言" value={value.primary_language} disabled={!value.show_subtitles} onChange={event => { const primary_language = event.target.value as CompanionDesign['primary_language']; onChange({ primary_language, ...(value.translation_language === primary_language ? { translation_language: 'none' } : {}) }); }}><option value="ja">日语</option><option value="zh">中文</option><option value="en">英文</option></select></label>
       <label className="design-select"><span>翻译语言</span><select aria-label="对白翻译语言" value={value.translation_language} disabled={!value.show_subtitles} onChange={event => onChange({ translation_language: event.target.value as CompanionDesign['translation_language'] })}><option value="none">关闭 · 只显示主语言</option>{([['ja', '日语'], ['zh', '中文'], ['en', '英文']] as const).filter(([id]) => id !== value.primary_language).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
-      <p className="design-field-note">关闭气泡后仍显示对白。文字明暗随气泡颜色调整；主语言为大字，翻译在下方。滚动时只突出一条台词。</p>
+      {value.background_mode === 'image' && value.auto_palette
+        ? <p className="design-field-note">图片背景会按明暗和色调自动适配气泡与顶栏配色。关闭「自动适配背景配色」后可手动选色。</p>
+        : <p className="design-field-note">关闭气泡后仍显示对白。文字明暗随气泡颜色调整；主语言为大字，翻译在下方。滚动时只突出一条台词。</p>}
       </>}
       {tab === 'frame' && <>
       <div className="design-themes"><div>{themes.map(theme => <button key={theme.id} type="button" aria-pressed={value.theme === theme.id} onClick={() => onChange({ theme: theme.id, background_mode: 'minimal', background_color: theme.background, bubble_color: theme.bubble, opacity: 100 })}><i data-theme={theme.id} style={{ background: theme.background }}><b style={{ background: theme.bubble }}/></i><span>{theme.name}</span></button>)}
@@ -149,8 +168,16 @@ export function DesignControls({ value, onChange, portraitEditing, onPortraitEdi
       </div></div>
       {value.theme === 'custom' && <div className="design-custom-fields">
         <div className="design-custom-tabs" role="group" aria-label="自定义背景类型"><button type="button" aria-pressed={value.background_mode !== 'image'} onClick={() => onChange({ background_mode: 'solid' })}>纯色</button><button type="button" aria-pressed={value.background_mode === 'image'} onClick={() => onChange({ background_mode: 'image' })}>图片</button></div>
-        <label className="design-select"><span>{value.background_mode === 'image' ? '底色与文字明暗' : '背景颜色'}</span><input type="color" aria-label="自选背景颜色" value={value.background_color} onChange={event => onChange({ background_color: event.target.value })}/></label>
-        {value.background_mode === 'image' && <><button type="button" className="design-background-button" onClick={onBackground}>选择 / 更换背景图片</button>{value.background_image && <BackgroundPosition value={value} onChange={onChange} revision={backgroundRevision}/>}</>}
+        <label className="design-select"><span>{value.background_mode === 'image' ? value.auto_palette ? '底色与文字明暗（自动）' : '底色与文字明暗' : '背景颜色'}</span><input type="color" aria-label="自选背景颜色" disabled={value.background_mode === 'image' && value.auto_palette} value={value.background_color} onChange={event => onChange({ background_color: event.target.value })}/></label>
+        {value.background_mode === 'image' && <>
+          <label className="design-toggle"><span>自动适配背景配色</span><input type="checkbox" checked={value.auto_palette} onChange={event => onChange({ auto_palette: event.target.checked })}/></label>
+          {value.auto_palette && <p className="design-field-note">根据背景图自动选择气泡与顶栏明暗、色调和遮罩；关闭后可手动选色。</p>}
+          {range('background_dim', '背景压暗', 0, 100, '%')}
+          {range('input_transparency', '输入栏透明度', 0, 100, '%')}
+          <p className="design-field-note">背景压暗控制图片上的遮罩强度；输入栏透明度控制底部玻璃的透出程度。</p>
+          <button type="button" className="design-background-button" onClick={onBackground}>选择 / 更换背景图片</button>
+          {value.background_image && <BackgroundPosition value={value} onChange={onChange} revision={backgroundRevision}/>}
+        </>}
       </div>}
       </>}
     </fieldset>

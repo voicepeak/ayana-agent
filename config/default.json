@@ -55,6 +55,9 @@
     "background_y": 50,
     "background_image": "",
     "theme": "ink",
+    "auto_palette": true,
+    "background_dim": 40,
+    "input_transparency": 46,
     "background_zoom": 100
   },
   "save_history": true,

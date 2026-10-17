@@ -94,8 +94,8 @@ class Settings:
             raise ValueError("volume must be between 0 and 1")
         if "companion_ui" in patch:
             design = patch["companion_ui"]
-            bounds = {"portrait_size": (160, 640), "frame_width": (380, 900), "frame_height": (320, 720), "font_size": (14, 40), "opacity": (0, 100), "portrait_x": (-4096, 4096), "portrait_y": (-4096, 4096), "background_x": (0, 100), "background_y": (0, 100), "background_zoom": (100, 300)}
-            if not isinstance(design, dict) or set(design) - {*bounds, "portrait_range", "show_subtitles", "show_japanese", "show_bubbles", "background_mode", "background_color", "bubble_color", "portrait_side", "primary_language", "translation_language", "background_image", "theme"}:
+            bounds = {"portrait_size": (160, 640), "frame_width": (380, 900), "frame_height": (320, 720), "font_size": (14, 40), "opacity": (0, 100), "portrait_x": (-4096, 4096), "portrait_y": (-4096, 4096), "background_x": (0, 100), "background_y": (0, 100), "background_zoom": (100, 300), "background_dim": (0, 100), "input_transparency": (0, 100)}
+            if not isinstance(design, dict) or set(design) - {*bounds, "portrait_range", "show_subtitles", "show_japanese", "show_bubbles", "background_mode", "background_color", "bubble_color", "portrait_side", "primary_language", "translation_language", "background_image", "theme", "auto_palette"}:
                 raise ValueError("Invalid companion design")
             for key, (low, high) in bounds.items():
                 if key in design and (type(design[key]) is not int or not low <= design[key] <= high):
@@ -117,7 +117,7 @@ class Settings:
                     raise ValueError(f"Invalid {key}")
             if "background_image" in design and (not isinstance(design["background_image"], str) or not re.fullmatch(r"(?:[0-9a-f]{64})?", design["background_image"])):
                 raise ValueError("Invalid background_image")
-            for key in ("show_subtitles", "show_japanese", "show_bubbles"):
+            for key in ("show_subtitles", "show_japanese", "show_bubbles", "auto_palette"):
                 if key in design and type(design[key]) is not bool:
                     raise ValueError(f"{key} must be boolean")
             patch = {**patch, "companion_ui": {**self.values.get("companion_ui", {}), **design}}

@@ -8,6 +8,7 @@ import { CompanionWorkspace } from './CompanionWorkspace';
 import { dialogueReadTime } from './cinematic';
 import desktopPackage from '../package.json';
 import { companionDesign, useCompanionDesign, designStyle, designTone, DesignControls, type CompanionDesign } from './CompanionDesign';
+import { useImagePalette } from './imagePalette';
 import { savePreferences } from './preferences';
 import { CompanionPortrait } from './CompanionPortrait';
 import { captionLayout, type PortraitScene } from './captionLayout';
@@ -31,6 +32,7 @@ export default function App() {
   const [designMessage, setDesignMessage] = useState('');
   const [captionVisible, setCaptionVisible] = useState(false);
   const [backgroundRevision, setBackgroundRevision] = useState(0);
+  const imageSample = useImagePalette(kind === 'chat' && design.background_mode === 'image' && design.auto_palette, design.background_image, backgroundRevision);
   const [portraitScene, setPortraitScene] = useState<PortraitScene>();
   const captionArea = portraitScene && captionLayout(portraitScene, design.font_size);
   const designDirty = Object.keys(designPatch).length > 0;
@@ -194,8 +196,8 @@ export default function App() {
   }, [kind, nextText?.id, nextText?.generation, state.presented, state.generation, dispatch]);
 
   if (kind === 'design') return <DesignControls backgroundRevision={backgroundRevision} value={design} onChange={changeDesign} portraitEditing={portraitEditing} onPortraitEditing={changePortraitEditing} onSave={() => void saveDesign()} onClose={() => void bridge.closeDesign()} onBackground={() => void chooseBackground()} onUndo={() => changeDesign(companionDesign(state.settings))} costume={String(state.settings.avatar_costume || '校服')} costumes={costumesOf(catalog)} onCostume={value => void changeCostume(value)} saving={designSaving || costumeSaving} dirty={designDirty} message={designMessage}/>;
-  if (kind === 'chat') return <main ref={companion} className="companion-shell companion-framed" data-design-open={designOpen} data-portrait-editing={portraitEditing} style={designStyle(design)} onContextMenu={event => { event.preventDefault(); void bridge.openCompanionMenu(); }}>
-    <section className="companion-frame companion-note is-visible" data-theme={design.theme} data-tone={designTone(design)} data-bubbles={design.show_bubbles} data-background={design.background_mode} data-portrait-side={design.portrait_side} data-speaking={captionVisible} aria-label="彩名便签" data-companion-interactive>
+  if (kind === 'chat') return <main ref={companion} className="companion-shell companion-framed" data-design-open={designOpen} data-portrait-editing={portraitEditing} style={designStyle(design, imageSample)} onContextMenu={event => { event.preventDefault(); void bridge.openCompanionMenu(); }}>
+    <section className="companion-frame companion-note is-visible" data-theme={design.theme} data-tone={designTone(design, imageSample)} data-bubbles={design.show_bubbles} data-background={design.background_mode} data-portrait-side={design.portrait_side} data-speaking={captionVisible} aria-label="彩名便签" data-companion-interactive>
     {['minimal', 'solid'].includes(design.background_mode) && <div className="note-surface" aria-hidden="true"/>}
     {design.background_mode === 'image' && <div className="note-background-image" aria-hidden="true"><img alt="" src={`ayana-background://custom/?image=${design.background_image}&v=${backgroundRevision}`} style={{ objectPosition: `${design.background_x}% ${design.background_y}%`, transform: `scale(${design.background_zoom / 100})`, transformOrigin: `${design.background_x}% ${design.background_y}%` }}/></div>}
     <header className="companion-frame-heading" title="拖动标题栏移动窗口"><div className="companion-heading-start"><div className="companion-signature"><strong>彩名</strong></div><button className="companion-appearance-button" type="button" aria-label="打开设计控件" aria-expanded={designOpen} title="调整外观" onClick={() => { if (designOpen) void bridge.closeDesign(); else void bridge.openDesign(); }}><Icon name="settings" size={14}/></button>
