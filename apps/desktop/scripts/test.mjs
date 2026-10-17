@@ -4,6 +4,8 @@ import vm from 'node:vm';
 import { build } from 'esbuild';
 import { verifyPortableIsolation } from './verify-portable.mjs';
 import './test-lifecycle.mjs';
+import './test-portable-runtime.mjs';
+import './test-release-checksum.mjs';
 import './test-preferences.mjs';
 import './test-command-receipt.mjs';
 import './test-cinematic.mjs';

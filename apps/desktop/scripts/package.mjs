@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
+import { writeReleaseChecksums } from './release-checksum.mjs';
 import { verifyPortableIsolation } from './verify-portable.mjs';
 
 // In installed builder 26.15.3, true keeps NSIS's per-launch $PLUGINSDIR.
@@ -27,5 +29,18 @@ if (cache) {
   }
 }
 const child = spawn(process.execPath, ['node_modules/electron-builder/cli.js', '--win', 'portable'], { stdio: 'inherit', env: environment });
-child.on('exit', code => { process.exitCode = code ?? 1; });
-child.on('error', error => { console.error(error.message); process.exitCode = 1; });
+try {
+  const code = await new Promise((resolve, reject) => {
+    child.once('close', resolve);
+    child.once('error', reject);
+  });
+  process.exitCode = code ?? 1;
+  if (code === 0) {
+    const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+    const manifest = await writeReleaseChecksums(path.resolve('release'), version);
+    console.log(`Release SHA256: ${manifest}`);
+  }
+} catch (error) {
+  console.error(error.message);
+  process.exitCode = 1;
+}

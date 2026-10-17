@@ -28,6 +28,8 @@ cd apps/desktop
 npm run package
 ```
 
+打包成功后会自动按最终 EXE 内容生成 `release/SHA256SUMS-<版本>.txt`；重新构建同一版本也会更新清单。打包失败时不会生成新的成功清单。发布前应再次核对 EXE 的 SHA256 与清单一致，并对该文件执行冒烟测试。
+
 先执行 `package_backend.py`，让打包内容包含最新的后端代码。脚本只重建 `.runtime/python` 和 `.runtime/backend` 两个生成目录；调用前关闭正在使用它们的便携版程序。
 
 打包脚本从 [Python 官方 3.11.9 发布页](https://www.python.org/downloads/release/python-3119/) 下载 AMD64 嵌入式运行时并校验发布页列出的校验和，把 `.venv` 的运行依赖复制到该运行时。验证使用 `python.exe -I`，不读取系统 Python 或用户的 site-packages。桌面程序也须使用 `-I -u -m services.agent` 启动它。

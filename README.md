@@ -23,9 +23,9 @@ Ayana 只聊天和陪伴：不读写你的文件、不执行命令、不操作�
 
 ## 在本机运行
 
-本机交付版可直接双击 `apps/desktop/release/Ayana-0.3.23-win-x64.exe`。它包含独立 Python、桌面程序与立绘；个人模型配置保存在 `%APPDATA%/Ayana/config/local.json`。首次解包和加载音色需要等待；此前版本首次语音冷启动实测约 43 秒，期间文字输入与界面保持可用。启动新版前请退出旧版。
+本机交付版可直接双击 `apps/desktop/release/Ayana-0.3.25-win-x64.exe`。它包含独立 Python、桌面程序与立绘；个人模型配置保存在 `%APPDATA%/Ayana/config/local.json`。首次解包和加载音色需要等待；此前版本首次语音冷启动实测约 43 秒，期间文字输入与界面保持可用。启动新版前请退出旧版。
 
-开发目录也可双击 `启动 Ayana.cmd`，后续修改仍按下面的流程构建。
+根目录可双击 `启动 Ayana.cmd`，优先打开当前项目版本对应的便携 EXE；尚未打包时回退到开发启动。后续修改仍按下面的流程构建。
 
 ```powershell
 python -m venv .venv
@@ -82,6 +82,19 @@ npm --prefix apps/desktop test
 ```
 
 基准输出在被忽略的 `.runtime/benchmarks`。PCM 到达耗时不等于设备出声耗时；真实播放器回执以消费的样本数为准。打包步骤由 `scripts/package_backend.py` 准备嵌入式 Python 和非敏感后端文件，再执行 `npm --prefix apps/desktop run package`。完整打包步骤见 `scripts/PACKAGING.md`。
+
+### 对话风格检查
+
+人设在 `characters/ayana/persona.md`，日语接话与语音规则在 `characters/ayana/speech-style.md`；表情跟随对白，不以使用新表情为目标。默认允许简短回应，也允许有内容时展开；对方换话题时跟随当前内容。调研依据和小样本结果见 `docs/prompt-design-research-2026-10-16.md`。
+
+查看被测提示词的指纹和测试场景，或用已配置的在线模型跑合成对话：
+
+```powershell
+.\.venv\Scripts\python.exe scripts/check_dialogue_style.py --dry-run
+.\.venv\Scripts\python.exe scripts/check_dialogue_style.py
+```
+
+检查不会读取用户聊天历史、执行工具或播放语音。结果保存在 `.runtime/benchmarks`，包括逐轮日中对白、失败记录、重复开头、称呼与追问等指标；这些指标供人工评估，不是自然度评分。可用 `--scenario daily --scenario continuity` 选择场景，用 `--against-system <旧系统提示词快照>` 在相同条件下作对照。修改源码不会更新已生成的 EXE，使用打包版时需要重新打包。
 
 桌面端与语音相关的真实回归脚本包括 `scripts/verify_attention_companion.mjs`、`scripts/verify_conversation_manager.mjs`、`scripts/verify_conversation_switcher.mjs`、`scripts/verify_settings.mjs` 与 `scripts/verify_portable_demo.mjs`，需要指定 Playwright 所在的 `node_modules`。
 
