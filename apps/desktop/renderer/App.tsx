@@ -3,7 +3,7 @@ import { Button, Icon } from './components';
 import { bridge, useRuntime, nextTextSpeech } from './state';
 import { Settings, settingsSections, type SettingsSection } from './SettingsPanel';
 import { ConversationManager } from './ConversationManager';
-import { ConversationSwitcher } from './ConversationSwitcher';
+import { CompanionSurface } from './CompanionSurface';
 import { CompanionWorkspace } from './CompanionWorkspace';
 import { dialogueReadTime } from './cinematic';
 import desktopPackage from '../package.json';
@@ -11,9 +11,11 @@ import { companionDesign, useCompanionDesign, designStyle, designTone, DesignCon
 import { useImagePalette } from './imagePalette';
 import { savePreferences } from './preferences';
 import { CompanionPortrait } from './CompanionPortrait';
+import { VoicePackBubble } from './VoicePack';
 import { captionLayout, type PortraitScene } from './captionLayout';
 import { usePortraitEditing } from './portraitEditing';
 import { activeCatalog, characterAspect, costumesOf } from './avatarCatalogs';
+import { useHoldToTalk } from './useHoldToTalk';
 
 export default function App() {
   const kind = new URLSearchParams(location.search).get('window') || 'chat';
@@ -39,6 +41,11 @@ export default function App() {
   const companion = useRef<HTMLElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const conversationDrafts = useRef(new Map<string, string>());
+  const talk = useHoldToTalk(kind === 'chat', state.conversation?.conversation_id, transcript => {
+    changeText((text.trim() ? `${text.trim()} ` : '') + transcript);
+    setComposerOpen(true);
+    requestAnimationFrame(() => textarea.current?.focus({ preventScroll: true }));
+  });
   const current = state.speeches.find(speech => speech.id === state.current);
   const captionsOccupyScene = design.show_subtitles && (captionVisible || state.questions.length > 0
     || state.history.some(record => record.role === 'user' || record.displayed === true || ['played', 'partial'].includes(String(record.status))));
@@ -199,32 +206,21 @@ export default function App() {
   }, [kind, nextText?.id, nextText?.generation, state.presented, state.generation, dispatch]);
 
   if (kind === 'design') return <DesignControls backgroundRevision={backgroundRevision} value={design} onChange={changeDesign} portraitEditing={portraitEditing} onPortraitEditing={changePortraitEditing} onSave={() => void saveDesign()} onClose={() => void bridge.closeDesign()} onBackground={() => void chooseBackground()} onUndo={() => changeDesign(companionDesign(state.settings))} costume={String(state.settings.avatar_costume || '校服')} costumes={costumesOf(catalog)} onCostume={value => void changeCostume(value)} saving={designSaving || costumeSaving} dirty={designDirty} message={designMessage}/>;
-  if (kind === 'chat') return <main ref={companion} className="companion-shell companion-framed" data-design-open={designOpen} data-portrait-editing={portraitEditing} style={designStyle(design, imageSample)} onContextMenu={event => { event.preventDefault(); void bridge.openCompanionMenu(); }}>
-    <section className="companion-frame companion-note is-visible" data-theme={design.theme} data-tone={designTone(design, imageSample)} data-bubbles={design.show_bubbles} data-background={design.background_mode} data-portrait-side={design.portrait_side} data-speaking={captionVisible} aria-label="彩名便签" data-companion-interactive>
-    {['minimal', 'solid'].includes(design.background_mode) && <div className="note-surface" aria-hidden="true"/>}
-    {design.background_mode === 'image' && <div className="note-background-image" aria-hidden="true"><img alt="" src={`ayana-background://custom/?image=${design.background_image}&v=${backgroundRevision}`} style={{ objectPosition: `${design.background_x}% ${design.background_y}%`, transform: `scale(${design.background_zoom / 100})`, transformOrigin: `${design.background_x}% ${design.background_y}%` }}/></div>}
-    <header className="companion-frame-heading" title="拖动标题栏移动窗口"><div className="companion-heading-start"><div className="companion-signature"><strong>彩名</strong></div><button className="companion-appearance-button" type="button" aria-label="打开设计控件" aria-expanded={designOpen} title="调整外观" onClick={() => { if (designOpen) void bridge.closeDesign(); else void bridge.openDesign(); }}><Icon name="settings" size={14}/></button>
-      <ConversationSwitcher state={state} open={conversationsOpen} onOpenChange={setConversationsOpen} onContinue={openComposer}/>
-    </div><span className="companion-title-drag-area" aria-hidden="true"/><div className="companion-frame-actions">
-      {state.attentionObserving && <span className="attention-status" role="status">正在看看屏幕</span>}
-      <button type="button" aria-label="更多操作" title="话题与设置" onClick={() => void bridge.openCompanionMenu()}>···</button>
-      <button type="button" aria-label="隐藏彩名" title="隐藏彩名" onClick={() => void bridge.hide()}><Icon name="close" size={14}/></button>
-    </div></header>
+  if (kind === 'chat') return <CompanionSurface state={state} design={design} style={designStyle(design, imageSample)} tone={designTone(design, imageSample)} backgroundRevision={backgroundRevision}
+    surfaceRef={companion} designOpen={designOpen} portraitEditing={portraitEditing} speaking={captionVisible} conversationsOpen={conversationsOpen}
+    onConversations={setConversationsOpen} onComposer={openComposer} onDesign={() => { if (designOpen) void bridge.closeDesign(); else void bridge.openDesign(); }}
+    onMenu={() => void bridge.openCompanionMenu()} onHide={() => void bridge.hide()}
+    composer={{ text, textarea, onChange: changeText, onSubmit: () => void ask(), onFocus: () => setComposerOpen(true),
+      onBlur: event => { if (!companion.current?.contains(event.relatedTarget as Node | null)) setComposerOpen(false); },
+      talkStatus: talk.status, onTalkPress: () => void talk.press(), onTalkRelease: talk.release }}
+    extras={(localError || talk.error || state.error) && <div className="companion-error" role="alert" data-companion-interactive>{localError || talk.error || state.error}<button aria-label="关闭错误提示" onClick={() => { setLocalError(''); talk.dismissError(); dispatch({ protocol_version: 1, type: 'desktop.dismiss-error' }); }}><Icon name="close" size={14}/></button></div>}>
     <CompanionPortrait design={design} expression={state.expression} motion={state.settings.sentence_motion !== false}
       connected={state.connected} editable={portraitEditing} onChange={changeDesign} onClick={openComposer}
       onSceneChange={setPortraitScene} bottomInset={captionsOccupyScene ? captionArea?.portraitBottomInset : 0}
-      aspect={characterAspect(catalog)}
-      onCommit={changeDesign}/>
+      aspect={characterAspect(catalog)} onCommit={changeDesign}/>
     <CompanionWorkspace state={state} speech={presented} textOnly={textOnly} show={design.show_subtitles} primaryLanguage={design.primary_language} translationLanguage={design.translation_language} onVisibilityChange={setCaptionVisible} layout={captionArea}/>
-    <form className="floating-input" data-companion-interactive onSubmit={event => { event.preventDefault(); void ask(); }} onBlur={event => {
-      if (!companion.current?.contains(event.relatedTarget as Node | null)) setComposerOpen(false);
-    }}>
-      <textarea ref={textarea} value={text} maxLength={4000} rows={1} onFocus={() => setComposerOpen(true)} onChange={event => changeText(event.target.value)} placeholder="写下一句话…" aria-label="输入问题" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void ask(); } }}/>
-      <button type="submit" aria-label="发送" title="发送 · Enter" disabled={!text.trim() || !state.connected}><Icon name="arrow" size={19}/></button>
-    </form>
-    </section>
-    {(localError || state.error) && <div className="companion-error" role="alert" data-companion-interactive>{localError || state.error}<button aria-label="关闭错误提示" onClick={() => { setLocalError(''); dispatch({ protocol_version: 1, type: 'desktop.dismiss-error' }); }}><Icon name="close" size={14}/></button></div>}
-  </main>;
+    <VoicePackBubble state={state}/>
+  </CompanionSurface>;
 
   const statusText = current ? 'Ayana 正在说话' : state.task === 'thinking' ? '正在整理思路' : state.task === 'failed' ? '需要留意' : '空闲';
 
