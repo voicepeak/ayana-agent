@@ -155,6 +155,14 @@ async def test_dns_pinning_preserves_hostname_and_rejects_private_resolution(mon
     monkeypatch.setattr(asyncio.get_running_loop(), 'getaddrinfo', private)
     with pytest.raises(ToolError):
         await transport.handle_async_request(httpx.Request('GET', 'https://example.com/page'))
+    # Local proxy fake-ip DNS (Clash/mihomo) stays connectable: the pinned
+    # address is only meaningful to the machine's own proxy stack.
+    async def fake_ip(*args, **kwargs):
+        return [(2, 1, 6, '', ('198.18.0.139', 443))]
+    monkeypatch.setattr(asyncio.get_running_loop(), 'getaddrinfo', fake_ip)
+    await transport.handle_async_request(httpx.Request('GET', 'https://example.com/page'))
+    assert captured[-1].url.host == '198.18.0.139'
+    assert captured[-1].headers['Host'] == 'example.com'
     await transport.aclose()
 
 

@@ -17,6 +17,10 @@ import httpx
 from .registry import ToolError
 
 
+# Clash/mihomo fake-ip DNS default range (RFC 2544 benchmarking block).
+FAKE_IP_NETWORK = ipaddress.ip_network("198.18.0.0/15")
+
+
 def public_url(value):
     try:
         if not isinstance(value, str) or len(value) > 3000:
@@ -38,6 +42,23 @@ def public_url(value):
         raise ToolError("blocked_url", "只允许普通公网 HTTP/HTTPS 网页") from None
 
 
+def public_address(value):
+    """Global unicast, or the fake-ip range served by local proxy DNS stacks.
+
+    Clash and mihomo in fake-ip mode answer every lookup inside the RFC 2544
+    benchmarking range and capture the connection locally, resolving the
+    preserved SNI hostname themselves. Without such a local stack the range is
+    unroutable, so accepting it cannot reach arbitrary hosts.
+    """
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    if getattr(address, "ipv4_mapped", None):
+        return False
+    return address.is_global or address in FAKE_IP_NETWORK
+
+
 class PublicTransport(httpx.AsyncBaseTransport):
     def __init__(self):
         self.inner = httpx.AsyncHTTPTransport(retries=0)
@@ -46,7 +67,7 @@ class PublicTransport(httpx.AsyncBaseTransport):
         original = public_url(str(request.url))
         addresses = await asyncio.get_running_loop().getaddrinfo(original.host, original.port or (443 if original.scheme == "https" else 80), type=socket.SOCK_STREAM)
         ips = list(dict.fromkeys(item[4][0] for item in addresses))
-        if not ips or any(not ipaddress.ip_address(ip).is_global or getattr(ipaddress.ip_address(ip), "ipv4_mapped", None) for ip in ips):
+        if not ips or any(not public_address(ip) for ip in ips):
             raise ToolError("blocked_address", "网页解析到了本地或内部地址")
         # Connect to exactly the validated address, preserving TLS verification and Host.
         request.url = original.copy_with(host=ips[0])
