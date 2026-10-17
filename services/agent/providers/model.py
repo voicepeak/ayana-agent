@@ -232,12 +232,26 @@ class OpenAIProvider:
     async def _repair_sentence(self, event, *, subtitle=False):
         """A bounded, tool-free rewrite; the source is data, not instructions."""
         cfg = self.settings.values
-        instruction = repair_instruction(self.speaking_style, subtitle=subtitle)
         source = event.get("speech_ja")
+        fixed_sentences = []
+        if not subtitle and isinstance(source, str):
+            candidates = speech_sentences(source)
+            if 1 < len(candidates) <= 64:
+                try:
+                    for sentence in candidates:
+                        validate_speech({**event, "speech_ja": sentence})
+                except ValueError:
+                    pass  # A long/invalid sentence still needs the normal bounded rewrite.
+                else:
+                    fixed_sentences = candidates
+        instruction = repair_instruction(self.speaking_style, subtitle=subtitle,
+                                         fixed_sentences=bool(fixed_sentences))
+        payload = ({"sentences": [{"speech_ja": sentence} for sentence in fixed_sentences]}
+                   if fixed_sentences else {"sentence": source})
         body = {"model": cfg["model"], "stream": False,
                 "max_tokens": 600 if subtitle else min(6000, max(600, len(str(source)) * 6 + 300)),
                 "messages": [{"role": "system", "content": instruction},
-                    {"role": "user", "content": json.dumps({"sentence": event.get("speech_ja")}, ensure_ascii=False)}]}
+                    {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]}
         url = cfg["base_url"].rstrip("/") + "/chat/completions"
         if urlparse(url).hostname == "api.deepseek.com":
             body["thinking"] = {"type": "disabled"}
@@ -265,11 +279,15 @@ class OpenAIProvider:
                     parts = value.get("sentences")
                     if not isinstance(parts, list) or not 1 <= len(parts) <= 64:
                         raise ValueError("Repair must return all sentence/translation pairs")
+                    if fixed_sentences and len(parts) != len(fixed_sentences):
+                        raise ValueError("Translation must preserve the validated sentence count")
                     repaired = []
                     suffix = uuid.uuid4().hex[:8]
                     for index, part in enumerate(parts):
                         if not isinstance(part, dict) or set(part) != {"speech_ja", "display_zh"}:
                             raise ValueError("Invalid repaired pair")
+                        if fixed_sentences and part["speech_ja"] != fixed_sentences[index]:
+                            raise ValueError("Translation cannot rewrite validated Japanese speech")
                         key = event["key"] if index == 0 else f"{str(event['key'])[:70]}-repair-{suffix}-{index}"
                         sentence = {**event, "key": key, "speech_ja": part["speech_ja"]}
                         sentence.pop("display_zh", None)

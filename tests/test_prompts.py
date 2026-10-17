@@ -144,6 +144,64 @@ async def test_first_long_sentence_is_split_without_retrying_the_round(tmp_path)
     assert len(calls) == 2 and calls[0]["stream"] and not calls[1]["stream"]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sentences", [
+    ["こんにちは。", "午後は静かでいいね。"],
+    ["おはよう。", "今日は早起きだね。"],
+    ["「本当？」と聞いたよ。", "でも違ったね。"],
+])
+async def test_short_merged_sentences_keep_original_wording_and_get_separate_subtitles(sentences):
+    calls = []
+    source = {**VALID, "speech_ja": "".join(sentences), "expression": "休闲", "pose": "crossed"}
+    translations = [f"译文{index}" for index in range(len(sentences))]
+
+    def respond(request):
+        body = json.loads(request.content)
+        calls.append(body)
+        if body["stream"]:
+            return sse_response([source, {"type": "translation", "key": source["key"], "display_zh": "合并的旧字幕"}])
+        # Reproduce the observed failure: a free-form rewrite merges the short
+        # greeting again; structured, already-split input preserves its boundaries.
+        supplied = json.loads(body["messages"][-1]["content"])
+        if "sentences" not in supplied:
+            return repaired_response({"sentences": [{"speech_ja": source["speech_ja"], "display_zh": "合并的旧字幕"}]})
+        return repaired_response({"sentences": [
+            {"speech_ja": part["speech_ja"], "display_zh": translation}
+            for part, translation in zip(supplied["sentences"], translations)
+        ]})
+
+    cfg = type("Cfg", (), {"values": {"model": "test", "base_url": "https://api.deepseek.com/v1"}, "key": lambda self: "fixture"})()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        provider = OpenAIProvider(cfg, client)
+        events = [event async for event in provider.stream_reply([])]
+    speeches = [event for event in events if event["type"] == "speech"]
+    subtitles = [event for event in events if event["type"] == "translation"]
+    assert len(calls) == 2 and calls[0]["stream"] and not calls[1]["stream"]
+    assert [event["speech_ja"] for event in speeches] == sentences
+    assert [event["display_zh"] for event in subtitles] == translations
+    assert all(event["expression"] == "休闲" and event["pose"] == "crossed" for event in speeches)
+    assert [event["key"] for event in speeches] == [event["key"] for event in subtitles]
+    assert len({event["key"] for event in speeches}) == len(sentences)
+    assert "合并的旧字幕" not in provider.assistant_message()["content"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("parts", [
+    [{"speech_ja": "こんにちは。午後は静かでいいね。", "display_zh": "合并了"}],
+    [{"speech_ja": "こんばんは。", "display_zh": "改写了"}, {"speech_ja": "午後は静かでいいね。", "display_zh": "下午很安静"}],
+])
+async def test_presegmented_translation_rejects_merging_or_rewriting(parts):
+    def respond(request):
+        body = json.loads(request.content)
+        if body["stream"]:
+            return sse_response([{**VALID, "speech_ja": "こんにちは。午後は静かでいいね。"}])
+        return repaired_response({"sentences": parts})
+    cfg = type("Cfg", (), {"values": {"model": "test", "base_url": "https://api.deepseek.com/v1"}, "key": lambda self: "fixture"})()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(ModelEventError):
+            _ = [event async for event in OpenAIProvider(cfg, client).stream_reply([])]
+
+
 def test_request_trace_is_bounded_and_omits_images_headers():
     trace = PromptTrace(limit=2)
     body = {"model": "test", "authorization": "private", "messages": [
