@@ -5,6 +5,7 @@ from services.agent.runtime import AgentRuntime
 from services.agent.server import create_app
 from test_runtime import Desktop, Tts, settings
 import pytest
+from starlette.websockets import WebSocketDisconnect
 
 
 def test_health_requires_token_and_bad_origin_is_rejected(tmp_path):
@@ -40,3 +41,24 @@ def test_prompt_export_requires_launch_token_and_uses_no_store(tmp_path):
         assert response.status_code == 200
         assert response.headers['cache-control'] == 'no-store'
         assert response.json()['requests'][0]['body']['messages'][0]['content'] == 'actual question'
+
+
+def test_shutdown_closes_open_socket_and_rejects_reconnect_without_database_writes(tmp_path):
+    cfg = settings(tmp_path)
+    runtime = AgentRuntime(cfg, desktop=Desktop(), tts=Tts())
+    token = 'd' * 32
+    headers = {'Authorization': 'Bearer ' + token}
+    with TestClient(create_app(token, cfg, runtime)) as client:
+        with client.websocket_connect('/ws', headers=headers) as ws:
+            assert ws.receive_json()['type'] in {'session.started', 'service.state'}
+            assert client.post('/shutdown', headers=headers).status_code == 200
+            with pytest.raises(WebSocketDisconnect) as closed:
+                while True:
+                    ws.receive_json()
+            assert closed.value.code == 1001
+        assert runtime.closed
+        with client.websocket_connect('/ws', headers=headers) as ws:
+            with pytest.raises(WebSocketDisconnect) as closed:
+                ws.receive_json()
+            assert closed.value.code == 1001
+        assert not runtime.clients and not runtime.client_senders and not runtime.client_queues

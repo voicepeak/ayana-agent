@@ -89,6 +89,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         self.last_reply_turn = None
         self.last_reply_delivered = None
         self.closed = False
+        self.closing = False
         self.stt = None
         self.command_lock = asyncio.Lock()
         self.close_lock = asyncio.Lock()
@@ -108,6 +109,8 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         self.subtitle_lock = asyncio.Lock()
 
     async def emit(self, event_type, **payload):
+        if self.closed:
+            return
         if event_type in {"subtitle.ready", "subtitle.translated"} and (record := self.utterances.get(payload.get("utterance_id"))):
             record.update({key: payload[key] for key in ("display_zh", "display_en") if isinstance(payload.get(key), str)})
         self.seq += 1
@@ -118,6 +121,8 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         self.conversations.observe(event)
         if self.settings.values.get("save_history", True):
             async with self.persistence_lock:
+                if self.closed:
+                    return
                 await asyncio.to_thread(self.store.commit, event)
                 if event_type == "user.message":
                     await asyncio.to_thread(self.conversations.save)
@@ -151,7 +156,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
             if hasattr(ws, "close"):
                 with contextlib.suppress(Exception):
                     async with asyncio.timeout(2):
-                        await ws.close(code=1013)
+                        await ws.close(code=1001 if self.closing else 1013)
 
     def _avatar_context(self):
         saved = self.store.recent_avatar_speeches(self.conversations.current_id) if self.settings.values.get("save_history", True) else []
@@ -184,6 +189,14 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
             await self.emit("service.state", service="tts", state="failed", message=str(e)[:400])
 
     async def connected(self, ws):
+        if self.closing or self.closed:
+            raise RuntimeError("Runtime is closing")
+        async with self.command_lock:
+            if self.closing or self.closed:
+                raise RuntimeError("Runtime is closing")
+            await self._connected(ws)
+
+    async def _connected(self, ws):
         self.clients.add(ws)
         await self.emit("session.started", provider=self.settings.values["provider"], target=self.target)
         await self.emit("settings.ready", settings=self.settings.public(), api_key_configured=bool(self.settings.key()))
@@ -194,6 +207,19 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         await self._capabilities_snapshot()
         await self._conversation_snapshot()
         await self._memory_snapshot()
+
+    async def disconnected(self, ws):
+        self.clients.discard(ws)
+        sender = self.client_senders.get(ws)
+        if sender and sender is not asyncio.current_task():
+            sender.cancel()
+            await asyncio.gather(sender, return_exceptions=True)
+        self.client_queues.pop(ws, None)
+        self.client_senders.pop(ws, None)
+        # A new connection or shutdown may arrive while its sender is stopping.
+        async with self.command_lock:
+            if not self.clients and not self.closing and not self.closed:
+                await self.cancel("client_disconnected")
 
     async def cancel(self, reason="user"):
         old = self.generation
@@ -220,9 +246,11 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                 await task
 
     async def handle(self, cmd: dict):
+        if self.closing or self.closed:
+            raise RuntimeError("Runtime is closing")
         async with self.command_lock:
-            if self.closed:
-                raise RuntimeError("Runtime is closed")
+            if self.closing or self.closed:
+                raise RuntimeError("Runtime is closing")
             await self._handle(cmd)
 
     async def _handle(self, cmd: dict):
@@ -351,14 +379,22 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
             return
         if cmd["type"] not in {"playback.started", "playback.progress", "playback.ended", "playback.cancelled", "utterance.displayed", "playback.error"}:
             return
+        previous_status = utterance.get("status", "generated")
+        if cmd["type"].startswith("playback.") and previous_status in {"played", "partial", "cancelled"}:
+            # A late cancellation can refine actual consumption after cancel(),
+            # but completed/interrupted speech must never start playing again.
+            if previous_status == "played" or cmd["type"] != "playback.cancelled":
+                return
         if cmd["type"] == "playback.error":
             await self.cancel("playback_error")
             await self.emit("error", source="playback", message=str(cmd.get("message", "Audio device unavailable"))[:300])
             return
         total = utterance.get("total_samples", 0)
-        played = max(0, min(total, int(cmd.get("played_samples", 0))))
+        played = max(utterance.get("played_samples", 0), 0, min(total, int(cmd.get("played_samples", 0))))
         status = {"playback.started": "playing", "playback.progress": "playing", "playback.ended": "played", "playback.cancelled": "partial"}.get(cmd["type"])
         if status:
+            if previous_status == status and played == utterance.get("played_samples", 0):
+                return
             utterance.update(status=status, played_samples=played, displayed=True)
         elif cmd["type"] == "utterance.displayed":
             utterance["displayed"] = True
@@ -754,7 +790,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         await self.emit('memory.ready',memories=self.memory.public(),enabled=self._memory_enabled(),state=self.memory_state,request_id=request_id)
 
     def _queue_maintenance(self, reserve):
-        if self.closed or self.settings.values['provider'] == 'local':
+        if self.closing or self.closed or self.settings.values['provider'] == 'local':
             return
         if self._memory_enabled() and (not self.memory_task or self.memory_task.done()) and time.monotonic()>=self.memory_retry_at:
             sources = self.store.user_memory_sources(self.memory.watermark)
@@ -922,7 +958,13 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
 
     async def close(self):
         async with self.close_lock:
-            await self._close()
+            if self.closed:
+                return
+            self.closing = True
+            # Finish the active command before stopping its services/database.
+            # Queued commands and new connections reject once closing is set.
+            async with self.command_lock:
+                await self._close()
 
     async def _close(self):
         if self.closed:
@@ -952,5 +994,9 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         for sender in tuple(self.client_senders.values()):
             sender.cancel()
         await asyncio.gather(*tuple(self.client_senders.values()), return_exceptions=True)
-        self.store.close()
-        self.closed = True
+        self.clients.clear()
+        self.client_senders.clear()
+        self.client_queues.clear()
+        async with self.persistence_lock:
+            self.store.close()
+            self.closed = True

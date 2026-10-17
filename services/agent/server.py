@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hmac
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, Response
 
@@ -76,8 +76,8 @@ def create_app(token: str, settings=None, runtime=None):
             await ws.close(code=4403)
             return
         await ws.accept()
-        await runtime.connected(ws)
         try:
+            await runtime.connected(ws)
             while True:
                 raw = await ws.receive_text()
                 if len(raw) > 2 * 1024 * 1024:
@@ -89,13 +89,19 @@ def create_app(token: str, settings=None, runtime=None):
                     command = json.loads(raw)
                     await runtime.handle(command)
                 except Exception as e:
+                    if runtime.closing or runtime.closed:
+                        await ws.close(code=1001)
+                        break
                     request_id = command.get("request_id") if isinstance(command, dict) else None
                     await runtime.emit("error", source="command", message=str(e)[:500], request_id=request_id)
         except WebSocketDisconnect:
             pass
+        except RuntimeError:
+            if not runtime.closing and not runtime.closed:
+                raise
+            with suppress(RuntimeError, WebSocketDisconnect):
+                await ws.close(code=1001)
         finally:
-            runtime.clients.discard(ws)
-            if not runtime.clients:
-                await runtime.cancel("client_disconnected")
+            await runtime.disconnected(ws)
     app.state.runtime = runtime
     return app

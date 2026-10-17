@@ -71,7 +71,7 @@ class AttentionRuntime:
         self.attention_next_at = time.monotonic() + self._attention_interval()
 
     def _attention_idle(self):
-        return (not self.closed and self.companion_visible and bool(self.clients)
+        return (not self.closing and not self.closed and self.companion_visible and bool(self.clients)
                 and self.settings.values.get("ambient_attention", True)
                 and self.settings.values.get("send_screenshot", False)
                 and self.settings.values["provider"] == "openai" and bool(self.settings.key())
