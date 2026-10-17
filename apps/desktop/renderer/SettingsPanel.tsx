@@ -3,6 +3,7 @@ import { Button, Icon, Input } from './components';
 import { bridge, type ModelState } from './state';
 import { preferences, preferencePatch, savePreferences, type Preferences } from './preferences';
 import { catalogFor, characterOptions, costumesOf } from './avatarCatalogs';
+import { VoicePackSettings } from './VoicePack';
 
 export const settingsSections = [
   { id: 'appearance', title: '外观与声音', icon: 'volume' },
@@ -50,6 +51,14 @@ export function Settings({ state, section }: { state: ModelState; section: Setti
   const characters = characterOptions();
   const readyCharacters = new Map(((state.settings.character_options as { id: string; ready: boolean }[] | undefined) || [])
     .map(item => [item.id, item.ready]));
+  const voiceResourcesReady = Boolean((state.settings.voice as Record<string, unknown> | undefined)?.engine_root);
+  const voiceInfo = state.voiceInfo;
+  const voiceVram = Number(voiceInfo?.vram_total_mb || 0);
+  const voiceDevice = voiceInfo ? [
+    voiceInfo.gpu_name ? String(voiceInfo.gpu_name) : (voiceInfo.device_mode === 'cpu' || voiceInfo.device === 'cpu') ? 'CPU' : '',
+    voiceInfo.precision ? `精度 ${String(voiceInfo.precision)}` : '',
+    voiceVram > 0 ? `${voiceVram} MB 显存` : '',
+  ].filter(Boolean).join(' · ') : '';
   const costumes = costumesOf(catalogFor(draft.character));
   async function save() {
     if (saving || !dirty) return;
@@ -73,8 +82,9 @@ export function Settings({ state, section }: { state: ModelState; section: Setti
           <p className="form-hint">字幕语言在彩名窗口的「外观 → 对白」中调整，可选择主语言与翻译语言。</p>
           <Toggle checked={draft.sentence_motion} onChange={value => update('sentence_motion', value)}>表情切换动效</Toggle>
         </div>
-        <div className="form-section"><h3>声音</h3><label>语音引擎<select aria-label="语音引擎" value={draft.voice.voice_mode} onChange={event => update('voice', { voice_mode: event.target.value })}><option value="auto">自动选择</option><option value="sovits">Ayana 本地音色</option><option value="system">Windows 日语语音</option><option value="silent">仅显示文字</option></select></label>
+        <div className="form-section"><h3>声音</h3><label>语音引擎<select aria-label="语音引擎" value={draft.voice.voice_mode} onChange={event => update('voice', { voice_mode: event.target.value })}><option value="auto">自动选择</option><option value="sovits" disabled={!voiceResourcesReady}>Ayana 本地音色{voiceResourcesReady ? '' : '（未安装）'}</option><option value="system">Windows 日语语音</option><option value="silent">仅显示文字</option></select></label>
           <label>播放音量 · {Math.round(draft.volume * 100)}%<input aria-label="播放音量" type="range" min="0" max="1" step="0.05" value={draft.volume} disabled={draft.voice.voice_mode === 'silent'} onChange={event => update('volume', Number(event.target.value))}/></label>
+          <VoicePackSettings state={state}/>
         </div>
       </>}
       {section === 'model' && <>
@@ -92,6 +102,7 @@ export function Settings({ state, section }: { state: ModelState; section: Setti
         <details className="preference-advanced"><summary>接口兼容与代理</summary><Toggle checked={draft.native_tools} onChange={value => update('native_tools', value)}>原生工具调用</Toggle><label>Brave 本机 HTTP 代理<Input value={draft.search_proxy} onChange={event => update('search_proxy', event.target.value)} placeholder="http://127.0.0.1:7892"/></label></details>
         <details className="preference-advanced"><summary>服务与诊断</summary>
           <dl className="service-grid"><div><dt>本地服务</dt><dd>{state.connected ? '已连接' : '未连接'}</dd></div><div><dt>语音引擎</dt><dd>{names[state.voice] || state.voice}</dd></div><div><dt>模型凭据</dt><dd>{state.apiKeyConfigured === undefined ? '尚未检查' : state.apiKeyConfigured ? '已配置' : '未配置'}</dd></div></dl>
+          {voiceDevice && <p className="field-note">语音设备：{voiceDevice}{voiceInfo?.model_version ? ` · ${String(voiceInfo.model_version)}` : ''}</p>}
           {state.modelUsage && <p className="field-note">最近请求：输入 {String(state.modelUsage.prompt_tokens ?? '未知')} tokens · 缓存 {String(state.modelUsage.prompt_cache_hit_tokens ?? '未知')} tokens</p>}
           <div className="service-actions"><Button type="button" disabled={!state.connected} onClick={() => void bridge.send({ type: 'settings.get' })}>刷新状态</Button><Button type="button" disabled={restarting || saving || dirty} onClick={async () => { setRestarting(true); try { await bridge.restart(); setMessage('正在重启服务…'); } catch (reason) { setError(String(reason)); } finally { setRestarting(false); } }}>重启服务</Button></div>
         </details>

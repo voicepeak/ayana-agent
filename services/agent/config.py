@@ -32,6 +32,17 @@ class Settings:
                 self.values.update(user_name="紀", onboarding_version=1)
         # The removed watch shortcut must not reserve a key in old profiles.
         self.values.pop("watch_hotkey", None)
+        # A downloaded voice pack is activated by the next launch. Clear the
+        # marker before the TTS worker reads this profile.
+        voice = self.values.get("voice")
+        if isinstance(voice, dict) and voice.pop("restart_pending", False):
+            try:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                temporary = self.path.with_suffix(".tmp")
+                temporary.write_text(json.dumps(self.values, ensure_ascii=False, indent=2), encoding="utf-8")
+                temporary.replace(self.path)
+            except OSError:
+                pass
         self.values.setdefault("character", DEFAULT_CHARACTER)
         self.values.setdefault("character_profiles", {})
 
@@ -200,6 +211,12 @@ class Settings:
                 raise ValueError("voice must be an object")
             if "voice_mode" in patch["voice"] and patch["voice"]["voice_mode"] not in ("auto", "sovits", "system", "silent"):
                 raise ValueError("Invalid voice mode")
+            if "device" in patch["voice"] and patch["voice"]["device"] not in ("auto", "cpu", "cuda"):
+                raise ValueError("Invalid voice device")
+            if "precision" in patch["voice"] and patch["voice"]["precision"] not in ("auto", "fp16", "fp32"):
+                raise ValueError("Invalid voice precision")
+            if "gpu_index" in patch["voice"] and (type(patch["voice"]["gpu_index"]) is not int or not 0 <= patch["voice"]["gpu_index"] <= 15):
+                raise ValueError("Invalid voice gpu index")
             patch = {**patch, "voice": {**self.values.get("voice", {}), **patch["voice"]}}
         if "stt" in patch:
             if not isinstance(patch["stt"], dict):

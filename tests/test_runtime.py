@@ -217,6 +217,30 @@ async def test_display_settings_do_not_restart_unchanged_voice_engine(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_deferred_voice_config_persists_without_cancelling_or_reloading(tmp_path):
+    from unittest.mock import AsyncMock
+    cfg = settings(tmp_path)
+    tts = Tts()
+    tts.close = AsyncMock()
+    runtime = AgentRuntime(cfg, desktop=Desktop(), tts=tts)
+    await runtime.start()
+    await runtime.start_task
+    startup = runtime.start_task
+    generation = runtime.generation
+    voice = {"voice_mode": "sovits", "python": "pack/python.exe", "engine_root": "pack/engine",
+             "model_gpt": "pack/gpt.ckpt", "model_sovits": "pack/sovits.pth",
+             "reference_audio": "pack/ref.wav", "device": "cuda", "precision": "fp16", "gpu_index": 0}
+    await runtime.handle({"type": "settings.update", "settings": {"voice": voice}, "defer_voice": True})
+    assert runtime.generation == generation
+    assert runtime.tts is tts
+    assert runtime.start_task is startup
+    tts.close.assert_not_awaited()
+    assert runtime.settings.values["voice"]["voice_mode"] == "sovits"
+    assert Settings(cfg.root, data_root=tmp_path).values["voice"]["engine_root"] == "pack/engine"
+    await runtime.close()
+
+
+@pytest.mark.asyncio
 async def test_invalid_settings_do_not_cancel_running_generation(tmp_path):
     runtime = AgentRuntime(settings(tmp_path), desktop=Desktop(), tts=Tts())
     generation = runtime.generation

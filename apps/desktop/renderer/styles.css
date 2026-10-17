@@ -247,3 +247,26 @@ select{ width: 100%; outline: none; border: 1px solid var(--color-default-200); 
 }
 @media (max-height: 620px) {.gal-dialogue{ padding-top: 12px; } }
 @media (max-width: 500px) { .companion-shell{ padding: 0 10px 10px; }.portrait-stage{ margin-left: 5px; margin-right: 5px; }.portrait-stage .character-frame{ right: 5%; }.gal-dialogue{ padding-left: 15px; padding-right: 15px; } }
+
+/* Optional voice pack download; text chat never waits for it. */
+.voice-pack-settings{
+  display: grid; gap: 8px; margin-top: 14px; padding: 15px 15px 14px;
+  border: 1px solid var(--color-default-100); border-radius: var(--radius-kun-lg);
+  background: color-mix(in oklch, var(--color-primary-50) 38%, var(--color-content1));
+}
+.voice-pack-settings-head{ display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.voice-pack-settings-copy{ display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.voice-pack-settings-copy strong{ font-size: 13px; font-weight: 600; }
+.voice-pack-settings-copy span{ font-size: 11px; line-height: 1.7; color: var(--color-foreground-muted); }
+.voice-pack-state{ flex-shrink: 0; padding: 2px 7px; border-radius: 999px; background: var(--color-default-100); color: var(--color-foreground-muted); font-size: 9px; }
+.voice-pack-state.ready{ background: var(--color-success-100, #dff5e6); color: var(--color-success-text, #23663a); }
+.voice-pack-state.downloading, .voice-pack-state.verifying, .voice-pack-state.extracting, .voice-pack-state.configuring{ background: var(--color-primary-100); color: var(--color-primary-text); }
+.voice-pack-state.failed{ background: var(--color-danger-100, #fbe1de); color: var(--color-danger-text); }
+.voice-pack-meta{ display: flex; flex-wrap: wrap; gap: 10px; color: var(--color-foreground-muted); font-size: 10px; }
+.voice-pack-settings .voice-pack-progress{ margin-top: 2px; background: var(--color-default-100); }
+.voice-pack-settings .voice-pack-progress i{ background: var(--color-primary); }
+.voice-pack-settings .voice-pack-detail{ color: var(--color-foreground-muted); font-size: 10px; }
+.voice-pack-settings .voice-pack-error{ background: var(--color-danger-50, #fdf0ee); color: var(--color-danger-text); }
+.voice-pack-settings .voice-pack-actions{ margin-top: 2px; }
+.voice-pack-settings .voice-pack-actions .kun-button{ height: 30px; min-height: 30px; font-size: 11px; }
+.voice-pack-settings .voice-pack-muted{ color: var(--color-foreground-muted); font-size: 10px; }

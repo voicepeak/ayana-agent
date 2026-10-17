@@ -1,3 +1,5 @@
+import type { VoicePackState } from '../electron/voicePack';
+
 export interface RuntimeEvent {
   protocol_version: number;
   type: string;
@@ -23,6 +25,7 @@ export interface DesktopState {
   designPreview?: Record<string, unknown>;
   designDraft?: Record<string, unknown>;
   designOpen?: boolean;
+  voicePack?: VoicePackState;
 }
 
 export interface AyanaBridge {
@@ -46,6 +49,13 @@ export interface AyanaBridge {
   openSettings(tab?: 'history'): Promise<void>;
   hideSettings(): Promise<void>;
   restart(): Promise<void>;
+  restartApp(): Promise<void>;
+  voicePack: {
+    get(): Promise<VoicePackState | null>;
+    start(): Promise<VoicePackState | null>;
+    cancel(): Promise<VoicePackState | null>;
+    importLocal(): Promise<VoicePackState | null>;
+  };
   getState(): Promise<DesktopState>;
 }
 

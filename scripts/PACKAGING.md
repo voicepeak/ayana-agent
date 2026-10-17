@@ -38,6 +38,35 @@ npm run package
 
 `scripts/package_backend.py --nltk-only` 单独准备英文代码名称的发音字典和词性标注资料；纯日语合成之外的混合日语/英文内容需要它。字典保存在 `.runtime/nltk_data`，打包后保存在 `backend/nltk_data`，TTS 会自动选取。
 
+### 语音资源包
+
+应用内的语音包下载不进入主安装器。如果已有可用的本地语音工作目录（venv、GPT-SoVITS、权重和参考音频），先把它整理成可重定位目录：
+
+```powershell
+./.venv/Scripts/python.exe scripts/stage_voice_pack.py `
+  --source-root 'D:/ayana-voice' `
+  --device cuda `
+  --output '.runtime/voice-pack/ayana-v2pro-cu124'
+```
+
+`--device cuda` 要求源 venv 中的 torch 是 CUDA 版；脚本会把 Python 运行时、site-packages、v2Pro 所需的引擎文件和底模、权重、参考音频、ffmpeg 一起放进 staging 目录，并用 staging 内的 Python 验证 torch 和 GPT-SoVITS 能否加载。无 N 卡但已安装 CUDA torch 的构建机可加 `--allow-cpu` 跳过 GPU 可见性检查；CPU 包用 `--device cpu`。
+
+然后生成 ZIP 与发布清单：
+
+```powershell
+./.venv/Scripts/python.exe scripts/package_voice.py `
+  --pack-root '<staged-voice-pack>' `
+  --output 'release/ayana-v2pro-cu124-1.0.0.zip' `
+  --manifest 'release/voice-pack.json' `
+  --url 'https://your-cdn.example/ayana-v2pro-cu124-1.0.0.zip' `
+  --variant-id cu124 --kind cuda `
+  --min-driver 551.61 --min-vram-mb 6144 `
+  --compute-capability 7.5 --compute-capability 8.0 `
+  --compute-capability 8.6 --compute-capability 8.9
+```
+
+把清单地址填入 `config/voice-pack.json` 的 `manifest_url`（或用户目录的 `%APPDATA%/Ayana/config/voice-pack.json`、环境变量 `AYANA_VOICE_PACK_MANIFEST`）。未配置时，应用仍可导入本地语音包。CUDA 包必须从 CUDA 版 torch 的 venv staging；脚本会把 site-packages 复制到可重定位的 embeddable Python，用户不需要安装 Python 或 CUDA Toolkit。
+
 打包验证记录写入 `.runtime/package-backend-report.json`。真实音色基准：
 
 ```powershell

@@ -184,7 +184,10 @@ export default function App() {
 
   const presented = state.speeches.find(speech => speech.id === state.presented);
   const catalog = activeCatalog(state.settings);
-  const textOnly = (state.settings.voice as Record<string, unknown> | undefined)?.voice_mode === 'silent' || state.voice === 'failed';
+  const voiceSettings = state.settings.voice as Record<string, unknown> | undefined;
+  const textOnly = voiceSettings?.voice_mode === 'silent'
+    || (voiceSettings?.voice_mode === 'sovits' && voiceSettings?.restart_pending === true)
+    || state.voice === 'failed';
   const nextText = nextTextSpeech(state, textOnly);
   useEffect(() => {
     if (kind !== 'chat' || !nextText) return;

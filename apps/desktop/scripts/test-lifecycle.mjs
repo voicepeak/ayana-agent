@@ -16,7 +16,7 @@ const compiled = await build({
     chat = dead; settingsWindow = dead; designWindow = dead; highlight = dead; registerIpc();
   } };`, loader: 'ts',
     resolveDir: fileURLToPath(new URL('../electron', import.meta.url)) },
-  bundle: true, platform: 'node', format: 'cjs', write: false, external: ['electron', 'ws'],
+  bundle: true, platform: 'node', format: 'cjs', write: false, external: ['electron', 'ws', 'unzipper', '@aws-sdk/client-s3'],
 });
 let connections = 0;
 class FakeSocket extends EventEmitter {

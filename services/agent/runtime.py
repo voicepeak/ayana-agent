@@ -322,11 +322,15 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         elif kind == "settings.update":
             patch = cmd.get("settings", {})
             validated = self.settings.validate(patch)
+            # A downloaded voice pack can be persisted now and loaded on the
+            # next launch, without cancelling the reply the user is reading.
+            deferred_voice = cmd.get("defer_voice") is True and set(validated) == {"voice"}
             # Presentation changes can be applied while a reply is playing.
             # Persist first: a failed write must not stop voice or attention.
             presentation = {"companion_ui", "avatar_costume", "volume", "subtitles", "sentence_motion", "hotkey", "cancel_hotkey", "ambient_attention", "ambient_speech", "ambient_interval_min", "ambient_interval_max", "remember_user"}
             interrupt = any(key not in presentation and value != self.settings.values.get(key)
-                            for key, value in validated.items())
+                            for key, value in validated.items()
+                            if not (deferred_voice and key == "voice"))
             previous_voice = self.settings.values.get("voice", {})
             previous_character = self.settings.values.get("character")
             previous_history = self.settings.values.get("save_history", True)
@@ -358,7 +362,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
             if "stt" in patch and self.stt:
                 await self.stt.close()
                 self.stt = None
-            if self.settings.values["voice"] != previous_voice:
+            if self.settings.values["voice"] != previous_voice and not deferred_voice:
                 if self.start_task and not self.start_task.done():
                     self.start_task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):

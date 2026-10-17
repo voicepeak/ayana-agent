@@ -17,6 +17,7 @@ import './test-caption-stack.mjs';
 import './test-dialogue-waiting.mjs';
 import './test-design-zoom.mjs';
 import './test-companion-palette.mjs';
+import './test-voice-pack.mjs';
 import './test-hold-talk.mjs';
 
 await verifyPortableIsolation();
@@ -62,6 +63,10 @@ assert.equal(initialState.settingsLoaded, false);
 assert.equal(reduceEvent({ ...initialState, task: 'thinking' }, { protocol_version: 1, type: 'error', request_id: 'settings-invalid', message: 'invalid settings' }).task, 'thinking');
 assert.equal(reduceEvent(initialState, { protocol_version: 1, type: 'error', request_id: 'settings-invalid', message: 'invalid settings' }).error, undefined);
 assert.equal(reduceEvent(initialState, { protocol_version: 1, type: 'settings.ready', settings: { voice: { voice_mode: 'sovits' } } }).settingsLoaded, true);
+assert.equal(reduceEvent(initialState, { protocol_version: 1, type: 'voice.pack.state', phase: 'downloading', installed: false }).voicePack.phase, 'downloading');
+const voiceInfo = reduceEvent(initialState, { protocol_version: 1, type: 'service.state', service: 'tts', state: 'ready', device_mode: 'cuda', gpu_name: 'RTX 4060', precision: 'fp16', vram_total_mb: 8188 });
+assert.equal(voiceInfo.voice, 'ready');
+assert.equal(voiceInfo.voiceInfo.gpu_name, 'RTX 4060');
 const event = (type, payload = {}) => ({ type, protocol_version: 1, generation_id: 7, ...payload });
 let overflow = reduceEvent(initialState, event('utterance.ready', { utterance_id: 'voiced', speech_ja: '一緒に見よう。' }));
 overflow = reduceEvent(overflow, event('utterance.ready', { utterance_id: 'text-only', speech_ja: '確認したよ。', audio_enabled: false }));

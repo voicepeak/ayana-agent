@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useRef } from 'react';
 import { AudioPlayer } from './audio';
+import type { VoicePackState } from '../electron/voicePack';
 import type { AyanaBridge, RuntimeEvent } from './types';
 import { outfitAsset } from './avatarOutfit';
 import { activeCatalog } from './avatarCatalogs';
@@ -24,7 +25,7 @@ export interface RecordPage {
 }
 export interface ModelState {
   connected: boolean; service: string; generation: number; cancelledGeneration: number;
-  task: string; voice: string; speeches: Speech[]; current?: string; expression: string;
+  task: string; voice: string; voiceInfo?: RuntimeEvent; speeches: Speech[]; current?: string; expression: string;
   expressionAt: number; inputState: string;
   settingsLoaded: boolean;
   apiKeyConfigured?: boolean;
@@ -41,6 +42,7 @@ export interface ModelState {
   historyConversationId?: string; historyHasMore: boolean; historyBefore?: number;
   review?: RecordPage; searchResults?: RecordPage; exportPath?: string; exportRequest?: string;
   memories: PersonalMemory[]; memoryEnabled: boolean; memoryState: string;
+  voicePack?: VoicePackState;
 }
 export const initialState: ModelState = {
   connected: false, service: 'starting', generation: 0, cancelledGeneration: -1,
@@ -62,7 +64,7 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
   // Runtime acknowledgments are persistence confirmations. They can arrive after
   // the next segment starts, so only immediate player receipts drive presentation.
   if (event.type.startsWith('playback.') && typeof event.seq === 'number') return state;
-  if (event.type === 'desktop.reset') return { ...initialState, connected: state.connected, settings: state.settings };
+  if (event.type === 'desktop.reset') return { ...initialState, connected: state.connected, settings: state.settings, voiceInfo: state.voiceInfo, voicePack: state.voicePack };
   if (event.type === 'desktop.cancelled' || event.type === 'generation.cancelled') {
     const cancelled = Number(event.cancelled_generation_id ?? generation);
     return {
@@ -132,9 +134,15 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
     case 'desktop.shortcuts': next.shortcuts = event; break;
     case 'service.state': {
       const name = String(event.service || event.name || '');
-      if (/tts|voice/i.test(name)) next.voice = String(event.state || 'unavailable');
+      if (/tts|voice/i.test(name)) {
+        next.voice = String(event.state || 'unavailable');
+        next.voiceInfo = event;
+      }
       break;
     }
+    case 'voice.pack.state':
+      next.voicePack = { ...(state.voicePack || {}), ...event } as unknown as VoicePackState;
+      break;
     case 'session.started':
       next.error = undefined; break;
     case 'task.state': next.task = String(event.state || 'idle'); break;
@@ -236,7 +244,14 @@ const previewBridge: AyanaBridge = {
   revertDesignPreview: async () => {},
   chooseNoteBackground: async () => ({ ok: false, error: '请在桌面应用中选择图片。' }),
   restart: async () => {},
+  restartApp: async () => {},
   beginTalk: async () => ({ ok: false }), endTalk: async () => {},
+  voicePack: {
+    get: async () => null,
+    start: async () => null,
+    cancel: async () => null,
+    importLocal: async () => null,
+  },
   getState: async () => ({ connected: false, service: 'preview', version: '0.3.3', events: [] }),
 };
 export const bridge = window.ayana ?? previewBridge;
@@ -280,6 +295,7 @@ export function useRuntime(isChat: boolean) {
     const off = bridge.onEvent(consume);
     void bridge.getState().then(snapshot => {
       dispatch({ protocol_version: 1, type: 'desktop.service', connected: snapshot.connected, state: snapshot.service });
+      if (snapshot.voicePack) dispatch({ protocol_version: 1, type: 'voice.pack.state', ...snapshot.voicePack });
       snapshot.events.forEach(dispatch);
     });
     return () => { off(); player.current?.dispose(); player.current = null; };

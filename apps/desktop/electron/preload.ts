@@ -25,5 +25,12 @@ contextBridge.exposeInMainWorld('ayana', Object.freeze({
   openSettings: (tab?: string) => ipcRenderer.invoke('ayana:settings', tab),
   hideSettings: () => ipcRenderer.invoke('ayana:hide-settings'),
   restart: () => ipcRenderer.invoke('ayana:restart'),
+  restartApp: () => ipcRenderer.invoke('ayana:app-restart'),
+  voicePack: Object.freeze({
+    get: () => ipcRenderer.invoke('ayana:voice-pack'),
+    start: () => ipcRenderer.invoke('ayana:voice-pack-start'),
+    cancel: () => ipcRenderer.invoke('ayana:voice-pack-cancel'),
+    importLocal: () => ipcRenderer.invoke('ayana:voice-pack-import'),
+  }),
   getState: () => ipcRenderer.invoke('ayana:state'),
 }));

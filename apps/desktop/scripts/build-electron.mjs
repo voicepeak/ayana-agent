@@ -6,6 +6,6 @@ await build({
   bundle: true,
   platform: 'node',
   format: 'cjs',
-  external: ['electron'],
+  external: ['electron', '@aws-sdk/client-s3'],
   sourcemap: true,
 });

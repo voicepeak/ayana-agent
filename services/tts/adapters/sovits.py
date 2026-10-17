@@ -52,13 +52,33 @@ class SovitsEngine:
         for name, path in paths.items():
             if not path.is_file():
                 raise FileNotFoundError(f"{name} not found: {path}")
+        device_mode = str(config.get("device", "cpu")).lower()
+        precision = str(config.get("precision", "auto")).lower()
+        if device_mode not in {"auto", "cpu", "cuda"}:
+            raise ValueError("voice.device must be auto, cpu or cuda")
+        if precision not in {"auto", "fp16", "fp32"}:
+            raise ValueError("voice.precision must be auto, fp16 or fp32")
+        try:
+            gpu_index = int(config.get("gpu_index", 0))
+        except (TypeError, ValueError):
+            raise ValueError("voice.gpu_index must be an integer") from None
+        if not 0 <= gpu_index <= 15:
+            raise ValueError("voice.gpu_index must be between 0 and 15")
         os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "1"
-        os.environ["is_half"] = "False"
         os.environ["gpt_path"] = str(paths["model_gpt"])
         os.environ["sovits_path"] = str(paths["model_sovits"])
         os.environ["HF_HUB_OFFLINE"] = "1"
         os.environ["TRANSFORMERS_OFFLINE"] = "1"
         os.environ["AYANA_GSV_ROOT"] = str(root)
+        # Portable voice packs carry ffmpeg.exe next to the engine.
+        os.environ["PATH"] = os.pathsep.join([str(root), str(root / "tools"), os.environ.get("PATH", "")])
+        # CUDA_VISIBLE_DEVICES must be set before torch initializes CUDA.
+        if device_mode == "cpu":
+            os.environ["CUDA_VISIBLE_DEVICES"] = ""
+            os.environ.pop("_CUDA_VISIBLE_DEVICES", None)
+        else:
+            os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_index)
+            os.environ.pop("_CUDA_VISIBLE_DEVICES", None)
         application_root = Path(__file__).resolve().parents[3]
         nltk_candidates = [
             config.get("nltk_data"),
@@ -73,13 +93,18 @@ class SovitsEngine:
             # Configure before importing English G2P. NLTK's default Windows
             # profile path can be decoded incorrectly for non-ASCII usernames.
             os.environ["NLTK_DATA"] = str(nltk_data)
-        if config.get("device", "cpu") == "cpu":
-            os.environ["CUDA_VISIBLE_DEVICES"] = ""
-            os.environ.pop("_CUDA_VISIBLE_DEVICES", None)
         sys.path[:0] = [str(root), str(root / "GPT_SoVITS"), str(source / "src")]
         os.chdir(root)
         import torch
 
+        cuda_available = bool(torch.cuda.is_available())
+        use_cuda = device_mode == "cuda" or (device_mode == "auto" and cuda_available)
+        if device_mode == "cuda" and not cuda_available:
+            raise RuntimeError("此语音包需要 CUDA，但当前没有可用的 NVIDIA GPU 或驱动")
+        use_half = use_cuda and precision != "fp32"
+        os.environ["is_half"] = "True" if use_half else "False"
+        self.device_mode = "cuda" if use_cuda else "cpu"
+        self.precision = "fp16" if use_half else "fp32"
         torch.set_num_threads(max(1, int(config.get("cpu_threads", 8))))
         torch.set_num_interop_threads(1)
         from GPT_SoVITS import inference_webui as upstream
@@ -138,9 +163,27 @@ class SovitsEngine:
                 stderr=subprocess.DEVNULL, timeout=5).strip()
         except (OSError, subprocess.SubprocessError):
             engine_revision = "unknown"
+        gpu_name = None
+        vram_total_mb = None
+        compute_capability = None
+        if use_cuda:
+            try:
+                properties = torch.cuda.get_device_properties(0)
+                gpu_name = torch.cuda.get_device_name(0)
+                vram_total_mb = int(properties.total_memory / (1024 * 1024))
+                compute_capability = ".".join(str(value) for value in torch.cuda.get_device_capability(0))
+            except Exception:
+                pass
         self.metadata = {
             "engine": self.name,
             "device": str(upstream.device),
+            "device_mode": self.device_mode,
+            "precision": self.precision,
+            "gpu_name": gpu_name,
+            "vram_total_mb": vram_total_mb,
+            "compute_capability": compute_capability,
+            "torch_version": torch.__version__,
+            "cuda_version": torch.version.cuda,
             "model_version": upstream.model_version,
             "engine_revision": engine_revision,
             "sample_rate": self.sample_rate,

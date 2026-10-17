@@ -29,7 +29,7 @@ export function preferences(settings: Record<string, unknown>): Preferences {
     search_provider: cfg.search_provider, search_proxy: cfg.search_proxy,
     max_utterances: cfg.max_utterances, max_tool_rounds: cfg.max_tool_rounds,
     model_max_tokens: cfg.model_max_tokens, temperature: cfg.temperature, history_budget_chars: cfg.history_budget_chars,
-    ambient_interval_min: cfg.ambient_interval_min, ambient_interval_max: cfg.ambient_interval_max, voice: { voice_mode: String(voice.voice_mode || 'auto') },
+    ambient_interval_min: cfg.ambient_interval_min, ambient_interval_max: cfg.ambient_interval_max, voice: { voice_mode: String(voice.voice_mode || 'silent') },
     stt: { language: String(stt.language || 'auto') },
   };
 }

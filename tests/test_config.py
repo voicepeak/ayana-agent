@@ -54,6 +54,17 @@ def test_voice_mode_update_preserves_model_paths_and_survives_restart(tmp_path):
     assert {key: loaded.values["voice"][key] for key in expected} == expected
 
 
+def test_pending_voice_restart_clears_only_after_profile_load(tmp_path):
+    config = tmp_path / "config/local.json"
+    config.parent.mkdir()
+    config.write_text(json.dumps({"voice": {"voice_mode": "sovits", "restart_pending": True,
+                                            "engine_root": "pack/engine"}}), encoding="utf-8")
+    settings = Settings(root=ROOT, data_root=tmp_path)
+    assert settings.values["voice"]["voice_mode"] == "sovits"
+    assert "restart_pending" not in settings.values["voice"]
+    assert "restart_pending" not in json.loads(config.read_text(encoding="utf-8"))["voice"]
+
+
 def test_recognition_language_patch_preserves_provider_paths_and_model(tmp_path):
     settings = Settings(root=ROOT, data_root=tmp_path)
     settings.update({"stt": {"provider": "openai", "model": "custom", "base_url": "https://example.com/v1", "model_path": "local-model"}})

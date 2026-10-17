@@ -5,14 +5,16 @@ import {
 } from 'electron';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes, createHash } from 'node:crypto';
-import { existsSync, appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, appendFileSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 import defaults from '../../../config/default.json';
+import voicePackConfig from '../../../config/voice-pack.json';
 import { clampCompanion, companionSize, companionDragBounds, inspectorBounds, type Bounds, type Point } from './companionGeometry';
 import { releasePortableRuntime, stagePortableRuntime, type PortableRuntime } from './portableRuntime';
+import { VoicePackManager, type VoicePackState } from './voicePack';
 import { resolveTheme } from '../renderer/companionThemes';
 
 type Event = Record<string, unknown> & { type: string; protocol_version: number };
@@ -70,6 +72,106 @@ let designPreviewReverted = true;
 const designSaves = new Map<string, typeof designDraft>();
 let companionDrag: { origin: Bounds; cursor: Point; moved: boolean; timer: ReturnType<typeof setInterval> } | undefined;
 let portableRuntime: PortableRuntime | undefined;
+let voicePack: VoicePackManager | undefined;
+const voiceConfigRequests = new Map<string, {
+  resolve: () => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}>();
+
+function voicePackSettingsFile() {
+  return path.join(app.getPath('userData'), 'config/voice-pack.json');
+}
+
+function voicePackConfiguration() {
+  let personal: { manifest_url?: string; manifest_path?: string } = {};
+  try {
+    const file = voicePackSettingsFile();
+    if (existsSync(file)) personal = JSON.parse(readFileSync(file, 'utf8').replace(/^\uFEFF/, '')) as typeof personal;
+  } catch { /* A damaged override must not block the bundled manifest. */ }
+  const manifestPath = String(process.env.AYANA_VOICE_PACK_MANIFEST_PATH || personal.manifest_path || voicePackConfig.manifest_path || '').trim();
+  return {
+    manifestUrl: String(process.env.AYANA_VOICE_PACK_MANIFEST || personal.manifest_url || voicePackConfig.manifest_url || '').trim(),
+    manifestPath: manifestPath ? path.resolve(manifestPath) : '',
+  };
+}
+
+function writeLocalVoice(voice: Record<string, unknown>) {
+  const file = path.join(app.getPath('userData'), 'config/local.json');
+  let current: Record<string, unknown> = {};
+  try { current = JSON.parse(readFileSync(file, 'utf8').replace(/^\uFEFF/, '')) as Record<string, unknown>; } catch { /* First profile. */ }
+  const existing = current.voice && typeof current.voice === 'object' && !Array.isArray(current.voice)
+    ? current.voice as Record<string, unknown> : {};
+  const next = { ...current, voice: { ...existing, ...voice } };
+  mkdirSync(path.dirname(file), { recursive: true });
+  const temporary = `${file}.voice-pack.tmp`;
+  writeFileSync(temporary, JSON.stringify(next, null, 2), 'utf8');
+  try { renameSync(temporary, file); }
+  catch {
+    rmSync(file, { force: true });
+    renameSync(temporary, file);
+  }
+}
+
+function applyVoiceConfig(voice: Record<string, unknown>): Promise<void> {
+  if (socket?.readyState !== WebSocket.OPEN) {
+    writeLocalVoice(voice);
+    return Promise.resolve();
+  }
+  const requestId = randomBytes(12).toString('hex');
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      voiceConfigRequests.delete(requestId);
+      reject(new Error('写入语音配置超时，请重启 Ayana 后重试'));
+    }, 30_000);
+    voiceConfigRequests.set(requestId, { resolve, reject, timer });
+    if (!runtimeSend({ type: 'settings.update', settings: { voice }, request_id: requestId, defer_voice: true })) {
+      clearTimeout(timer);
+      voiceConfigRequests.delete(requestId);
+      try { writeLocalVoice(voice); resolve(); }
+      catch (error) { reject(error instanceof Error ? error : new Error(String(error))); }
+    }
+  });
+}
+
+function voicePackManager(): VoicePackManager {
+  if (!voicePack) {
+    const config = voicePackConfiguration();
+    const localAppData = process.env.LOCALAPPDATA || path.join(app.getPath('appData'), '..', 'Local');
+    voicePack = new VoicePackManager({
+      voiceRoot: path.join(localAppData, 'Ayana', 'voice'),
+      stateFile: path.join(app.getPath('userData'), 'voice-pack-state.json'),
+      manifestUrl: config.manifestUrl,
+      manifestPath: config.manifestPath,
+      applyVoice: applyVoiceConfig,
+      onState: (state: VoicePackState) => broadcast({
+        protocol_version: 1, type: 'voice.pack.state', ...state,
+      }, false),
+    });
+    void voicePack.init().catch(() => {});
+  }
+  return voicePack;
+}
+
+async function restartApplication() {
+  if (quitting) return;
+  quitting = true;
+  endCompanionDrag();
+  persistCompanionPosition();
+  globalShortcut.unregisterAll();
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  if (focusTimer) clearTimeout(focusTimer);
+  socket?.terminate();
+  tray?.destroy();
+  await stopRuntime();
+  releasePortableRuntime(portableRuntime?.root);
+  // A portable launch runs from %TEMP%; relaunch the original launcher so the
+  // next session receives a fresh packaged runtime instead of a deleted copy.
+  const portable = process.env.PORTABLE_EXECUTABLE_FILE;
+  if (portable) app.relaunch({ execPath: portable, args: [] });
+  else app.relaunch();
+  app.exit(0);
+}
 
 function storedDesign(settings: Record<string, unknown>) {
   const stored = settings.companion_ui as Partial<typeof designPreview> || {};
@@ -385,10 +487,23 @@ function receive(event: Event) {
   if (event.protocol_version !== 1 || typeof event.type !== 'string') return;
   if (event.type === 'desktop.reset') {
     endTalking(true);
+    for (const [requestId, pending] of voiceConfigRequests) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error('服务已重启，请重新应用语音配置'));
+      voiceConfigRequests.delete(requestId);
+    }
   }
   if (event.type === 'input.hold-ended') {
     endTalking(event.reason === 'unavailable', String(event.hold_id));
     return;
+  }
+  const configRequest = String(event.request_id || '');
+  const configPending = voiceConfigRequests.get(configRequest);
+  if (configPending && (event.type === 'settings.ready' || event.type === 'error')) {
+    clearTimeout(configPending.timer);
+    voiceConfigRequests.delete(configRequest);
+    if (event.type === 'settings.ready') configPending.resolve();
+    else configPending.reject(new Error(String(event.message || event.error || '语音配置写入失败')));
   }
   if (event.type === 'conversation.exported') {
     const file = String(event.path || '');
@@ -673,6 +788,34 @@ function registerIpc() {
     if (event.sender.id === windowId(settingsWindow)) hideManagement();
   });
   ipcMain.handle('ayana:restart', (event) => event.sender.id === windowId(settingsWindow) ? restartRuntime() : undefined);
+  ipcMain.handle('ayana:voice-pack', (event) =>
+    trustedSender(event.sender.id) ? voicePackManager().getState() : null);
+  ipcMain.handle('ayana:voice-pack-start', (event) => {
+    if (!trustedSender(event.sender.id)) return null;
+    const manager = voicePackManager();
+    void manager.start();
+    return manager.getState();
+  });
+  ipcMain.handle('ayana:voice-pack-cancel', (event) =>
+    trustedSender(event.sender.id) ? (voicePack || voicePackManager()).cancel() : null);
+  ipcMain.handle('ayana:voice-pack-import', async (event) => {
+    if (!trustedSender(event.sender.id)) return null;
+    const owner = event.sender.id === windowId(chat) ? chat : settingsWindow;
+    if (!owner) return null;
+    const result = await dialog.showOpenDialog(owner, {
+      title: '导入 Ayana 语音资源包',
+      properties: ['openFile'],
+      filters: [{ name: '语音资源包', extensions: ['zip'] }],
+    });
+    if (result.canceled || !result.filePaths[0]) return voicePackManager().getState();
+    const manager = voicePackManager();
+    void manager.importLocal(result.filePaths[0]);
+    return manager.getState();
+  });
+  ipcMain.handle('ayana:app-restart', (event) => {
+    if (!trustedSender(event.sender.id)) return;
+    void restartApplication();
+  });
   ipcMain.handle('ayana:state', (event) => {
     if (!trustedSender(event.sender.id)) return null;
     return { connected: socket?.readyState === WebSocket.OPEN, service, version: app.getVersion(), events: recentEvents, composerRequested, designPreview, designDraft, designOpen: designWindow?.isVisible() === true };
@@ -776,6 +919,7 @@ async function ready() {
     const file = path.join(app.getPath('userData'), imageId ? `companion-background-${imageId}.png` : 'companion-background.png');
     return existsSync(file) ? new Response(readFileSync(file), { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' } }) : new Response(null, { status: 404 });
   });
+  voicePackManager();
   chat = createWindow('chat');
   settingsWindow = createWindow('settings');
   designWindow = createWindow('design');

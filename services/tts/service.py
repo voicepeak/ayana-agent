@@ -193,6 +193,10 @@ class TtsService:
         message = str(value)
         if "No installed Japanese System.Speech voice" in message:
             return "未安装日语系统语音；请配置 Ayana GPT-SoVITS，或在 Windows 安装日语语音。"
+        if "cuda out of memory" in message.lower():
+            return "显卡显存不足；请关闭占用显卡的程序，或在设置中改用 CPU 语音。"
+        if "cuda" in message.lower() and ("not available" in message.lower() or "no cuda" in message.lower()):
+            return "当前没有可用的 NVIDIA GPU 或驱动；请改用 CPU 语音。"
         sensitive = [self.config.get("warmup_text"), *self._pending_texts.values()]
         sensitive.extend(os.environ.get(name) for name in ("AYANA_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY"))
         sensitive.extend(value for key, value in self.config.items()
