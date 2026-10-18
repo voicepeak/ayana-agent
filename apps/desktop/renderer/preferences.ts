@@ -48,6 +48,29 @@ export function preferencePatch(saved: Preferences, draft: Preferences): Record<
   return result;
 }
 
+export function saveApiKey(apiKey: string, transport: AyanaBridge = bridge): Promise<void> {
+  const requestId = crypto.randomUUID();
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    const finish = (error?: Error) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer); off();
+      if (error) reject(error); else resolve();
+    };
+    const off = transport.onEvent(event => {
+      if (event.type === 'desktop.reset') finish(new Error('服务已重启，请重新保存密钥。'));
+      if (event.request_id !== requestId) return;
+      if (event.type === 'settings.ready') finish();
+      if (event.type === 'error') finish(new Error(String(event.message || '密钥保存失败。')));
+    });
+    const timer = setTimeout(() => finish(new Error('尚未收到凭据回执，请刷新状态核对。')), 20000);
+    transport.send({ type: 'credentials.update', api_key: apiKey, request_id: requestId })
+      .then(result => { if (!result.ok) finish(new Error(result.error || '本地服务未连接。')); })
+      .catch(error => finish(error instanceof Error ? error : new Error(String(error))));
+  });
+}
+
 export function savePreferences(settings: Record<string, unknown>, transport: AyanaBridge = bridge): Promise<void> {
   const requestId = crypto.randomUUID();
   return new Promise((resolve, reject) => {

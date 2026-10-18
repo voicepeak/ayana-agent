@@ -4,7 +4,7 @@ import type { BackgroundSample } from './imagePalette';
 import defaults from '../../../config/default.json';
 import { Icon } from './components';
 import { wheelZoom } from './designZoom';
-import { themes, resolveTheme } from './companionThemes';
+import { themes, resolveTheme, type CompanionTheme } from './companionThemes';
 
 export interface CompanionDesign {
   portrait_range: 'half' | 'full'; portrait_size: number; frame_width: number; frame_height: number;
@@ -14,7 +14,7 @@ export interface CompanionDesign {
   background_color: string; portrait_side: 'left' | 'right'; portrait_x: number; portrait_y: number;
   show_bubbles: boolean; bubble_color: string; background_x: number; background_y: number;
   background_image: string;
-  theme: 'ink' | 'paper' | 'forest' | 'sea' | 'custom'; auto_palette: boolean;
+  theme: CompanionTheme; auto_palette: boolean;
   background_dim: number; input_transparency: number; background_zoom: number;
 }
 export const defaultDesign = defaults.companion_ui as CompanionDesign;

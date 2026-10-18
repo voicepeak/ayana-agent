@@ -26,8 +26,12 @@ export function activeCatalog(settings: Record<string, unknown>): AvatarCatalog 
   return catalogFor(settings.character);
 }
 
+const unavailableCharacters = new Set(['ayana-su']);
+
 export function characterOptions(): CharacterOption[] {
-  return Object.entries(registry.characters).map(([id, item]) => ({ id, name: item.name }));
+  return Object.entries(registry.characters)
+    .filter(([id]) => !unavailableCharacters.has(id))
+    .map(([id, item]) => ({ id, name: item.name }));
 }
 
 export function costumesOf(catalog: AvatarCatalog): string[] {

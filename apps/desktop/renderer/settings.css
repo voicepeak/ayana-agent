@@ -1,0 +1,197 @@
+@font-face {
+  font-family: 'Ayana Settings Title';
+  src: url('/fonts/ZCOOLKuaiLe-Regular.woff2') format('woff2');
+  font-display: swap;
+}
+
+/* Management window only: the companion and welcome keep their own appearance. */
+.workshop.settings-shell {
+  --color-foreground: #51423e;
+  --color-foreground-muted: #8a7871;
+  --color-content1: #fffefb;
+  --color-content2: #fff8ee;
+  --color-primary: #ed795f;
+  --color-primary-text: #b44f38;
+  --color-primary-foreground: #fff;
+  --color-primary-50: #fff2e7;
+  --color-primary-100: #ffe6d8;
+  --color-primary-200: #f8c9b2;
+  --color-primary-300: #eda18a;
+  --color-primary-400: #ef977c;
+  --color-primary-500: #ed795f;
+  --color-primary-600: #ce624a;
+  --color-default-100: #eee4d9;
+  --color-default-200: #ded0c3;
+  --color-default-300: #cfbdae;
+  --color-danger-text: #bd433e;
+  --color-success: #5c9b83;
+  --settings-accent: #ce624a;
+  --settings-tint: #ffe8db;
+  grid-template-columns: 208px minmax(0, 1fr);
+  background: #fff8ee;
+  color: var(--color-foreground);
+  font-size: 14px;
+  font-family: 'Microsoft YaHei', 'Segoe UI', sans-serif;
+}
+.settings-shell[data-settings-section='model'] { --settings-accent: #8270b1; --settings-tint: #eee7fb; }
+.settings-shell[data-settings-section='access'] { --settings-accent: #568c77; --settings-tint: #e3f0e5; }
+.settings-shell[data-settings-section='advanced'] { --settings-accent: #a27d3f; --settings-tint: #f7eccf; }
+.settings-shell[data-settings-section='history'] { --settings-accent: #668ca1; --settings-tint: #e3eef4; }
+.settings-shell .sidebar {
+  padding: 30px 16px 20px;
+  background: #fffdf7;
+  border-right: 1px dashed #e6d8c8;
+}
+.settings-shell .brand { gap: 10px; margin: 0 8px 25px; }
+.settings-shell .brand-mark { width: 38px; height: 38px; border-radius: 14px 16px 12px 16px; transform: rotate(-9deg); background: #ef8169; box-shadow: 3px 3px 0 #ffe7d7; }
+.settings-shell .brand-mark svg { transform: rotate(9deg); }
+.settings-shell .brand strong { font-family: 'Ayana Settings Title', 'Microsoft YaHei UI', sans-serif; font-size: 30px; font-weight: 400; letter-spacing: 0; color: #7c5144; }
+.settings-shell .connection { font-size: 11px; margin: 0 8px 27px; gap: 7px; }
+.settings-shell .connection i { width: 7px; height: 7px; box-shadow: 0 0 0 3px #f6eee5; }
+.settings-shell nav { gap: 7px; }
+.settings-shell .nav-group-label { color: #a39283; font-size: 11px; letter-spacing: 1px; padding: 12px 12px 5px; }
+.settings-shell .nav-group-label:not(:first-child) { margin-top: 12px; }
+.settings-shell .nav-item { min-height: 46px; padding: 12px; border-radius: 15px; gap: 10px; color: #827066; font-size: 13px; transition: background .18s, transform .18s, color .18s; }
+.settings-shell .nav-item:hover { background: #fff1e4; transform: translateX(2px); color: #ac5b43; }
+.settings-shell .nav-item.active { background: var(--settings-tint); color: var(--settings-accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--settings-accent) 13%, transparent); }
+.settings-shell .nav-item.active::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-left: auto; }
+.settings-shell .sidebar-bottom { padding-top: 20px; }
+.settings-shell .build-label { font-size: 9px; letter-spacing: .8px; opacity: .7; }
+.settings-shell .main-panel { background: radial-gradient(ellipse at 100% 0%, #fff0dd, transparent 55%), #fff8ee; }
+.settings-shell .main-header { border: 0; padding: 27px 32px 23px; }
+.settings-page-title { display: flex; align-items: center; gap: 13px; }
+.settings-heading-icon { color: var(--settings-accent); background: var(--settings-tint); width: 48px; height: 48px; display: grid; place-items: center; border-radius: 18px 16px 20px 14px; transform: rotate(-7deg); }
+.settings-heading-icon svg { transform: rotate(7deg); }
+.settings-shell .main-header h1 { position: relative; z-index: 0; font: 400 29px/1.4 'Ayana Settings Title', 'Microsoft YaHei UI', sans-serif; letter-spacing: 1px; margin: 0; }
+.settings-shell .main-header h1::after { content: ''; position: absolute; z-index: -1; bottom: 3px; left: -3px; right: -5px; height: 9px; border-radius: 50%; background: var(--settings-tint); transform: rotate(-2deg); }
+.settings-shell .main-header > .kun-button { background: #fffdf8; width: 36px; min-width: 36px; height: 36px; padding: 0; border: 1px solid #e9dfd2; border-radius: 50%; }
+.settings-shell .settings-fields { padding: 0 32px 28px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-content: start; }
+.settings-shell .settings-fields > * { width: 100%; max-width: 1020px; margin: 0 auto; }
+.settings-shell .settings-workspace .setting-card { padding: 23px; border: 1px solid #eadfd3; border-radius: 23px; background: #fffefb; box-shadow: 0 4px 0 #f0e6d85c; min-width: 0; --card-tone: #fff0e5; --card-ink: #c46b51; }
+.settings-shell .setting-card[data-tone='mint'] { --card-tone: #e9f3e9; --card-ink: #5c8b70; }
+.settings-shell .setting-card[data-tone='lavender'] { --card-tone: #f0eafb; --card-ink: #8a73b0; }
+.settings-shell .settings-workspace .setting-card h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 18px; font-size: 16px; font-weight: 600; color: #5c4b43; }
+.setting-card-icon { display: inline-grid; place-items: center; width: 35px; height: 35px; border-radius: 12px; color: var(--card-ink, #a38454); background: var(--card-tone, #faf0dc); flex: 0 0 auto; }
+.settings-shell .settings-fields label { font-size: 13px; line-height: 1.6; color: #74625a; }
+.settings-shell .setting-card > label, .settings-profile-fields > label, .settings-shell .disclosure-content > label { display: flex; flex-direction: column; gap: 8px; margin: 16px 0 0; }
+.settings-shell .setting-card > h3 + label { margin-top: 0; }
+.settings-shell .kun-input, .settings-shell .settings-fields select { font-size: 14px; line-height: 1.5; min-height: 43px; padding: 10px 12px; border-radius: 12px; background: #fffcf7; border: 1px solid #e8ded3; color: #59483f; box-shadow: none; transition: border-color .18s, box-shadow .18s, background .18s; }
+.settings-shell .kun-input:hover, .settings-shell .settings-fields select:hover { border-color: #cfbdae; }
+.settings-shell .kun-input:focus, .settings-shell .settings-fields select:focus { background: white; border-color: #df967b; box-shadow: 0 0 0 3px #f9dfce80; outline: 0; }
+.settings-shell .kun-button { min-height: 38px; border-radius: 12px; font-size: 12px; padding: 9px 14px; background: #f7f0e7; color: #796457; transition: transform .18s, background .18s, box-shadow .18s; }
+.settings-shell .kun-button:hover:not(:disabled) { background: #f2e4d6; transform: translateY(-2px); }
+.settings-shell .kun-button:active:not(:disabled) { transform: translateY(1px); }
+.settings-shell .kun-button:disabled { opacity: .55; }
+.settings-shell .settings-fields .form-hint, .settings-shell .field-note { margin: 9px 0 0; font-size: 12px; color: #89776b; line-height: 1.75; overflow-wrap: anywhere; }
+.settings-shell .settings-workspace .settings-profile { position: relative; min-height: 228px; padding-right: 260px; background: #fff2e4; overflow: hidden; }
+.settings-shell .settings-profile h3 { margin-bottom: 14px; }
+.settings-profile-fields { position: relative; z-index: 2; max-width: 330px; }
+.settings-profile-fields > label { margin-top: 0; }
+.settings-shell .settings-profile-fields .kun-input { background: #fffdf9; border-color: #ecd2bd; }
+.settings-profile-fields > .kun-button { margin-top: 15px; background: #ffe3cb; color: #a76a47; }
+.settings-profile-art { position: absolute; right: 0; top: 0; bottom: 0; width: 250px; pointer-events: none; }
+.settings-profile-art::before { content: ''; position: absolute; background: #f8d9b7; width: 194px; height: 194px; border-radius: 45% 55% 40% 60%; right: 25px; top: 35px; transform: rotate(18deg); }
+.profile-orbit { position: absolute; right: 14px; top: 22px; width: 223px; height: 223px; border: 1px dashed #e5b890; border-radius: 50%; transform: rotate(25deg); }
+.settings-profile-art > img { position: absolute; width: 220px; height: auto; right: 20px; top: 8px; filter: drop-shadow(0 7px 5px #9f715226); animation: settings-portrait-in .4s both; }
+.settings-profile-art > svg { position: absolute; z-index: 1; right: 17px; top: 24px; color: #d1975f; transform: rotate(14deg); }
+.profile-sticker { position: absolute; bottom: 16px; right: 25px; z-index: 1; padding: 4px 14px; border: 2px solid white; border-radius: 10px; background: #e99772; color: white; font: 21px 'Ayana Settings Title', sans-serif; transform: rotate(8deg); box-shadow: 2px 3px 0 #dab18950; }
+.settings-shell .form-grid { gap: 16px; }
+.settings-shell .settings-fields .preference-toggle { flex-direction: row; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 0; margin: 0; border-top: 1px dashed #eee4d8; color: #5b4d43; }
+.settings-shell .preference-toggle > span { flex: 1; font-size: 14px; line-height: 1.5; }
+.settings-shell .preference-toggle small { font-size: 12px; font-weight: 400; color: #89776b; line-height: 1.7; margin-top: 5px; max-width: 540px; }
+.settings-shell .preference-toggle > input { appearance: none; -webkit-appearance: none; position: relative; width: 42px; height: 25px; border: 1px solid #d9cdbf; border-radius: 20px; background: #e9e0d6; flex-shrink: 0; margin: 0; cursor: pointer; transition: background .2s, border-color .2s; }
+.settings-shell .preference-toggle > input::after { content: ''; position: absolute; left: 3px; top: 3px; width: 17px; height: 17px; border-radius: 50%; background: white; box-shadow: 0 1px 3px #82634a30; transition: transform .2s cubic-bezier(.2, 1.6, .4, 1); }
+.settings-shell .preference-toggle > input:checked { background: #80ad94; border-color: #80ad94; }
+.settings-shell .preference-toggle > input:checked::after { transform: translateX(17px); }
+.settings-shell input:focus-visible { outline: 2px solid #cd8c6f; outline-offset: 3px; }
+.settings-shell .setting-card h3 + .preference-toggle { border-top: 0; padding-top: 0; }
+.settings-shell input[type='range'] { appearance: none; height: 6px; min-height: 6px; border-radius: 10px; margin: 12px 0 15px; background: #e7dced; accent-color: #a38cbf; cursor: pointer; }
+.settings-shell input[type='range']::-webkit-slider-thumb { appearance: none; width: 19px; height: 19px; background: #a38cbf; border: 3px solid #fff; border-radius: 50%; box-shadow: 0 1px 5px #8a6c9d40; }
+.settings-shell input[type='range']:disabled { opacity: .4; cursor: default; }
+.settings-shell .voice-pack-settings { background: #f9f5fb; border: 1px solid #ece3f1; border-radius: 15px; padding: 14px; gap: 10px; margin-top: 12px; }
+.settings-shell .voice-pack-settings strong { font-size: 13px; }
+.settings-shell .voice-pack-settings-head { gap: 8px; flex-wrap: wrap; }
+.settings-shell .voice-pack-settings-head > div { min-width: 0; }
+.settings-shell .voice-pack-settings p, .settings-shell .voice-pack-meta, .settings-shell .voice-pack-settings-copy span { font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; }
+.settings-shell .voice-pack-actions { flex-wrap: wrap; }
+.settings-shell .voice-pack-actions .kun-button { font-size: 11px; min-height: 33px; height: auto; padding: 7px 10px; }
+.settings-shell .voice-pack-state { border-radius: 8px; padding: 3px 8px; }
+.settings-shell .preference-advanced { border: 1px solid #e8dfd2; border-radius: 19px; background: #fffefb; padding: 0; box-shadow: 0 3px 0 #ede3d64d; overflow: clip; }
+.settings-shell .preference-advanced summary { display: flex; align-items: center; gap: 12px; padding: 18px 21px; font-size: 15px; font-weight: 600; color: #74604b; list-style: none; cursor: pointer; transition: background .18s; }
+.settings-shell .preference-advanced summary::-webkit-details-marker { display: none; }
+.settings-shell .preference-advanced summary:hover { background: #fffaef; }
+.disclosure-chevron { width: 8px; height: 8px; border-right: 1.5px solid #af9c83; border-bottom: 1.5px solid #af9c83; transform: rotate(45deg); margin: -4px 5px 0 auto; transition: transform .2s; }
+.preference-advanced[open] .disclosure-chevron { transform: rotate(225deg); margin-top: 5px; }
+.settings-shell .disclosure-content { padding: 0 22px 23px; border-top: 1px dashed #eee4d8; }
+.settings-shell .service-grid { gap: 14px; margin: 18px 0; }
+.settings-shell .service-grid > div { background: #faf5ec; padding: 13px; border-radius: 12px; }
+.settings-shell .service-grid dt { font-size: 12px; color: #a18a72; }
+.settings-shell .service-grid dd { font-size: 14px; margin: 6px 0 0; }
+.settings-shell .settings-savebar { padding: 16px 32px; gap: 12px; border-top: 1px solid #eadfce; background: #fffdf7; box-shadow: 0 -5px 20px #a58b6606; }
+.settings-shell .settings-savebar [role='status'] { font-size: 13px; line-height: 1.6; min-width: 0; overflow-wrap: anywhere; color: #7c7264; }
+.settings-shell .settings-savebar small { font-size: 11px; color: #a18a72; }
+.save-status-icon { display: grid; place-items: center; background: #eaf3e8; border-radius: 11px; color: #79a088; width: 32px; height: 32px; flex: 0 0 auto; }
+.settings-savebar.is-dirty .save-status-icon { background: #fff0d8; color: #be9253; }
+.settings-savebar.has-error .save-status-icon { background: #ffe8e1; color: #bd5546; }
+.settings-shell .settings-savebar.has-error [role='status'] { color: #b45140; }
+.settings-shell .settings-savebar button[type='submit'] { min-height: 42px; padding: 10px 21px; border-radius: 14px; background: #ed795f; color: #fff; box-shadow: 0 3px 0 #d9644d; font-size: 13px; }
+.settings-shell .settings-savebar button[type='submit']:hover:not(:disabled) { background: #e96c50; }
+.settings-shell .settings-savebar button[type='submit']:disabled { background: #eadacb; box-shadow: 0 3px 0 #e0cebc; color: #9b816c; opacity: 1; }
+.settings-shell .main-status { background: #fffdf7; border: 0; padding: 0 32px 10px; font-size: 10px; color: #a18b7b; }
+.settings-shell .error-banner { border-radius: 12px; margin: 0 32px 16px; }
+.settings-shell .conversation-manager { padding-top: 0; }
+.settings-shell .manager-intro { background: #fffdf8; border: 1px solid #e9dfd2; border-radius: 20px; padding: 21px; }
+.settings-shell .manager-intro h2 { font-family: 'Ayana Settings Title', sans-serif; font-weight: 400; }
+.settings-shell .manager-intro p { font-size: 12px; }
+.settings-shell .manager-tabs button { border-radius: 12px; font-size: 13px; }
+.settings-shell .manager-tabs button[aria-selected='true'] { color: var(--settings-accent); border-bottom-color: var(--settings-accent); }
+.settings-shell .manager-topic.selected { border-left-color: var(--settings-accent); }
+.settings-shell .manager-reader-heading h3, .settings-shell .memory-intro h3, .settings-shell .memory-empty h4 { font-family: 'Microsoft YaHei', sans-serif; font-weight: 500; }
+.settings-shell .memory-entry { border-radius: 18px; }
+.settings-shell .manager-message { border-radius: 16px; }
+.settings-shell .manager-danger { color: #b14b40; }
+.settings-shell .settings-fields > .setting-card, .settings-shell .settings-fields > .preference-advanced { animation: settings-card-in .32s cubic-bezier(.2,.8,.25,1) both; }
+.settings-shell .settings-fields > :nth-child(2) { animation-delay: .045s; }
+.settings-shell .settings-fields > :nth-child(3) { animation-delay: .09s; }
+.settings-shell .settings-fields > :nth-child(4) { animation-delay: .135s; }
+@keyframes settings-card-in { from { opacity: 0; transform: translateY(12px) rotate(-.6deg) scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes settings-portrait-in { from { opacity: 0; transform: translateY(15px) rotate(3deg); } to { opacity: 1; transform: none; } }
+@media (min-width: 1080px) {
+  .settings-shell .settings-workspace[data-section='appearance'] .settings-fields { grid-template-columns: minmax(0,1fr) minmax(0,1.08fr); align-items: start; }
+  .settings-shell .settings-profile { grid-column: 1 / -1; }
+  .settings-shell .settings-workspace[data-section='appearance'] .settings-fields > * { max-width: none; }
+}
+@media (max-width: 960px) {
+  .workshop.settings-shell { grid-template-columns: 178px minmax(0,1fr); }
+  .settings-shell .sidebar { padding: 24px 11px 15px; }
+  .settings-shell .brand { margin-left: 5px; }
+  .settings-shell .brand strong { font-size: 27px; }
+  .settings-shell .connection { font-size: 10px; margin-left: 5px; }
+  .settings-shell .nav-item { font-size: 12px; padding: 11px 10px; }
+  .settings-shell .main-header { padding: 22px 24px; }
+  .settings-shell .settings-fields { padding: 0 24px 24px; }
+  .settings-shell .settings-savebar { padding: 14px 24px; }
+  .settings-shell .settings-workspace .settings-profile { padding-right: 205px; }
+  .settings-profile-art { width: 195px; }
+  .settings-profile-art > img { width: 190px; right: 2px; top: 20px; }
+  .settings-profile-art::before { width: 170px; height: 170px; right: 7px; top: 46px; }
+  .profile-orbit { width: 187px; height: 187px; right: 0; top: 36px; }
+}
+@media (max-width: 760px) {
+  .workshop.settings-shell { grid-template-columns: 156px minmax(0,1fr); }
+  .settings-shell .settings-fields { padding-left: 16px; padding-right: 16px; }
+  .settings-shell .main-header { padding: 20px 16px; }
+  .settings-shell .main-header h1 { font-size: 24px; }
+  .settings-heading-icon { width: 39px; height: 39px; }
+  .settings-shell .settings-workspace .settings-profile { padding-right: 145px; }
+  .settings-profile-art { width: 140px; }
+  .settings-profile-art > img { width: 160px; right: -20px; top: 46px; }
+  .settings-profile-art::before { right: -45px; }
+  .profile-orbit { right: -55px; }
+  .settings-shell .settings-savebar { padding: 14px 16px; gap: 9px; flex-wrap: wrap; }
+  .settings-shell .settings-savebar [role='status'] { flex: 1; min-width: calc(100% - 50px); }
+  .settings-shell .settings-savebar button[type='submit'] { margin-left: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-shell *, .settings-shell *::before, .settings-shell *::after { animation: none !important; transition: none !important; }
+}

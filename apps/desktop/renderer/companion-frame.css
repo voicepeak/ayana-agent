@@ -16,10 +16,18 @@
 .companion-note[data-theme=paper] .note-surface{ background: radial-gradient(ellipse at 12% 0, #fffdf9b0, transparent 60%), radial-gradient(ellipse at 95% 100%, #b7a38020, transparent 60%), var(--note-color); }
 .companion-note[data-theme=forest] .note-surface{ background: radial-gradient(ellipse at 100% 0, #cee3bd20, transparent 65%), var(--note-color); }
 .companion-note[data-theme=sea] .note-surface{ background: radial-gradient(ellipse at 100% 0, #a6cbe626, transparent 65%), var(--note-color); }
+.companion-note[data-theme=sakura] .note-surface{ background: radial-gradient(ellipse at 88% 4%, #ffd6e842, transparent 62%), radial-gradient(ellipse at 0 100%, #8e405a24, transparent 58%), var(--note-color); }
+.companion-note[data-theme=sky] .note-surface{ background: radial-gradient(ellipse at 14% 0, #ffffffa8, transparent 62%), radial-gradient(ellipse at 100% 100%, #8ec4da30, transparent 60%), var(--note-color); }
+.companion-note[data-theme=amber] .note-surface{ background: radial-gradient(ellipse at 100% 0, #ffb45f30, transparent 62%), radial-gradient(ellipse at 0 100%, #6b3c1728, transparent 58%), var(--note-color); }
+.companion-note[data-theme=bamboo] .note-surface{ background: radial-gradient(ellipse at 95% 0, #a9d8c826, transparent 64%), radial-gradient(ellipse at 0 100%, #163b3024, transparent 58%), var(--note-color); }
 .companion-note[data-background=minimal] .note-surface::after{ content: ''; position: absolute; width: 450px; height: 450px; right: -150px; top: -170px; border: 1px solid color-mix(in srgb, var(--chrome-text) 7%, transparent); border-radius: 50%; box-shadow: 0 0 0 42px color-mix(in srgb, var(--chrome-text) 2%, transparent), 0 0 0 90px color-mix(in srgb, var(--chrome-text) 1.5%, transparent); }
 .companion-note[data-theme=paper] .note-surface::after{ right: -90px; top: -220px; }
 .companion-note[data-theme=forest] .note-surface::after{ border-radius: 46% 54% 60% 40%; transform: rotate(-25deg); }
 .companion-note[data-theme=sea] .note-surface::after{ width: 660px; height: 320px; right: -210px; top: -160px; transform: rotate(-18deg); }
+.companion-note[data-theme=sakura] .note-surface::after{ border-radius: 52% 48% 62% 38%; transform: rotate(18deg); }
+.companion-note[data-theme=sky] .note-surface::after{ width: 520px; height: 520px; right: -180px; top: -240px; border-color: #5b8fa326; box-shadow: 0 0 0 52px #6ba7bc12, 0 0 0 110px #6ba7bc08; }
+.companion-note[data-theme=amber] .note-surface::after{ width: 600px; height: 360px; right: -190px; top: -190px; transform: rotate(-16deg); }
+.companion-note[data-theme=bamboo] .note-surface::after{ border-radius: 40% 60% 56% 44%; transform: rotate(-32deg); }
 .note-background-image{ overflow: hidden; background: var(--note-color); }
 .note-background-image img{ display: block; width: 100%; height: 100%; object-fit: cover; }
 .companion-frame-heading{

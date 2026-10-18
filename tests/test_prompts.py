@@ -37,6 +37,14 @@ def test_quotes_and_character_pauses_remain_natural(text):
     assert validate_speech({"speech_ja": text})["speech_ja"] == text
 
 
+def test_speech_style_rejects_robotic_stock_phrases():
+    style = (ROOT / 'characters/ayana/speech-style.md').read_text(encoding='utf-8')
+    for phrase in ('我不讨厌哦', '我不介意哦', '我很喜欢哦', '嫌いじゃないよ', '気にしないよ', '大好きだよ'):
+        assert phrase in style
+    assert '不要每句都用「哦」「呢」收尾' in style
+    assert '不要模仿自己上一轮的口头禅' in style
+
+
 def test_protocol_schema_matches_the_runtime_limit():
     schema = json.loads((ROOT / "packages/protocol/speech-events.schema.json").read_text(encoding="utf-8"))
     assert schema["properties"]["speech_ja"]["maxLength"] == MAX_SPEECH_CHARS == 48

@@ -178,7 +178,8 @@ async def test_model_choices_reach_display_and_next_turn_context(tmp_path, monke
         async def send_json(self, event): self.events.append(event)
     monkeypatch.setattr("services.agent.runtime.OpenAIProvider", Model)
     cfg = Settings(ROOT, data_root=tmp_path)
-    cfg.values.update(provider="openai", save_history=False, max_utterances=30)
+    cfg.values.update(provider="openai", model="test", save_history=False, max_utterances=30)
+    cfg.key = lambda: "test-key"
     runtime = AgentRuntime(cfg, desktop=Desktop(), tts=Tts())
     ws = Ws()
     runtime.clients.add(ws)

@@ -7,6 +7,8 @@ from fastapi.responses import FileResponse, Response
 
 from .config import Settings
 from .runtime import AgentRuntime
+from .avatars import AvatarCatalog
+from .characters import character_entry
 
 
 def create_app(token: str, settings=None, runtime=None):
@@ -14,6 +16,7 @@ def create_app(token: str, settings=None, runtime=None):
         raise ValueError("Runtime requires a strong per-launch token")
     settings = settings or Settings()
     runtime = runtime or AgentRuntime(settings)
+    preview_catalogs = {}
 
     @asynccontextmanager
     async def lifespan(app):
@@ -61,7 +64,17 @@ def create_app(token: str, settings=None, runtime=None):
     async def asset(asset_id: str, request: Request):
         if not authenticated(request.headers.get("authorization")):
             raise HTTPException(401)
-        file = runtime.avatars.asset_file(settings.root, asset_id)
+        character = request.query_params.get("character")
+        catalog = runtime.avatars
+        if character and character != getattr(catalog, "character", None):
+            try:
+                character_entry(settings.root, character)
+                if character not in preview_catalogs:
+                    preview_catalogs[character] = AvatarCatalog(settings.root, character=character)
+                catalog = preview_catalogs[character]
+            except (ValueError, OSError):
+                raise HTTPException(404, "Character resource is not installed")
+        file = catalog.asset_file(settings.root, asset_id)
         if file is not None:
             return FileResponse(file, media_type="image/png")
         raise HTTPException(404, "Character resource is not installed")

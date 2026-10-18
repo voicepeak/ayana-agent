@@ -45,6 +45,8 @@ class Settings:
                 pass
         self.values.setdefault("character", DEFAULT_CHARACTER)
         self.values.setdefault("character_profiles", {})
+        if os.environ.get("AYANA_DESKTOP") == "1" and os.environ.get("AYANA_ALLOW_LOCAL_PROVIDER") != "1":
+            self.values["provider"] = "openai"
 
     def public(self):
         def clean(value):
@@ -133,7 +135,7 @@ class Settings:
                 raise ValueError("Invalid portrait range")
             if "background_mode" in design and (not isinstance(design["background_mode"], str) or design["background_mode"] not in {"transparent", "frosted", "image", "minimal", "solid"}):
                 raise ValueError("Invalid note background")
-            if "theme" in design and (not isinstance(design["theme"], str) or design["theme"] not in {"ink", "paper", "forest", "sea", "custom"}):
+            if "theme" in design and (not isinstance(design["theme"], str) or design["theme"] not in {"ink", "paper", "forest", "sea", "sakura", "sky", "amber", "bamboo", "custom"}):
                 raise ValueError("Invalid note theme")
             for key in ("background_color", "bubble_color"):
                 if key in design:
@@ -262,17 +264,32 @@ class Settings:
         self.values = candidate
         return self.public()
 
+    def _credential_path(self):
+        return self.data_root / ".runtime/credentials.dpapi"
+
     def key(self):
         value = os.environ.get(self.values.get("api_key_env", "AYANA_API_KEY")) or os.environ.get("DEEPSEEK_API_KEY")
         if value:
             return value
         from .credentials import load_key
+        return load_key(self._credential_path())
+
+    def save_key(self, key: str):
+        if not isinstance(key, str):
+            raise ValueError("API Key 格式无效")
+        value = key.strip()
+        if not value or len(value) > 1000 or any(ord(char) < 32 for char in value):
+            raise ValueError("API Key 需为 1–1000 个可见字符")
+        from .credentials import save_key
+        save_key(self._credential_path(), value)
+
+    def clear_key(self):
+        from .credentials import load_key
         path = self.data_root / ".runtime/credentials.dpapi"
-        seed = self.root / ".runtime/credentials.dpapi"
-        if not path.exists() and self.data_root != self.root and seed.exists():
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(seed.read_bytes())
-        return load_key(path)
+        if not path.exists():
+            return False
+        path.unlink()
+        return not load_key(path)
 
     def search_key(self):
         from .credentials import load_key

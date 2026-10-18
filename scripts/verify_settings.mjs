@@ -3,27 +3,28 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const option = name => args.includes(name) ? args[args.indexOf(name) + 1] : undefined;
+const packaged = option('--packaged');
 const require = createRequire(import.meta.url);
 const { _electron } = require(require.resolve('playwright', { paths: [option('--playwright-root') || root] }));
 const directory = path.join(root, '.runtime', 'benchmarks', `settings-${Date.now()}`);
 const data = path.join(directory, 'profile');
 mkdirSync(path.join(data, 'config'), { recursive: true });
-const config = { provider: 'local', voice: { voice_mode: 'silent', engine_root: 'preserved-engine-path' },
+const config = { provider: 'local', user_name: '测试用户', onboarding_version: 1, voice: { voice_mode: 'silent', engine_root: 'preserved-engine-path' },
   stt: { provider: 'disabled', model: 'tiny', model_path: 'preserved-model-path' },
-  hotkey: 'Control+Alt+F8', cancel_hotkey: 'Control+Alt+F9', save_history: true };
+  hotkey: 'Control+Alt+F8', talk_hotkey: 'Control+Shift+F12', cancel_hotkey: 'Control+Alt+F9', save_history: true };
 writeFileSync(path.join(data, 'config', 'local.json'), JSON.stringify(config));
-const report = { scope: 'Real Electron + local backend; isolated profile, silent voice; no network model calls or desktop actions', checks: [], errors: [] };
+const report = { scope: `${packaged ? 'Packaged Electron + embedded backend' : 'Real Electron + local backend'}; isolated profile, silent voice; no network model calls or desktop actions`, checks: [], errors: [] };
 let app;
 let page;
 try {
-  app = await _electron.launch({ executablePath: path.join(root, 'apps/desktop/node_modules/electron/dist/electron.exe'),
-    args: [path.join(root, 'apps/desktop'), `--user-data-dir=${data}`],
-    env: { ...process.env, AYANA_DATA_DIR: data, AYANA_REPOSITORY_ROOT: root, AYANA_PYTHON: path.join(root, '.venv/Scripts/python.exe') }, timeout: 30000 });
+  app = await _electron.launch({ executablePath: packaged || path.join(root, 'apps/desktop/node_modules/electron/dist/electron.exe'),
+    args: [...(packaged ? [] : [path.join(root, 'apps/desktop')]), `--user-data-dir=${data}`],
+    env: { ...process.env, AYANA_DATA_DIR: data, AYANA_REPOSITORY_ROOT: packaged ? '' : root, AYANA_PYTHON: packaged ? '' : path.join(root, '.venv/Scripts/python.exe') }, timeout: 30000 });
   const pages = await app.windows();
   page = pages.find(item => item.url().includes('window=settings'));
   assert(page, 'settings window exists');
@@ -44,6 +45,10 @@ try {
   assert.equal(await page.locator('#repository-root').count(), 0);
   assert.equal(await page.getByRole('button', { name: '高级设置', exact: true }).count(), 1);
   report.checks.push('single navigation; repository and redundant settings navigation removed');
+  await page.waitForFunction(() => document.querySelector('.settings-profile-art img')?.naturalWidth > 0);
+  assert.equal(await page.getByLabel('角色', { exact: true }).locator('option[value="ayana-su"]').count(), 0, 'The white-uniform character is not offered');
+  assert.equal(await page.getByLabel('角色', { exact: true }).locator('option').count(), 1, 'Only Ayana is available in this build');
+  report.checks.push('the settings role picker does not offer the white-uniform character');
   await page.getByRole('checkbox', { name: '表情切换动效', exact: true }).uncheck();
   await go('高级设置');
   assert.equal(await page.locator('.preference-advanced[open]').count(), 0);
@@ -57,7 +62,7 @@ try {
   assert.equal(disk().stt.provider, 'disabled');
   assert.equal(disk().max_tool_rounds, 7);
   assert.equal(disk().sentence_motion, false);
-  await page.screenshot({ path: path.join(directory, 'appearance.png') });
+  await page.screenshot({ path: path.join(directory, 'appearance.png'), animations: 'disabled' });
   report.checks.push('draft survives navigation; backend receipt confirms partial updates preserve resource paths');
   await go('高级设置');
   await page.getByText('接口兼容与代理', { exact: true }).click();
@@ -78,10 +83,16 @@ try {
   assert.equal(disk().volume, .65);
   report.checks.push('external settings refresh merges untouched fields and preserves edited fields');
   await go('模型与连接');
-  await page.getByLabel('模型模式', { exact: true }).selectOption('openai');
   await page.getByLabel('模型名称', { exact: true }).fill('settings-test-model');
+  await page.getByLabel('API Key', { exact: true }).fill('sk-settings-test-secret');
+  await page.getByRole('button', { name: '保存密钥', exact: true }).click();
+  await page.getByRole('status').filter({ hasText: '密钥已加密保存' }).waitFor();
+  assert.equal(existsSync(path.join(data, '.runtime', 'credentials.dpapi')), true, 'The API key is stored through DPAPI');
+  assert.equal(JSON.stringify(disk()).includes('sk-settings-test-secret'), false, 'The API key never enters config/local.json');
+  assert.equal(await page.getByLabel('API Key', { exact: true }).inputValue(), '', 'The key field is cleared after saving');
+  report.checks.push('the model API key can be entered and is encrypted outside the settings file');
   await save();
-  await page.screenshot({ path: path.join(directory, 'model.png') });
+  await page.screenshot({ path: path.join(directory, 'model.png'), animations: 'disabled' });
   await go('高级设置');
   await page.getByText('回复限制', { exact: true }).click();
   await page.getByLabel('单次请求输出上限（tokens）', { exact: true }).fill('4000');
@@ -93,12 +104,19 @@ try {
   report.checks.push('advanced output limit persists and survives settings refresh without a model request');
   await go('观察与隐私');
   await page.getByRole('checkbox', { name: /^允许彩名偶尔偷看/ }).waitFor();
-  await page.screenshot({ path: path.join(directory, 'privacy.png') });
+  const ambient = page.getByRole('checkbox', { name: /^允许彩名偶尔偷看/ });
+  await ambient.focus();
+  await ambient.press('Space');
+  await page.getByLabel('偷看间隔最小（秒）', { exact: true }).waitFor();
+  await ambient.press('Space');
+  assert.equal(await page.getByLabel('偷看间隔最小（秒）', { exact: true }).count(), 0);
+  report.checks.push('switches support keyboard input and reveal dependent controls');
+  await page.screenshot({ path: path.join(directory, 'privacy.png'), animations: 'disabled' });
   report.checks.push('privacy observation toggles use the common save flow');
   await go('对话与记忆');
-  await page.screenshot({ path: path.join(directory, 'history.png') });
+  await page.screenshot({ path: path.join(directory, 'history.png'), animations: 'disabled' });
   await go('高级设置');
-  await page.screenshot({ path: path.join(directory, 'advanced.png') });
+  await page.screenshot({ path: path.join(directory, 'advanced.png'), animations: 'disabled' });
   await page.getByText('服务与诊断', { exact: true }).click();
   await go('刷新状态');
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().includes('window=settings')).setSize(820, 600));
@@ -106,8 +124,19 @@ try {
   await page.mouse.move(10, 10);
   assert(await page.evaluate(() => document.querySelector('.workshop').scrollWidth <= innerWidth));
   assert(await page.evaluate(() => { const button = document.querySelector('button[type=submit]').getBoundingClientRect(); return button.bottom <= innerHeight && button.top >= 0; }));
-  await page.screenshot({ path: path.join(directory, 'compact.png') });
+  await page.screenshot({ path: path.join(directory, 'compact.png'), animations: 'disabled' });
   report.checks.push('820px window has no horizontal overflow and keeps save controls visible');
+  await page.getByLabel('播放音量', { exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(directory, 'compact-sound.png'), animations: 'disabled' });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().includes('window=settings')).setSize(820, 480));
+  assert(await page.evaluate(() => {
+    const button = document.querySelector('button[type=submit]').getBoundingClientRect();
+    return button.bottom <= innerHeight && button.top >= 0 && document.querySelector('.settings-fields').clientHeight > 100;
+  }));
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await go('观察与隐私');
+  assert.equal(await page.locator('.setting-card').first().evaluate(element => getComputedStyle(element).animationName), 'none');
+  report.checks.push('minimum 820×480 window retains scrollable content and visible save controls; reduced motion respected');
   assert.deepEqual(report.errors, []);
   report.passed = true;
 } catch (error) {

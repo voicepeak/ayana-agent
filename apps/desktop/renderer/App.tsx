@@ -225,9 +225,9 @@ export default function App() {
 
   const statusText = current ? 'Ayana 正在说话' : state.task === 'thinking' ? '正在整理思路' : state.task === 'failed' ? '需要留意' : '空闲';
 
-  return <div className="workshop workshop-focused">
+  return <div className="workshop workshop-focused settings-shell" data-settings-section={tab === 'history' ? 'history' : settingsSection}>
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark"><Icon name="sparkles" size={25}/></div><div><strong>Ayana</strong><span>你的桌面同伴</span></div></div>
+      <div className="brand"><div className="brand-mark"><Icon name="sparkles" size={25}/></div><div><strong>Ayana</strong></div></div>
       <div className={`connection ${state.connected ? 'online' : ''}`}><i/>{state.connected ? '本地服务已连接' : state.service === 'preview' ? '桌面界面预览' : '本地服务启动中'}</div>
       <nav aria-label="主导航">
         <span className="nav-group-label">偏好设置</span>
@@ -243,7 +243,7 @@ export default function App() {
     </aside>
 
     <main className="main-panel">
-      <header className="main-header"><h1>{tab === 'chat' ? settingsSections.find(item => item.id === settingsSection)?.title : '对话与记忆'}</h1><Button variant="light" aria-label="关闭设置" onClick={() => void bridge.hideSettings()}><Icon name="close" size={18}/></Button></header>
+      <header className="main-header"><div className="settings-page-title"><span className="settings-heading-icon"><Icon name={tab === 'chat' ? settingsSections.find(item => item.id === settingsSection)?.icon || 'settings' : 'history'} size={25}/></span><h1>{tab === 'chat' ? settingsSections.find(item => item.id === settingsSection)?.title : '对话与记忆'}</h1></div><Button variant="light" aria-label="关闭设置" onClick={() => void bridge.hideSettings()}><Icon name="close" size={18}/></Button></header>
       {(localError || state.error) && <div className="error-banner" role="alert"><span>{localError || state.error}</span><button aria-label="关闭错误提示" onClick={() => { setLocalError(''); dispatch({ protocol_version: 1, type: 'desktop.dismiss-error' }); }}>×</button></div>}
       <div className="settings-host" hidden={tab !== 'chat'}><Settings state={state} section={settingsSection}/></div>
       {tab === 'history' && <ConversationManager state={state} send={send}/>}

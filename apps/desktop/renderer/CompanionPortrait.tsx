@@ -5,9 +5,9 @@ import { portraitLayout, portraitSlotAspect } from './portraitGeometry';
 import type { PortraitScene } from './captionLayout';
 import { wheelZoom } from './designZoom';
 
-export function CompanionPortrait({ design, expression, motion, connected, editable, onChange, onCommit, onClick, onSceneChange, bottomInset = 0, aspect = portraitSlotAspect }: {
+export function CompanionPortrait({ design, expression, motion, connected, editable, onChange, onCommit, onClick, onSceneChange, bottomInset = 0, aspect = portraitSlotAspect, interactionScale = 1, character }: {
   design: CompanionDesign; expression: string; motion: boolean; connected: boolean;
-  editable: boolean; aspect?: number;
+  editable: boolean; aspect?: number; interactionScale?: number; character?: string;
   onChange: (patch: Partial<CompanionDesign>) => void;
   onCommit: (patch: Partial<CompanionDesign>) => void; onClick: () => void;
   onSceneChange: (scene: PortraitScene) => void; bottomInset?: number;
@@ -65,8 +65,9 @@ export function CompanionPortrait({ design, expression, motion, connected, edita
     if (!current || current.id !== event.pointerId) return;
     if (!(event.buttons & 1)) { finish(); return; }
     event.preventDefault(); event.stopPropagation();
-    const dx = event.clientX - current.clientX, dy = event.clientY - current.clientY;
-    if (!current.moved && Math.hypot(dx, dy) < 4) return;
+    const clientDx = event.clientX - current.clientX, clientDy = event.clientY - current.clientY;
+    if (!current.moved && Math.hypot(clientDx, clientDy) < 4) return;
+    const dx = clientDx / Math.max(.01, interactionScale), dy = clientDy / Math.max(.01, interactionScale);
     current.moved = true; setDragging(true);
     const next = portraitLayout(area, aspect, { ...design, portrait_x: current.x + dx - layout.anchorX, portrait_y: current.y + dy });
     current.patch = { portrait_x: Math.round(next.x - next.anchorX), portrait_y: Math.round(next.y) };
@@ -86,7 +87,7 @@ export function CompanionPortrait({ design, expression, motion, connected, edita
       onPointerCancel={finish} onLostPointerCapture={finish} onDragStart={event => event.preventDefault()}
       onClick={event => { if (suppressClick.current) { event.preventDefault(); suppressClick.current = false; } else onClick(); }}>
       <div className="portrait-position"><div className="portrait-reveal">
-        <Character key={String(connected)} expression={expression} motion={motion}/>
+        <Character key={String(connected)} expression={expression} motion={motion} character={character}/>
       </div></div>
       {editable && <span className="portrait-position-hint">{dragging ? '气泡实时跟随' : '拖动移动 · 滚轮缩放'}</span>}
     </button>

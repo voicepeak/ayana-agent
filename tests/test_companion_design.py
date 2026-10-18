@@ -80,6 +80,9 @@ def test_theme_image_zoom_and_extended_font_sizes_persist(tmp_path):
     settings.update({'companion_ui': {'theme': 'custom', 'background_zoom': 175, 'font_size': 40}})
     loaded = Settings(root=ROOT, data_root=tmp_path).values['companion_ui']
     assert (loaded['theme'], loaded['background_zoom'], loaded['font_size']) == ('custom', 175, 40)
+    for theme in ('sakura', 'sky', 'amber', 'bamboo'):
+        settings.update({'companion_ui': {'theme': theme}})
+        assert Settings(root=ROOT, data_root=tmp_path).values['companion_ui']['theme'] == theme
     settings.update({'companion_ui': {'theme': 'paper', 'font_size': 14}})
     loaded = Settings(root=ROOT, data_root=tmp_path).values['companion_ui']
     assert (loaded['theme'], loaded['background_zoom'], loaded['font_size']) == ('paper', 175, 14)

@@ -162,7 +162,8 @@ async def test_committed_faces_update_emotion_and_reach_next_turn_context(tmp_pa
     monkeypatch.setattr("services.agent.runtime.OpenAIProvider", Model)
     monkeypatch.setattr("services.agent.emotion.local_hour", lambda now: 14)
     cfg = Settings(ROOT, data_root=tmp_path)
-    cfg.values.update(provider="openai", voice={"voice_mode": "silent"})
+    cfg.values.update(provider="openai", model="test", voice={"voice_mode": "silent"})
+    cfg.key = lambda: "test-key"
     tts = Tts()
 
     async def silent(text, generation):

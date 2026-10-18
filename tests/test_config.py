@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import pytest
 
@@ -20,6 +21,26 @@ def test_local_search_proxy_can_be_saved_and_disabled(tmp_path):
     assert Settings(root=ROOT, data_root=tmp_path).values['search_proxy'] == 'http://127.0.0.1:7892'
     settings.update({'search_proxy': ''})
     assert Settings(root=ROOT, data_root=tmp_path).values['search_proxy'] == ''
+
+
+def test_desktop_profiles_cannot_keep_the_local_demo_provider(tmp_path, monkeypatch):
+    monkeypatch.setenv('AYANA_DESKTOP', '1')
+    settings = Settings(root=ROOT, data_root=tmp_path)
+    assert settings.values['provider'] == 'openai'
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='DPAPI is Windows-only')
+def test_model_api_key_is_encrypted_saved_and_clearable(tmp_path, monkeypatch):
+    monkeypatch.delenv('AYANA_API_KEY', raising=False)
+    monkeypatch.delenv('DEEPSEEK_API_KEY', raising=False)
+    settings = Settings(root=ROOT, data_root=tmp_path)
+    settings.save_key('sk-test-secret')
+    path = tmp_path / '.runtime/credentials.dpapi'
+    assert path.is_file()
+    assert b'sk-test-secret' not in path.read_bytes()
+    assert settings.key() == 'sk-test-secret'
+    assert settings.clear_key()
+    assert settings.key() == ''
 
 
 @pytest.mark.parametrize('value', [None, True, 'socks5://127.0.0.1:7892', 'http://proxy.example:7892',
