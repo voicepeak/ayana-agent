@@ -63,6 +63,7 @@ function DialogueScene({ state, speech, textOnly, show, primaryLanguage, transla
       const storedVisible = item.displayed === true || ['played', 'partial'].includes(String(item.status));
       if (!(at >= 0 ? seen(state.speeches[at], at) || storedVisible : storedVisible)) continue;
       const speech: Speech = { id: String(item.utterance_id || `stored-${item.id}`), order, ja: String(item.speech_ja || ''), zh: String(item.display_zh || ''), en: String(item.display_en || ''), enError: item.en_error ? String(item.en_error) : undefined,
+        proactive: String(item.turn_id || '').startsWith('peek-'),
         state: item.status === 'partial' ? 'partial' : 'played', played: Number(item.played_samples || 0), total: Number(item.total_samples || 0), generation: 0, intent: '', intensity: 0, affect: '', assetId: '' };
       const entry: AssistantEntry = { id: speech.id, order, role: 'assistant', speech };
       historyEntries.push(entry); assistants.set(entry.id, entry);
@@ -326,8 +327,11 @@ function DialogueScene({ state, speech, textOnly, show, primaryLanguage, transla
               className={`cinematic-memory-row ${entry.role === 'user' ? 'is-user' : entry.id === activeId ? 'is-current' : 'is-memory'}`}
               onClick={() => { const selection = window.getSelection(); if (!selection || selection.isCollapsed) { focusRow(entry.id); setOverview(false); } }}>
               {entry.role === 'assistant'
-                ? <CinematicDialogue speech={entry.speech} primaryLanguage={primaryLanguage} translationLanguage={translationLanguage} textOnly={textOnly}
-                    active={entry.id === speech?.id} show={show} onVisibilityChange={onVisibilityChange}/>
+                ? <>
+                    {entry.speech.proactive && <small className="cinematic-proactive" aria-label="彩名主动搭话">主动搭话</small>}
+                    <CinematicDialogue speech={entry.speech} primaryLanguage={primaryLanguage} translationLanguage={translationLanguage} textOnly={textOnly}
+                      active={entry.id === speech?.id} show={show} onVisibilityChange={onVisibilityChange}/>
+                  </>
                 : <p className="cinematic-user-bubble">{entry.text}</p>}
             </article>)}
           {toolWaiting && <div className="cinematic-waiting-row"><CompanionWaiting key={state.questions.at(-1)?.id} state={state}/></div>}

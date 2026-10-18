@@ -52,7 +52,7 @@ export function formatEta(seconds: number | undefined): string {
 }
 
 export function voicePackStage(pack: VoicePackState | undefined): { title: string; detail: string } {
-  if (!pack) return { title: 'Ayana 音色', detail: '文字聊天不受影响' };
+  if (!pack) return { title: '彩名音色', detail: '文字聊天不受影响' };
   const progress = voicePackPercent(pack);
   if (pack.phase === 'detecting') return { title: '正在检查声音环境', detail: '马上开始下载' };
   if (pack.phase === 'downloading') {
@@ -62,10 +62,10 @@ export function voicePackStage(pack: VoicePackState | undefined): { title: strin
   if (pack.phase === 'paused') return { title: '语音包下载已暂停', detail: pack.downloaded ? `已下载 ${formatBytes(pack.downloaded)}，可以继续` : '可以稍后继续' };
   if (pack.phase === 'verifying') return { title: '正在校验语音包', detail: pack.total ? `${formatBytes(pack.downloaded)} / ${formatBytes(pack.total)}` : '请稍候' };
   if (pack.phase === 'extracting') return { title: '正在解压语音包', detail: '这需要一点时间，聊天仍然可用' };
-  if (pack.phase === 'configuring') return { title: '正在写入语音配置', detail: '完成后会提示重启 Ayana' };
-  if (pack.phase === 'ready') return { title: pack.restart_required ? '语音环境已配置' : '语音已就绪', detail: pack.restart_required ? '重启 Ayana 后生效' : '可以正常使用 Ayana 的声音' };
+  if (pack.phase === 'configuring') return { title: '正在写入语音配置', detail: '完成后会提示重启应用' };
+  if (pack.phase === 'ready') return { title: pack.restart_required ? '语音环境已配置' : '语音已就绪', detail: pack.restart_required ? '重启应用后生效' : '可以正常使用彩名的声音' };
   if (pack.phase === 'failed') return { title: '语音包安装失败', detail: pack.error || '请重试或导入本地语音包' };
-  return { title: '想听 Ayana 的声音吗？', detail: '下载语音包后可以用 Ayana 音色说话，文字聊天不受影响' };
+  return { title: '想听彩名的声音吗？', detail: '下载语音包后可以用彩名音色说话，文字聊天不受影响' };
 }
 
 export function voicePackVariantLabel(pack: VoicePackState | undefined): string {

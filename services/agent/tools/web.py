@@ -195,6 +195,56 @@ def normalized(value):
     return "".join(unicodedata.normalize("NFKC", value).casefold().split())
 
 
+SEARCH_STOPWORDS = {
+    "the", "and", "for", "with", "from", "that", "this", "are", "was", "were", "have", "has",
+    "what", "when", "where", "who", "how", "why", "about", "into", "than", "then", "also",
+    "http", "https", "www", "com", "org", "net", "html",
+    "什么", "怎么", "如何", "哪些", "哪个", "是否", "一个", "这个", "那个", "我们", "你们", "他们",
+    "の", "は", "が", "を", "に", "で", "と", "も", "や", "へ", "こと", "もの", "ため", "よう", "する", "した", "して", "です", "ます",
+}
+
+
+def search_terms(value):
+    """Meaningful words (Latin) and bigrams (CJK) used only to spot junk results."""
+    text = unicodedata.normalize("NFKC", value).casefold()
+    terms = set(re.findall(r"[a-z0-9][a-z0-9_+#'.-]{2,}", text))
+    for run in re.findall(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]+", text):
+        terms.update({run} if len(run) == 1 else {run[index:index + 2] for index in range(len(run) - 1)})
+    return terms - SEARCH_STOPWORDS
+
+
+def term_in_text(term, text):
+    term, haystack = normalized(term), normalized(text)
+    if not term:
+        return False
+    if term in haystack:
+        return True
+    if re.search(r"[\u3400-\u9fff]", term):
+        from .search_terms import chinese_comparison
+        return chinese_comparison(term) in chinese_comparison(haystack)
+    return False
+
+
+def result_text(item):
+    return " ".join((item.get("title") or "", item.get("summary") or "", item.get("url") or ""))
+
+
+def result_is_relevant(item, query, subject=None):
+    if subject:
+        mentioned = item.get("subject_mentioned")
+        if mentioned is True:
+            return True
+        if mentioned is False:
+            # A translated or renamed result can still be useful when it
+            # matches several query terms. One shared word (for example a
+            # common given name or clothing brand) is not evidence.
+            terms = search_terms(query)
+            return sum(1 for term in terms if term_in_text(term, result_text(item))) >= 2
+        # Providers that do not run _check_subject keep the older heuristic.
+    terms = search_terms(query)
+    return not terms or any(term_in_text(term, result_text(item)) for term in terms)
+
+
 class WebTools:
     def __init__(self, key_provider, transport=None, search_proxy=None, search_provider=None, model_key_provider=None):
         self.key_provider = key_provider
@@ -365,12 +415,24 @@ class WebTools:
         if provider == "bing":
             async with asyncio.timeout(25):
                 result = await self._bing_search(query, count, progress)
-                return await self._check_subject(result, query, subject, progress,
-                                                 lambda value: self._bing_search(value, count, progress))
+                result = await self._check_subject(result, query, subject, progress,
+                                                   lambda value: self._bing_search(value, count, progress))
+            # The free Bing endpoint sometimes ignores the query and serves an
+            # unrelated feed. Those links must not reach the model or the source
+            # panel; the model can retry with a clearer query.
+            result = [item for item in result if result_is_relevant(item, query, subject)]
+            if not result:
+                raise ToolError("search_unrelated", "搜索服务返回了与问题无关的结果；请换用更明确的关键词再试")
+            return result
         if provider == "deepseek":
             result = await self._deepseek_search(query, count)
-            return await self._check_subject(result, query, subject, progress,
-                                             lambda value: self._deepseek_search(value, count))
+            result = await self._check_subject(result, query, subject, progress,
+                                               lambda value: self._deepseek_search(value, count))
+            if subject:
+                result = [item for item in result if result_is_relevant(item, query, subject)]
+                if not result:
+                    raise ToolError("search_unrelated", "搜索服务返回了与问题无关的结果；请换用更明确的关键词再试")
+            return result
         if provider != "brave":
             raise ToolError("search_unconfigured", "搜索方式必须为 auto、bing、brave 或 deepseek")
         key = self.key_provider()
@@ -401,12 +463,11 @@ class WebTools:
         return result
 
     async def _check_subject(self, result, query, subject, progress, search_again):
-        exact = normalized(subject) if subject else ""
-        if not exact:
+        if not subject:
             return result
         quoted = '"' + subject.strip('"') + '"'
         if query.strip() != quoted and not any(
-                exact in normalized(item["title"] + " " + item["summary"]) for item in result):
+                term_in_text(subject, item["title"] + " " + item["summary"]) for item in result):
             if progress:
                 await progress("exact_search", "结果没有提到这个名称，正在按名称重新查找")
             result = await search_again(quoted)
@@ -414,7 +475,7 @@ class WebTools:
                 item["query_used"] = quoted
         for item in result:
             # A hint for inspecting results, never proof of relevance or identity.
-            item["subject_mentioned"] = exact in normalized(item["title"] + " " + item["summary"])
+            item["subject_mentioned"] = term_in_text(subject, item["title"] + " " + item["summary"])
         return result
 
     async def _deepseek_search(self, query, count):

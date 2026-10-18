@@ -10,6 +10,7 @@ export interface Speech {
   intensity: number; affect: string;
   assetId: string;
   audioEnabled?: boolean;
+  proactive?: boolean;
   state: 'generated' | 'playing' | 'played' | 'partial' | 'cancelled';
   played: number; total: number;
 }
@@ -124,7 +125,8 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
       break;
     case 'source.ready': {
       const source = event.source as Record<string, unknown>;
-      next.sources = [source, ...state.sources.filter(s => s.source_id !== source.source_id)].slice(0, 100); break;
+      next.sources = [source, ...state.sources.filter(s => s.source_id !== source.source_id
+        && (!source.url || s.url !== source.url))].slice(0, 100); break;
     }
     case 'desktop.summoned': next.summonVersion = state.summonVersion + 1; break;
     case 'attention.state': next.attentionObserving = event.observing === true; break;
@@ -177,7 +179,7 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
       next.error = undefined; next.task = 'thinking'; break;
     case 'utterance.ready':
       if (!state.speeches.some(s => s.id === event.utterance_id)) {
-        next.speeches = [...state.speeches, { id: String(event.utterance_id), order: Number(event.seq || generation * 1000 + state.questions.length + state.speeches.length), ja: String(event.speech_ja), zh: '', intent: String(event.intent || 'explain'), assetId: String(event.asset_id || ''), audioEnabled: event.audio_enabled !== false, generation, intensity: Number(event.intensity || 0), affect: String(event.affect || 'neutral'), state: 'generated' as const, played: 0, total: 0 }].slice(-80);
+        next.speeches = [...state.speeches, { id: String(event.utterance_id), order: Number(event.seq || generation * 1000 + state.questions.length + state.speeches.length), ja: String(event.speech_ja), zh: '', intent: String(event.intent || 'explain'), assetId: String(event.asset_id || ''), audioEnabled: event.audio_enabled !== false, proactive: String(event.turn_id || '').startsWith('peek-'), generation, intensity: Number(event.intensity || 0), affect: String(event.affect || 'neutral'), state: 'generated' as const, played: 0, total: 0 }].slice(-80);
       }
       break;
     case 'subtitle.ready':

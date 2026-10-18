@@ -82,7 +82,8 @@ class CapabilityRuntime:
 
     async def _publish_source(self, source):
         record = {k: v for k, v in source.items() if k != "content"}
-        record.update(conversation_id=self.conversations.current_id, turn_id=self.turn_id)
+        record.update(conversation_id=self.conversations.current_id, turn_id=self.turn_id,
+                      published_at=time.time())
         self.web.sources[source["source_id"]] = record
         if self.settings.values.get("save_history", True):
             await asyncio.to_thread(self.store.put_record, "source", source["source_id"], record)

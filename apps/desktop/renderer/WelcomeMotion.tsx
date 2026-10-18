@@ -25,7 +25,7 @@ export function WelcomeMotion({ chapter }: { chapter: Chapter }) {
     <div className="mg-cut-field">
       <span className="mg-cut-disc"/><span className="mg-cut-orbit"/>
       <div className="mg-cut-art">
-        {chapter === 'meet' && <div className="mg-cut-flower">{Array.from({ length: 8 }, (_, i) => <i key={i} style={{ '--n': i } as CSSProperties}/>)}<b>彩</b></div>}
+        {chapter === 'meet' && <div className="mg-cut-flower">{Array.from({ length: 8 }, (_, i) => <i key={i} style={{ '--n': i } as CSSProperties}/>)}<b>✦</b></div>}
         {chapter === 'chat' && <div className="mg-cut-dialogue"><i>Hi!</i><i>你好。</i><i>↗</i></div>}
         {chapter === 'voice' && <div className="mg-cut-wave">{Array.from({ length: 13 }, (_, i) => <i key={i} style={{ '--n': i, '--bar': 22 + (1 - Math.abs(i - 6) / 7) * 78 } as CSSProperties}/>)}</div>}
         {chapter === 'search' && <div className="mg-cut-lens"><i/><b>?</b><span>✦</span></div>}

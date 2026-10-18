@@ -428,7 +428,7 @@
 
   $$('[data-download]').forEach(link => {
     link.addEventListener('click', () => {
-      const label = link.dataset.downloadLabel || '下载 Ayana';
+      const label = link.dataset.downloadLabel || '下载';
       link.dataset.state = 'downloading';
       const strong = link.querySelector('strong');
       const navSpan = link.querySelector(':scope > span');
@@ -484,7 +484,7 @@
     button.addEventListener('click', () => {
       const caption = button.closest('.shot')?.dataset.caption || '';
       lightboxImage.src = button.dataset.full;
-      lightboxImage.alt = button.querySelector('img')?.alt || 'Ayana 界面截图';
+      lightboxImage.alt = button.querySelector('img')?.alt || '界面截图';
       lightboxCaption.textContent = caption;
       lightbox.hidden = false;
       document.body.style.overflow = 'hidden';

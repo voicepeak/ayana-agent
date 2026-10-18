@@ -1,4 +1,4 @@
-# Ayana desktop
+# Desktop companion
 
 Electron main owns the local Python process, authenticated loopback WebSocket,
 global shortcuts, tray, window lifecycle and controlled avatar asset proxy.

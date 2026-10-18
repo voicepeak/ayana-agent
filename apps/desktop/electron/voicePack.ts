@@ -1018,7 +1018,7 @@ export class VoicePackManager {
       ...this.state, phase: 'ready', installed: true, restart_required: true,
       pack_id: manifest.pack_id, version: manifest.version, variant: variant.id,
       kind: variant.kind, label: variant.label || (variant.kind === 'cuda' ? 'GPU 加速' : 'CPU'),
-      message: '语音环境已配置，重启 Ayana 后生效', progress: 1, speed: undefined, eta_seconds: undefined, error: undefined,
+      message: '语音环境已配置，重启应用后生效', progress: 1, speed: undefined, eta_seconds: undefined, error: undefined,
     };
     this.emit(true);
   }

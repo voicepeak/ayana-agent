@@ -540,7 +540,7 @@ export function Welcome() {
     }}>
     <div ref={feedbackLayer} className="mg-feedback-layer" aria-hidden="true"/>
     <header className="mg-header">
-      <strong className="mg-brand"><i aria-hidden="true"/><span>Ayana</span></strong>
+      <strong className="mg-brand" aria-hidden="true"><i/></strong>
       <nav className="mg-progress" aria-label="初次见面进度">{chapterOrder.map((item, index) => (
         <span key={item} data-active={item === chapter} data-past={index < chapterIndex} aria-current={item === chapter ? 'step' : undefined}/>
       ))}</nav>
@@ -555,7 +555,7 @@ export function Welcome() {
             onPointerUp={() => soundRef.current?.cue('confirm')} onKeyUp={() => soundRef.current?.cue('confirm')}/>
         </label>
         <button aria-label="跳过介绍" disabled={saving || leaving} onClick={skipTour}>跳过</button>
-        <button aria-label={replay ? '关闭初次见面' : '退出 Ayana'} disabled={saving || leaving} onClick={close}><Icon name="close" size={17}/></button>
+        <button aria-label={replay ? '关闭初次见面' : '退出'} disabled={saving || leaving} onClick={close}><Icon name="close" size={17}/></button>
       </div>
     </header>
     {cut && <WelcomeMotion key={cut.id} chapter={cut.chapter}/>}
@@ -579,7 +579,7 @@ export function Welcome() {
           </div>
           <div className="mg-portrait" data-greeting={meetPhase === 'greeting'} data-speaking={speaking}>
             <div className="mg-portrait-frame">
-              {loaded ? <img key={loaded} className="mg-portrait-img" src={`ayana-asset://${loaded}/?character=${look.character}`} alt="" draggable={false}/> : <span className="mg-portrait-fallback">彩</span>}
+              {loaded ? <img key={loaded} className="mg-portrait-img" src={`ayana-asset://${loaded}/?character=${look.character}`} alt="" draggable={false}/> : <span className="mg-portrait-fallback">✦</span>}
             </div>
             <WelcomeCaption line={caption}/>
           </div>
@@ -587,7 +587,7 @@ export function Welcome() {
         {chapter === 'chat' && <div className="mg-split mg-chat">
           <SceneHeading text={'今天有什么\n想跟我说的？'} asset={portraitExpression} speaking={speaking} character={look.character} caption={caption}/>
           <div className="mg-note" data-sent={chatPhase === 'sent'}>
-            <div className="mg-note-top"><span className="mg-avatar">彩</span><b>彩名</b></div>
+            <div className="mg-note-top"><b>彩名</b></div>
             <div className="mg-thread" aria-live="polite">
               <div className="mg-bubble mg-bubble-user">今天路过的那家书店，还开着。</div>
               <div className="mg-typing" data-visible={typing} aria-hidden="true"><i/><i/><i/></div>

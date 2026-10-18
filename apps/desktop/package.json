@@ -1,9 +1,10 @@
 {
   "name": "ayana-desktop",
-  "version": "0.3.26",
+  "version": "0.3.27",
   "private": true,
   "type": "module",
-  "description": "Ayana desktop companion and repository workshop",
+  "description": "Windows desktop chat companion",
+  "author": "voicepeak",
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -74,6 +75,7 @@
         "portable"
       ],
       "icon": "public/icon.ico",
+      "executableName": "Ayana",
       "signAndEditExecutable": false
     },
     "nsis": {
@@ -85,8 +87,9 @@
       "createStartMenuShortcut": true,
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false,
-      "shortcutName": "Ayana",
-      "uninstallDisplayName": "Ayana",
+      "include": "installer.nsh",
+      "shortcutName": "桌面伙伴",
+      "uninstallDisplayName": "桌面伙伴 ${version}",
       "artifactName": "Ayana-${version}-win-${arch}-setup.exe"
     },
     "portable": {

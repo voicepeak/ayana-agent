@@ -47,6 +47,24 @@ async def test_search_publishes_persistent_topic_sources_and_open_receipt(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_sources_snapshot_lists_newest_first(tmp_path):
+    runtime = AgentRuntime(settings(tmp_path), desktop=Desktop(), tts=Tts())
+    ws = Ws(); runtime.clients.add(ws)
+    try:
+        await runtime._publish_source({'source_id': 'source-old', 'title': 'Old', 'url': 'https://example.com/old'})
+        runtime.web.sources['source-old']['published_at'] = 1
+        await runtime._publish_source({'source_id': 'source-new', 'title': 'New', 'url': 'https://example.com/new'})
+        runtime.web.sources['source-new']['published_at'] = 2
+        await runtime._publish_source({'source_id': 'source-revisit', 'title': 'Old again', 'url': 'https://example.com/old'})
+        runtime.web.sources['source-revisit']['published_at'] = 3
+        await runtime._conversation_snapshot()
+        event = next(e for e in ws.events if e['type'] == 'sources.ready')
+        assert [source['source_id'] for source in event['sources']] == ['source-revisit', 'source-new']
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
 async def test_unknown_source_fails_without_open_event(tmp_path):
     runtime = AgentRuntime(settings(tmp_path), desktop=Desktop(), tts=Tts())
     ws = Ws(); runtime.clients.add(ws)

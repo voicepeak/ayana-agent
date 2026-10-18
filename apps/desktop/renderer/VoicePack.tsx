@@ -45,7 +45,7 @@ export function VoicePackBubble({ state }: { state: ModelState }) {
   const canDownload = pack?.can_download !== false;
   const failed = pack?.phase === 'failed';
   const paused = pack?.phase === 'paused';
-  return <aside className="voice-pack-bubble" data-companion-interactive aria-label="Ayana 语音资源包">
+  return <aside className="voice-pack-bubble" data-companion-interactive aria-label="彩名语音资源包">
     <header>
       <span className="voice-pack-icon"><Icon name="volume" size={15}/></span>
       <div><strong>{stage.title}</strong><small>{stage.detail}</small></div>
@@ -56,9 +56,9 @@ export function VoicePackBubble({ state }: { state: ModelState }) {
     <Progress state={state}/>
     {pack?.error && pack.phase !== 'failed' && <div className="voice-pack-error" role="alert">{pack.error}</div>}
     <div className="voice-pack-actions">
-      {restartNeeded && <Button type="button" color="primary" variant="solid" onClick={restart}>立即重启 Ayana</Button>}
+      {restartNeeded && <Button type="button" color="primary" variant="solid" onClick={restart}>立即重启应用</Button>}
       {restartNeeded && <Button type="button" variant="light" onClick={dismiss}>稍后</Button>}
-      {!restartNeeded && !busy && !failed && !paused && pack?.installed !== true && canDownload && <Button type="button" color="primary" variant="solid" onClick={start}>下载 Ayana 音色</Button>}
+      {!restartNeeded && !busy && !failed && !paused && pack?.installed !== true && canDownload && <Button type="button" color="primary" variant="solid" onClick={start}>下载彩名音色</Button>}
       {!restartNeeded && !busy && (failed || paused) && canDownload && <Button type="button" color="primary" variant="solid" onClick={start}>{paused ? '继续下载' : '重试'}</Button>}
       {pack?.phase === 'downloading' && <Button type="button" variant="light" onClick={cancel}>暂停</Button>}
       {busy && showProgress && <span className="voice-pack-percent">{percent}%</span>}
@@ -99,7 +99,7 @@ export function VoicePackSettings({ state }: { state: ModelState }) {
       {pack?.phase === 'downloading' && <Button type="button" variant="light" onClick={cancel}>暂停</Button>}
       {!busy && canDownload && (!pack?.installed || pack.phase === 'paused' || pack.phase === 'failed') && <Button type="button" color="primary" variant="solid" onClick={start}>{pack?.phase === 'paused' ? '继续下载' : pack?.phase === 'failed' ? (pack.installed ? '重试配置' : '重试') : '下载语音包'}</Button>}
       {!busy && <Button type="button" variant="light" onClick={importLocal}>导入本地包</Button>}
-      {restartNeeded && <Button type="button" color="primary" variant="solid" onClick={restart}>立即重启 Ayana</Button>}
+      {restartNeeded && <Button type="button" color="primary" variant="solid" onClick={restart}>立即重启应用</Button>}
     </div>
     {!canDownload && !busy && <p className="form-hint">下载暂未开放，可以导入本地语音包。</p>}
     <p className="form-hint">下载会自动选择镜像并使用多线程加速，可随时暂停后继续；安装期间也可以继续文字聊天。</p>

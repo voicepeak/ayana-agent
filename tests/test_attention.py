@@ -91,8 +91,26 @@ async def test_ambient_speech_after_the_glance_has_no_fake_user_turn(tmp_path):
         items = runtime.conversations.history(runtime.conversations.current_id)["items"]
         assert [item["role"] for item in items] == ["assistant"]
         assert items[0]["display_zh"] == "看起来快结束了呢。"
+        # The assistant's own translation must never become the screen summary.
+        assert runtime.recent_observations[-1]["summary"] == ""
         assert not runtime.store.db.execute("SELECT id FROM events WHERE type='user.message'").fetchall()
         assert not runtime.store.records("task")
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_ambient_speech_keeps_its_factual_observation_summary(tmp_path):
+    def response(request):
+        return sse_response([
+            {"type": "speech", "key": "s1", "speech_ja": "曲名が見えたよ。", "intent": "acknowledge",
+             "observation_summary": "音乐播放器显示歌曲《蛹化の女》。"},
+            {"type": "translation", "key": "s1", "display_zh": "看到曲名了。"}])
+    runtime = runtime_for(tmp_path, response)
+    try:
+        await runtime._attention_turn(runtime.desktop.front, runtime.conversations.current_id, runtime.generation)
+        assert runtime.recent_observations[-1]["summary"] == "音乐播放器显示歌曲《蛹化の女》。"
+        assert "observation_summary" not in json.dumps(runtime.prompt_history.turns, ensure_ascii=False)
     finally:
         await runtime.close()
 

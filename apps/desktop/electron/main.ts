@@ -126,7 +126,7 @@ function applyVoiceConfig(voice: Record<string, unknown>): Promise<void> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       voiceConfigRequests.delete(requestId);
-      reject(new Error('写入语音配置超时，请重启 Ayana 后重试'));
+      reject(new Error('写入语音配置超时，请重启应用后重试'));
     }, 30_000);
     voiceConfigRequests.set(requestId, { resolve, reject, timer });
     if (!runtimeSend({ type: 'settings.update', settings: { voice }, request_id: requestId, defer_voice: true })) {
@@ -501,14 +501,14 @@ function updateShortcuts(settings: Record<string, unknown>) {
   shortcutRegistration = { summon_ok: summonOk, cancel_ok: cancelOk, talk_ok: talkOk };
   desktopEvent('desktop.shortcuts', { summon: summonShortcut, cancel: cancelShortcut, talk: talkShortcut, summon_ok: summonOk, cancel_ok: cancelOk, talk_ok: talkOk });
   if (tray) tray.setContextMenu(Menu.buildFromTemplate([
-    { label: `呼出 Ayana · ${summonShortcut}`, click: () => { summon(); } },
+    { label: `呼出彩名 · ${summonShortcut}`, click: () => { summon(); } },
     { label: `停止当前回复 · ${cancelShortcut}`, click: stopCurrent },
     { label: '收起会话', click: hide },
     { label: '话题与记录', click: () => openManagement('history') },
     { label: '设置与管理', click: () => openManagement() },
     { type: 'separator' },
     { label: '重新启动本地服务', click: () => { void restartRuntime(); } },
-    { label: '退出 Ayana', click: () => { quitting = true; app.quit(); } },
+    { label: '退出', click: () => { quitting = true; app.quit(); } },
   ]));
 }
 
@@ -917,7 +917,7 @@ function registerIpc() {
     const owner = event.sender.id === windowId(chat) ? chat : settingsWindow;
     if (!owner) return null;
     const result = await dialog.showOpenDialog(owner, {
-      title: '导入 Ayana 语音资源包',
+      title: '导入彩名语音资源包',
       properties: ['openFile'],
       filters: [{ name: '语音资源包', extensions: ['zip'] }],
     });
@@ -951,7 +951,7 @@ function createWindow(kind: 'chat' | 'settings' | 'design' | 'welcome') {
     minHeight: kind === 'settings' ? 480 : kind === 'chat' ? Math.min(320, workArea.height - 32) : undefined,
     show: false, frame: !overlay, transparent: overlay, backgroundColor: overlay ? '#00000000' : '#f5f7fb',
     alwaysOnTop: overlay, skipTaskbar: overlay && kind !== 'welcome',
-    title: kind === 'welcome' ? 'Ayana · 初次见面' : kind === 'settings' ? 'Ayana · 设置与管理' : kind === 'design' ? '彩名 · 外观' : 'Ayana', autoHideMenuBar: true, hasShadow: !overlay,
+    title: kind === 'welcome' ? '初次见面' : kind === 'settings' ? '设置与管理' : kind === 'design' ? '外观' : '彩名', autoHideMenuBar: true, hasShadow: !overlay,
     resizable: kind === 'settings' || kind === 'chat',
     movable: true,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
@@ -1066,7 +1066,7 @@ async function ready() {
   const iconPath = path.join(__dirname, '../dist/tray.png');
   const icon = existsSync(iconPath) ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty();
   tray = new Tray(icon);
-  tray.setToolTip('Ayana · 你的私人 Agent');
+  tray.setToolTip('桌面聊天伙伴');
   tray.on('click', () => { void summon(); });
   updateShortcuts({});
   registerIpc();

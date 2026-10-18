@@ -41,6 +41,52 @@ async def test_cap_request_compresses_old_tool_evidence_within_a_turn(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_cap_request_does_not_count_screenshot_bytes_against_text_budget(tmp_path):
+    runtime = make_runtime(tmp_path, response)
+    try:
+        image = "data:image/png;base64," + "A" * 40000
+        tool_result = json.dumps({"name": "desktop.observe", "call_id": "observe-1",
+                                  "result": {"target": {"title": "蛹化の女"}, "snapshot_id": "snap-1"}})
+        messages = [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "question"},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "observe-1", "type": "function",
+                "function": {"name": "desktop.observe", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "observe-1", "content": tool_result},
+            {"role": "user", "content": [
+                {"type": "text", "text": "The last tool returned a new screenshot of the selected target."},
+                {"type": "image_url", "image_url": {"url": image}}]},
+        ]
+        runtime.prompt_history.max_chars = 20000
+        runtime._cap_request(messages, prefix_length=1, reserve_chars=1000)
+        assert messages[3]["content"] == tool_result
+        assert any(part.get("type") == "image_url" for part in messages[4]["content"])
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_cap_request_keeps_a_small_tool_receipt_when_large_evidence_overflows(tmp_path):
+    runtime = make_runtime(tmp_path, response)
+    try:
+        small = json.dumps({"name": "desktop.observe", "call_id": "observe-1",
+                            "result": {"target": {"title": "蛹化の女"}}})
+        large = "x" * 40000
+        messages = [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "question"},
+            {"role": "tool", "tool_call_id": "observe-1", "content": small},
+            {"role": "tool", "tool_call_id": "page-1", "content": large},
+        ]
+        runtime.prompt_history.max_chars = 20000
+        runtime._cap_request(messages, prefix_length=1, reserve_chars=1000)
+        assert messages[2]["content"] == small
+        assert messages[3]["content"].startswith("Tool result omitted")
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("native", [True, False])
 async def test_cap_request_does_not_subtract_fixed_prefix_twice(tmp_path, native):
     runtime = make_runtime(tmp_path, response)

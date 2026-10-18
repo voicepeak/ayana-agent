@@ -172,6 +172,8 @@
   overflow: visible; scrollbar-width: none; user-select: text; pointer-events: auto;
 }
 .cinematic-history-loading{ flex-shrink: 0; margin: 0 22px 0 32px; padding: 2px 4px; color: var(--bubble-secondary); font: 11px/1.7 'DengXian', sans-serif; text-align: center; }
+.cinematic-proactive{ display: block; margin: 0 0 5px 10px; color: var(--bubble-secondary); font: 400 10px/1.4 'DengXian', sans-serif; letter-spacing: .14em; opacity: .75; }
+.cinematic-memory[data-overview=true] .cinematic-proactive{ display: none; }
 /* The user's lines sit in the same reel, right-aligned and lighter than Ayana's cards. */
 .cinematic-memory-row[data-role=user]{ display: flex; justify-content: flex-end; opacity: .82; transform: none; }
 .cinematic-memory-row[data-role=user][data-focused=true]{ opacity: 1; }

@@ -17,8 +17,19 @@ class ConversationRuntime:
         await self.emit("conversation.changed" if changed else "conversations.ready",
                         **self.conversations.snapshot(), summary=self.prompt_history.summary,
                         retained_turns=len(self.prompt_history.turns))
-        await self.emit("sources.ready", sources=[source for source in self.web.sources.values()
-                        if source.get("conversation_id") == self.conversations.current_id],
+        sources = [source for source in self.web.sources.values()
+                   if source.get("conversation_id") == self.conversations.current_id]
+        # The panel shows the newest links first, matching live source.ready
+        # arrivals; legacy records without a timestamp keep their stored order.
+        sources.sort(key=lambda source: source.get("published_at") or 0, reverse=True)
+        unique, seen = [], set()
+        for source in sources:
+            url = source.get("url")
+            if url and url in seen:
+                continue
+            seen.add(url)
+            unique.append(source)
+        await self.emit("sources.ready", sources=unique,
                         sources_conversation_id=self.conversations.current_id)
 
     async def _history_snapshot(self, cid=None, before=None):

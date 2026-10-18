@@ -223,11 +223,11 @@ export default function App() {
     <VoicePackBubble state={state}/>
   </CompanionSurface>;
 
-  const statusText = current ? 'Ayana 正在说话' : state.task === 'thinking' ? '正在整理思路' : state.task === 'failed' ? '需要留意' : '空闲';
+  const statusText = current ? '彩名正在说话' : state.task === 'thinking' ? '正在整理思路' : state.task === 'failed' ? '需要留意' : '空闲';
 
   return <div className="workshop workshop-focused settings-shell" data-settings-section={tab === 'history' ? 'history' : settingsSection}>
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark"><Icon name="sparkles" size={25}/></div><div><strong>Ayana</strong></div></div>
+      <div className="brand"><div className="brand-mark"><Icon name="sparkles" size={25}/></div></div>
       <div className={`connection ${state.connected ? 'online' : ''}`}><i/>{state.connected ? '本地服务已连接' : state.service === 'preview' ? '桌面界面预览' : '本地服务启动中'}</div>
       <nav aria-label="主导航">
         <span className="nav-group-label">偏好设置</span>
@@ -237,8 +237,8 @@ export default function App() {
       </nav>
       <div className="sidebar-bottom">
         <button className={`nav-item ${tab === 'chat' && settingsSection === 'advanced' ? 'active' : ''}`} aria-current={tab === 'chat' && settingsSection === 'advanced' ? 'page' : undefined} onClick={() => { setSettingsSection('advanced'); setTab('chat'); }}><Icon name="settings"/>高级设置</button>
-        <button className="nav-item" onClick={() => void bridge.summon()}><Icon name="message"/>呼出 Ayana</button>
-        <div className="build-label">AYANA DESKTOP <span>v{desktopPackage.version}</span></div>
+        <button className="nav-item" onClick={() => void bridge.summon()}><Icon name="message"/>呼出彩名</button>
+        <div className="build-label">DESKTOP <span>v{desktopPackage.version}</span></div>
       </div>
     </aside>
 

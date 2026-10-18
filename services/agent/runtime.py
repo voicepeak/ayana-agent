@@ -933,7 +933,10 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         """Keep an in-flight request, including tool rounds, within budget.
 
         Only current-turn evidence after the latest user message is compressed;
-        the fixed prefix and the live question are left untouched.
+        the fixed prefix and the live question are left untouched. Screenshots
+        are transported separately and are not part of the text budget: their
+        base64 length would otherwise evict the observation before the evidence
+        it was meant to accompany.
         """
         if messages is None:
             return messages
@@ -942,8 +945,19 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         budget = self.prompt_history.max_chars
         if budget <= 0:
             return messages
+
         def size():
-            return len(json.dumps(messages, ensure_ascii=False))
+            total = len(json.dumps(messages, ensure_ascii=False))
+            for message in messages:
+                content = message.get("content")
+                if isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "image_url":
+                            image = part.get("image_url")
+                            if isinstance(image, dict) and isinstance(image.get("url"), str):
+                                total -= len(image["url"])
+            return total
+
         if size() <= budget:
             return messages
         for index in range(prefix_length + 1, len(messages)):
@@ -951,6 +965,11 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                 break
             message = messages[index]
             content = message.get("content")
+            # A tiny receipt carries the target, call id and result. Replacing
+            # it with an omission notice saves almost nothing and removes the
+            # only evidence the model can still use.
+            if isinstance(content, str) and len(content) < 1500:
+                continue
             if message.get("role") == "tool":
                 message["content"] = COMPRESSED_TOOL_NOTICE + json.dumps(
                     {"call_id": message.get("tool_call_id")}, ensure_ascii=False)
@@ -965,10 +984,6 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                             item.pop("result", None)
                             item["compressed"] = True
                 message["content"] = TOOL_RESULT_PREFIX + json.dumps(value, ensure_ascii=False)
-            elif isinstance(content, list):
-                stripped = [part for part in content if part.get("type") != "image_url"]
-                if len(stripped) != len(content):
-                    message["content"] = stripped
         return messages
 
     def _queue_subtitle_translation(self, conversation_id, ids):

@@ -9,7 +9,7 @@ import pytest
 
 from services.agent.capabilities import CapabilityRuntime
 from services.agent.tools.registry import ToolError
-from services.agent.tools.web import WebTools
+from services.agent.tools.web import WebTools, result_is_relevant
 from services.agent.tools.search_terms import restore_search_terms
 from test_capabilities import runtime, speech
 from test_runtime import Desktop
@@ -99,6 +99,54 @@ async def test_entity_search_falls_back_to_exact_name_only_for_unrelated_results
         assert stages == ["exact_search"] and result[0]["subject_mentioned"] is True
         await tools.search("音无彩名", subject="音无彩名")
         assert queries[-1] == "音无彩名" and len(queries) == 3
+    finally:
+        await tools.close()
+
+
+@pytest.mark.asyncio
+async def test_bing_unrelated_results_are_rejected_before_they_reach_the_caller():
+    queries = []
+    def respond(request):
+        queries.append(request.url.params["q"])
+        return httpx.Response(200, text=rss("深圳梧桐山 - 爬山攻略", "https://example.com/wutong"))
+    tools = WebTools(lambda: "", httpx.MockTransport(respond))
+    try:
+        with pytest.raises(ToolError) as error:
+            await tools.search("Immanuel Kant", subject="Immanuel Kant")
+        assert error.value.code == "search_unrelated"
+        assert queries == ["Immanuel Kant", '"Immanuel Kant"']
+        with pytest.raises(ToolError) as error:
+            await tools.search("Immanuel Kant")
+        assert error.value.code == "search_unrelated" and len(queries) == 3
+    finally:
+        await tools.close()
+
+
+def test_a_shared_given_name_does_not_make_unrelated_results_relevant():
+    junk = {"title": "George Official Website | Clothing And Footwear",
+            "summary": "Explore George clothing, shoes and accessories.",
+            "url": "https://georgefashion.com/", "subject_mentioned": False}
+    query = "George Frideric Handel biography 1685 1759 life"
+    assert not result_is_relevant(junk, query, "George Frideric Handel")
+    useful = {"title": "George Frideric Handel (1685-1759)",
+              "summary": "Baroque composer, born in Halle and active in London.",
+              "url": "https://example.com/handel", "subject_mentioned": True}
+    assert result_is_relevant(useful, query, "George Frideric Handel")
+
+
+@pytest.mark.asyncio
+async def test_search_rejects_results_that_never_mention_the_subject():
+    queries = []
+    def respond(request):
+        queries.append(request.url.params["q"])
+        return httpx.Response(200, text=rss("George Official Website | Clothing And Footwear",
+                                            "https://georgefashion.com/"))
+    tools = WebTools(lambda: "", httpx.MockTransport(respond))
+    try:
+        with pytest.raises(ToolError) as error:
+            await tools.search("George Frideric Handel biography", subject="George Frideric Handel")
+        assert error.value.code == "search_unrelated"
+        assert queries == ["George Frideric Handel biography", '"George Frideric Handel"']
     finally:
         await tools.close()
 
@@ -225,7 +273,8 @@ async def test_concurrent_search_progress_keeps_per_call_identity(tmp_path):
         if request.url.params.get("format") == "rss":
             return httpx.Response(200, text="<html>Verify</html>")
         await asyncio.sleep(.005)
-        return httpx.Response(200, text='<li class="b_algo"><h2><a href="https://example.com/">Real reference</a></h2></li>')
+        query = request.url.params["q"]
+        return httpx.Response(200, text=f'<li class="b_algo"><h2><a href="https://example.com/">{query} reference</a></h2></li>')
     agent.web = WebTools(lambda: "", httpx.MockTransport(respond))
     try:
         results = await agent._dispatch_tools([{ "type": "tool", "name": "web.search", "arguments": {
