@@ -231,7 +231,8 @@ npm --prefix apps/desktop test
 | --- | --- | --- |
 | **0.3.26** | 互动开屏、在线模型必配、八套主题、语音下载加速、纯文字对话稳定 | [Release](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.26) · [说明](docs/RELEASE_0.3.26.md) |
 | 0.3.25 | 退出、回执与 WebSocket 清理；SHA256 清单 | [Release](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.25) |
-| 0.3.23 | 跨对话心情、表情轮换、温度与历史预算 | 本机构建 |
+| 0.3.24 | 本地测试构建；安装包校验不一致，由 0.3.25 取代 | 未发布 |
+| 0.3.23 | 跨对话心情、表情轮换、温度与历史预算 | [源码/校验记录](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.23) |
 | 0.3.22 | 偷看时允许搭话、表情引导、思考回复修复 | [Release](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.22) |
 | 0.3.21 | 按需观察、双角色（后续版本移除白制服入口）、对话删除 | [Release](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.21) |
 
