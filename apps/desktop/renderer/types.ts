@@ -55,6 +55,8 @@ export interface AyanaBridge {
   welcomeTarget(): Promise<{ x: number; y: number; width: number; height: number; asset: string } | null>;
   finishWelcome(configure?: boolean): Promise<{ ok: boolean; error?: string }>;
   closeWelcome(): Promise<void>;
+  welcomeShortcutCapture(capturing: boolean): Promise<{ ok: boolean; summon_ok?: boolean; talk_ok?: boolean; cancel_ok?: boolean }>;
+  welcomeShortcutCheck(field: 'hotkey' | 'talk_hotkey', value: string): Promise<{ ok: boolean; normalized?: string; error?: string }>;
   hideSettings(): Promise<void>;
   restart(): Promise<void>;
   restartApp(): Promise<void>;

@@ -1,0 +1,96 @@
+/* Each cut has an opaque hold (24–65%) so the scene swaps without a flash.
+   A single playthrough, no strobing. Only this temporary layer is composited. */
+.mg-cut{position:absolute;inset:0;z-index:30;overflow:hidden;pointer-events:none;isolation:isolate;--cut-ease:cubic-bezier(.16,1,.3,1);animation:cut-lifetime var(--cut-ms) linear both}
+.mg-cut-curtain{position:absolute;inset:-2px;background:var(--cut-second);transform-origin:left;animation:cut-curtain var(--cut-ms) cubic-bezier(.76,0,.24,1) both}
+.mg-cut-field{position:absolute;inset:-2px;overflow:hidden;background:#fff8eb;color:var(--cut-color);animation:cut-field var(--cut-ms) cubic-bezier(.76,0,.24,1) both}
+.mg-cut-disc{position:absolute;width:65vmax;height:65vmax;left:48%;top:45%;border-radius:50%;background:var(--cut-second);opacity:.65;animation:cut-disc var(--cut-ms) var(--cut-ease) both}
+.mg-cut-orbit{position:absolute;left:50%;top:43%;width:66vmin;height:66vmin;border:2px solid var(--cut-color);border-radius:50%;opacity:.25;animation:cut-orbit var(--cut-ms) var(--cut-ease) both}
+.mg-cut-art{position:absolute;left:50%;top:39%;width:34vmin;height:34vmin;translate:-50% -50%;animation:cut-art var(--cut-ms) var(--cut-ease) both}
+.mg-cut-copy{position:absolute;left:6%;right:6%;top:63%;display:flex;flex-direction:column;align-items:center;gap:18px;animation:cut-copy var(--cut-ms) var(--cut-ease) both}
+.mg-cut-copy>span{font:700 clamp(10px,1.2vw,16px)/1 'Arial',sans-serif;letter-spacing:.36em}
+.mg-cut-copy strong{display:flex;justify-content:center;white-space:nowrap;font:400 clamp(40px,6.8vw,110px)/1.18 var(--display);letter-spacing:.01em;font-synthesis:none}
+.mg-cut-copy strong b{font-weight:400}
+.mg-cut-art{top:32%;width:30vmin;height:30vmin}
+.mg-cut-copy{top:53%;gap:16px}
+.mg-cut-description{display:flex;flex-direction:column;gap:7px;color:#545e6d;font:400 clamp(20px,2.1vw,32px)/1.55 var(--sans);letter-spacing:.04em;text-align:center}
+.mg-cut-description p{margin:0;overflow:clip;padding:8px 20px}
+.mg-cut-description p:last-child{color:var(--cut-color)}
+.mg-cut-description span{display:inline-block;animation:cut-description var(--cut-ms) var(--cut-ease) both;animation-delay:calc(var(--row) * 130ms + var(--char) * 16ms)}
+.mg-cut-copy b{display:inline-block;animation:cut-letter var(--cut-ms) var(--cut-ease) both;animation-delay:calc(var(--n) * 14ms)}
+.mg-cut-number{position:absolute;left:4%;bottom:3%;font:900 clamp(100px,20vw,310px)/.8 Arial,sans-serif;letter-spacing:-.1em;opacity:.11}
+.mg-cut-sign{position:absolute;right:4%;bottom:5%;font:700 10px/1 var(--sans);letter-spacing:.25em}
+.mg-cut-speed{position:absolute;inset:0;overflow:hidden}
+.mg-cut-speed i{position:absolute;left:calc(4% + var(--n) * 10%);top:calc(10% + mod(var(--n), 4) * 21%);width:clamp(20px,5vw,80px);height:3px;background:var(--cut-color);opacity:0;rotate:-35deg;animation:cut-streak var(--cut-ms) var(--cut-ease) both;animation-delay:calc(var(--n) * 9ms)}
+
+.mg-cut-flower{position:absolute;inset:0;animation:cut-flower var(--cut-ms) var(--cut-ease) both}
+.mg-cut-flower i{position:absolute;left:35%;top:-5%;width:30%;height:58%;border-radius:100px;background:var(--cut-color);transform-origin:50% 95%;rotate:calc(var(--n) * 45deg)}
+.mg-cut-flower b{position:absolute;inset:30%;display:grid;place-items:center;border-radius:50%;background:#fff8eb;font:800 clamp(30px,6vmin,70px)/1 var(--sans)}
+.mg-cut-dialogue{position:absolute;inset:0}
+.mg-cut-dialogue i{position:absolute;display:grid;place-items:center;width:85%;height:50%;border-radius:26px 26px 26px 3px;background:var(--cut-color);color:#fff8eb;font:800 clamp(30px,7vmin,80px)/1 var(--sans);font-style:normal;animation:cut-bubble var(--cut-ms) var(--cut-ease) both}
+.mg-cut-dialogue i:nth-child(1){left:-28%;top:-3%;rotate:-12deg}
+.mg-cut-dialogue i:nth-child(2){right:-30%;top:40%;background:#fff8eb;color:var(--cut-color);border:3px solid var(--cut-color);rotate:8deg;animation-delay:65ms}
+.mg-cut-dialogue i:nth-child(3){width:30%;height:30%;left:-5%;bottom:-10%;background:var(--cut-second);color:var(--cut-color);rotate:-8deg;animation-delay:120ms}
+.mg-cut-wave{position:absolute;inset:-15% -35%;display:flex;align-items:center;justify-content:center;gap:3%}
+.mg-cut-wave i{width:5%;height:calc(var(--bar) * 1%);border-radius:100px;background:var(--cut-color);transform-origin:center;animation:cut-wave var(--cut-ms) var(--cut-ease) both;animation-delay:calc(var(--n) * 12ms)}
+.mg-cut-lens{position:absolute;inset:0;animation:cut-lens var(--cut-ms) var(--cut-ease) both}
+.mg-cut-lens i{position:absolute;inset:3% 13% 23% 13%;border:clamp(8px,1.8vmin,20px) solid var(--cut-color);border-radius:50%;background:#fff8eb}
+.mg-cut-lens i::after{content:'';position:absolute;width:65%;height:20%;right:-51%;bottom:-24%;border-radius:100px;rotate:45deg;background:var(--cut-color)}
+.mg-cut-lens b{position:absolute;left:33%;top:16%;font:900 16vmin/1 Arial,sans-serif}
+.mg-cut-lens span{position:absolute;left:-19%;top:-10%;font:900 12vmin/1 Arial,sans-serif;animation:cut-flower var(--cut-ms) var(--cut-ease) both}
+.mg-cut-view{position:absolute;inset:0;animation:cut-view var(--cut-ms) var(--cut-ease) both}
+.mg-cut-view i{position:absolute;width:25%;height:25%;border:clamp(4px,1vmin,10px) solid var(--cut-color)}
+.mg-cut-view i:nth-child(1){left:0;top:0;border-right:0;border-bottom:0}
+.mg-cut-view i:nth-child(2){right:0;top:0;border-left:0;border-bottom:0}
+.mg-cut-view i:nth-child(3){left:0;bottom:0;border-right:0;border-top:0}
+.mg-cut-view i:nth-child(4){right:0;bottom:0;border-left:0;border-top:0}
+.mg-cut-view b{position:absolute;inset:0;display:grid;place-items:center;font:300 15vmin/1 Arial,sans-serif}
+.mg-cut-view span{position:absolute;left:-20%;right:-20%;height:8%;background:var(--cut-color);box-shadow:0 20px 0 color-mix(in srgb,var(--cut-color) 15%,transparent);animation:cut-scan var(--cut-ms) var(--cut-ease) both}
+.mg-cut-ribbons{position:absolute;inset:-20% -110%;display:flex;gap:4%;rotate:-28deg}
+.mg-cut-ribbons i{flex:1;height:100%;border-radius:100px;animation:cut-ribbon var(--cut-ms) var(--cut-ease) both;animation-delay:calc(var(--n) * 25ms)}
+.mg-cut-arrows{position:absolute;inset:-20% -100%;display:flex;align-items:center;justify-content:center;gap:0}
+.mg-cut-arrows i{font:900 38vmin/.8 Arial,sans-serif;font-style:normal;letter-spacing:-.2em;animation:cut-arrow var(--cut-ms) var(--cut-ease) both;animation-delay:calc(var(--n,0) * 35ms)}
+.mg-cut-arrows i:nth-child(1){--n:0;opacity:.25}.mg-cut-arrows i:nth-child(2){--n:1;opacity:.55}.mg-cut-arrows i:nth-child(3){--n:2}
+.mg-cut[data-cut=chat] .mg-cut-field{animation-name:cut-field-up}
+.mg-cut[data-cut=voice] .mg-cut-disc{background:#ffcc61}
+.mg-cut[data-cut=search] .mg-cut-field{animation-name:cut-field-iris}
+.mg-cut[data-cut=observe] .mg-cut-field{animation-name:cut-field-shutter}
+.mg-cut[data-cut=style] .mg-cut-disc{background:#f6c9d6}
+.mg-cut[data-cut=ready] .mg-cut-field{animation-name:cut-field-diagonal}
+.mg-cut[data-cut=outfit] .mg-cut-field{animation-name:cut-field-up}
+.mg-cut[data-cut=placement] .mg-cut-field{animation-name:cut-field-shutter}
+.mg-cut-outfits{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:4%;rotate:-7deg}
+.mg-cut-outfits i{width:45%;height:75%;background:var(--cut-color);clip-path:polygon(25% 0,40% 11%,60% 11%,75% 0,100% 26%,83% 43%,73% 33%,76% 100%,24% 100%,27% 33%,17% 43%,0 26%);animation:cut-outfit var(--cut-ms) var(--cut-ease) both}
+.mg-cut-outfits i:nth-child(2){background:#fffdf5;rotate:12deg;animation-delay:90ms}
+.mg-cut-outfits i:nth-child(3){position:absolute;width:38%;height:65%;left:32%;top:25%;background:var(--cut-second);rotate:-13deg;animation-delay:180ms}
+.mg-cut-outfits b{position:absolute;right:-15%;top:-6%;font:400 12vmin/1 var(--sans);color:var(--cut-color);animation:cut-flower var(--cut-ms) var(--cut-ease) both}
+.mg-cut-position{position:absolute;inset:0;border:5px dashed var(--cut-color);border-radius:20%;animation:cut-position var(--cut-ms) var(--cut-ease) both}
+.mg-cut-position i{position:absolute;inset:20%;border-radius:45% 45% 12% 12%;background:var(--cut-color)}
+.mg-cut-position b,.mg-cut-position span{position:absolute;left:-40%;top:30%;font:400 14vmin/1 var(--sans);color:var(--cut-color)}
+.mg-cut-position span{left:auto;right:-28%;top:10%}
+
+@keyframes cut-lifetime{0%,96%{visibility:visible}100%{visibility:hidden}}
+@keyframes cut-curtain{0%{transform:translateX(-105%)}15%,78%{transform:translateX(0)}100%{transform:translateX(105%)}}
+@keyframes cut-field{0%,5%{transform:translateX(-105%)}24%,78%{transform:translateX(0)}100%{transform:translateX(105%)}}
+@keyframes cut-field-up{0%,5%{transform:translateY(105%)}24%,78%{transform:none}100%{transform:translateY(-105%)}}
+@keyframes cut-field-iris{0%,5%{clip-path:circle(0% at 50% 43%)}24%,78%{clip-path:circle(150% at 50% 43%)}100%{clip-path:circle(0% at 120% 43%)}}
+@keyframes cut-field-shutter{0%,5%{clip-path:inset(50% 0)}24%,78%{clip-path:inset(0)}100%{clip-path:inset(0 0 100%)}}
+@keyframes cut-field-diagonal{0%,5%{transform:translate(-100%,100%)}24%,78%{transform:none}100%{transform:translate(100%,-100%)}}
+@keyframes cut-disc{0%,10%{transform:translate(-50%,-50%) scale(.05)}35%,62%{transform:translate(-50%,-50%) scale(1)}100%{transform:translate(-35%,-65%) scale(1.4)}}
+@keyframes cut-orbit{0%,16%{transform:translate(-50%,-50%) scale(.2);opacity:0}42%{opacity:.4}64%,100%{transform:translate(-50%,-50%) scale(1.5);opacity:0}}
+@keyframes cut-art{0%,12%{opacity:0;transform:scale(.3) rotate(-20deg)}29%{opacity:1;transform:scale(1.12) rotate(3deg)}39%,65%{opacity:1;transform:none}95%,100%{opacity:0;transform:scale(1.6) translateY(-12%)}}
+@keyframes cut-copy{0%,16%{opacity:0;transform:translateY(90px)}30%,78%{opacity:1;transform:none}96%,100%{opacity:0;transform:translateY(-100px)}}
+@keyframes cut-letter{0%,18%{transform:translateY(100%) rotate(12deg);opacity:0}31%{transform:translateY(-12%) rotate(-3deg);opacity:1}39%,78%{transform:none;opacity:1}96%,100%{transform:translateY(-30%);opacity:0}}
+@keyframes cut-description{0%,23%{opacity:0;transform:translate(25px,95px) rotate(18deg) scale(.55)}37%{opacity:1;transform:translate(0,-9px) rotate(-3deg) scale(1.06)}46%,77%{opacity:1;transform:none}94%,100%{opacity:0;transform:translate(-20px,-65px) rotate(-8deg)}}
+@keyframes cut-outfit{0%,12%{transform:translateY(150%) rotate(25deg) scale(.4)}32%{transform:translateY(-10%) rotate(-5deg) scale(1.1)}45%,78%{transform:none}100%{transform:translateY(-180%) rotate(-15deg)}}
+@keyframes cut-position{0%,14%{transform:translate(40%,-20%) rotate(20deg) scale(.4)}35%{transform:translate(-30%,5%) rotate(-6deg) scale(1.1)}52%,78%{transform:none}100%{transform:translate(70%,-70%) scale(1.4)}}
+@keyframes cut-streak{0%,18%{transform:translateX(-25vw) scaleX(0);opacity:0}30%{opacity:.55;transform:translateX(0) scaleX(1)}65%,100%{opacity:0;transform:translateX(35vw) scaleX(.1)}}
+@keyframes cut-flower{0%,12%{rotate:-100deg;scale:.35}42%{rotate:12deg;scale:1.05}65%{rotate:0deg;scale:1}100%{rotate:60deg;scale:1.1}}
+@keyframes cut-bubble{0%,16%{transform:translate(-100px,80px) scale(.2)}35%{transform:translate(0,-12px) scale(1.1)}46%,68%{transform:none}100%{transform:translate(80px,-80px) scale(1.2)}}
+@keyframes cut-wave{0%,15%{transform:scaleY(.02)}28%{transform:scaleY(1.2)}40%{transform:scaleY(.55)}54%,67%{transform:scaleY(1)}100%{transform:scaleY(.05)}}
+@keyframes cut-lens{0%,12%{transform:scale(3) rotate(-40deg)}36%,65%{transform:none}100%{transform:scale(1.6) rotate(20deg)}}
+@keyframes cut-view{0%,13%{transform:scale(2.8)}38%,65%{transform:none}100%{transform:scale(.6)}}
+@keyframes cut-scan{0%,24%{top:-20%;opacity:0}30%{opacity:.8}63%{top:110%;opacity:.8}70%,100%{top:110%;opacity:0}}
+@keyframes cut-ribbon{0%,13%{transform:translateY(150%) scaleY(.4)}38%,65%{transform:none}100%{transform:translateY(-160%)}}
+@keyframes cut-arrow{0%,14%{transform:translate(-130px,130px) scale(.2)}38%,65%{transform:none}100%{transform:translate(200px,-200px) scale(1.5)}}
+@media(max-height:600px){.mg-cut-art{width:26vmin;height:26vmin;top:29%}.mg-cut-copy{top:49%;gap:8px}.mg-cut-copy strong{font-size:clamp(36px,6vw,70px)}.mg-cut-description{font-size:20px;gap:0}}
+@media(prefers-reduced-motion:reduce){.mg-cut{display:none}}

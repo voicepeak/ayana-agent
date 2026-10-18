@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('ayana', Object.freeze({
   welcomeTarget: () => ipcRenderer.invoke('ayana:welcome-target'),
   finishWelcome: (configure?: boolean) => ipcRenderer.invoke('ayana:welcome-finish', configure),
   closeWelcome: () => ipcRenderer.invoke('ayana:welcome-close'),
+  welcomeShortcutCapture: (capturing: boolean) => ipcRenderer.invoke('ayana:welcome-shortcut-capture', capturing),
+  welcomeShortcutCheck: (field: string, value: string) => ipcRenderer.invoke('ayana:welcome-shortcut-check', field, value),
   hideSettings: () => ipcRenderer.invoke('ayana:hide-settings'),
   restart: () => ipcRenderer.invoke('ayana:restart'),
   restartApp: () => ipcRenderer.invoke('ayana:app-restart'),

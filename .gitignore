@@ -17,6 +17,7 @@ assets/ayana/
 assets/ayana-su/
 *.wav
 !apps/desktop/public/welcome/*.wav
+!apps/desktop/public/welcome/snippets/*.wav
 *.ckpt
 *.pth
 *.log

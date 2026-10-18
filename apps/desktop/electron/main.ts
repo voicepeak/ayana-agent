@@ -15,12 +15,13 @@ import voicePackConfig from '../../../config/voice-pack.json';
 import { clampCompanion, companionSize, companionDragBounds, inspectorBounds, type Bounds, type Point } from './companionGeometry';
 import { releasePortableRuntime, stagePortableRuntime, type PortableRuntime } from './portableRuntime';
 import { VoicePackManager, type VoicePackState } from './voicePack';
-import { resolveTheme } from '../renderer/companionThemes';
+import { themeIds, resolveTheme } from '../renderer/companionThemes';
+import { normalizeShortcut, type ShortcutField } from '../shared/shortcut';
 
 type Event = Record<string, unknown> & { type: string; protocol_version: number };
 const commands = new Set([
   'session.start', 'session.close', 'turn.start', 'generation.cancel',
-  'settings.get', 'settings.update', 'history.get', 'utterance.displayed', 'input.audio',
+  'settings.get', 'settings.update', 'credentials.update', 'history.get', 'utterance.displayed', 'input.audio',
   'capabilities.get', 'source.open',
   'conversations.get', 'conversation.create', 'conversation.select', 'conversation.rename', 'subtitles.translate',
   'conversation.history', 'conversation.search', 'conversation.export', 'conversation.delete',
@@ -62,6 +63,8 @@ let cancelShortcut = 'Control+Alt+Space';
 let talkShortcut = defaults.talk_hotkey;
 let talkHold: { id: string; timer: ReturnType<typeof setTimeout> } | undefined;
 let welcomeLeaving = false;
+let welcomeShortcutCapture = false;
+let shortcutRegistration = { summon_ok: false, cancel_ok: false, talk_ok: false };
 let inputAfterCapture = true;
 let composerRequested = false;
 let companionMenuOpen = false;
@@ -484,9 +487,18 @@ function updateShortcuts(settings: Record<string, unknown>) {
   let summonOk = false;
   let cancelOk = false;
   let talkOk = false;
-  try { summonOk = globalShortcut.register(summonShortcut, () => { summon(); }); } catch { /* Invalid accelerator. */ }
-  try { cancelOk = globalShortcut.register(cancelShortcut, stopCurrent); } catch { /* Invalid accelerator. */ }
-  try { talkOk = globalShortcut.register(talkShortcut, () => { startTalking(true); }); } catch { /* Invalid accelerator. */ }
+  if (!welcomeShortcutCapture) {
+    try { summonOk = globalShortcut.register(summonShortcut, () => {
+      if (welcomeWindow?.isVisible()) desktopEvent('desktop.welcome-shortcut-used', { field: 'hotkey', shortcut: summonShortcut });
+      else summon();
+    }); } catch { /* Invalid accelerator. */ }
+    try { cancelOk = globalShortcut.register(cancelShortcut, stopCurrent); } catch { /* Invalid accelerator. */ }
+    try { talkOk = globalShortcut.register(talkShortcut, () => {
+      if (welcomeWindow?.isVisible()) desktopEvent('desktop.welcome-shortcut-used', { field: 'talk_hotkey', shortcut: talkShortcut });
+      else startTalking(true);
+    }); } catch { /* Invalid accelerator. */ }
+  }
+  shortcutRegistration = { summon_ok: summonOk, cancel_ok: cancelOk, talk_ok: talkOk };
   desktopEvent('desktop.shortcuts', { summon: summonShortcut, cancel: cancelShortcut, talk: talkShortcut, summon_ok: summonOk, cancel_ok: cancelOk, talk_ok: talkOk });
   if (tray) tray.setContextMenu(Menu.buildFromTemplate([
     { label: `呼出 Ayana · ${summonShortcut}`, click: () => { summon(); } },
@@ -636,7 +648,7 @@ async function startRuntime() {
     ...(app.isPackaged ? ['--data-dir', app.getPath('userData')] : [])], {
     cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONPATH: root, AYANA_RUNTIME_TOKEN: token,
-      ...(app.isPackaged ? { AYANA_DATA_DIR: app.getPath('userData') } : {}), },
+      ...(app.isPackaged ? { AYANA_DATA_DIR: app.getPath('userData'), AYANA_DESKTOP: '1' } : {}), },
   });
   child.stdout?.on('data', (chunk: Buffer) => diagnostic(chunk.toString('utf8').replaceAll(token, '[redacted]')));
   child.stderr?.on('data', (chunk: Buffer) => diagnostic(chunk.toString('utf8').replaceAll(token, '[redacted]')));
@@ -703,6 +715,27 @@ function trustedSender(id: number) {
 }
 
 function registerIpc() {
+  ipcMain.handle('ayana:welcome-shortcut-capture', (event, capturing: unknown) => {
+    if (event.sender.id !== windowId(welcomeWindow) || typeof capturing !== 'boolean') return { ok: false };
+    welcomeShortcutCapture = capturing && welcomeWindow?.isVisible() === true;
+    updateShortcuts(companionSettings);
+    return { ok: true, ...shortcutRegistration };
+  });
+  ipcMain.handle('ayana:welcome-shortcut-check', (event, field: unknown, value: unknown) => {
+    if (event.sender.id !== windowId(welcomeWindow) || !['hotkey', 'talk_hotkey'].includes(String(field)) || typeof value !== 'string' || value.length > 100) return { ok: false, error: '快捷键格式无效。' };
+    try {
+      const normalized = normalizeShortcut(value);
+      const configured = { hotkey: summonShortcut, talk_hotkey: talkShortcut, cancel_hotkey: cancelShortcut };
+      const same = (existing: string) => { try { return normalizeShortcut(existing) === normalized; } catch { return false; } };
+      for (const [key, existing] of Object.entries(configured)) {
+        if (key !== field && same(existing)) return { ok: false, error: key === 'cancel_hotkey' ? '这组按键已经用于停止回复，请换一组。' : '两个功能不能使用相同的快捷键。' };
+      }
+      if (same(configured[field as ShortcutField]) && globalShortcut.isRegistered(normalized)) return { ok: true, normalized };
+      const available = globalShortcut.register(normalized, () => {});
+      if (available) globalShortcut.unregister(normalized);
+      return available ? { ok: true, normalized } : { ok: false, error: '这组快捷键被其他程序或系统占用，请换一组。' };
+    } catch (reason) { return { ok: false, error: reason instanceof Error ? reason.message : '快捷键不可用。' }; }
+  });
   ipcMain.handle('ayana:talk-start', event => event.sender.id === windowId(chat) ? startTalking() : { ok: false });
   ipcMain.handle('ayana:talk-end', (event, id?: unknown, cancelled?: unknown) => {
     if (event.sender.id === windowId(chat) && typeof id === 'string') endTalking(cancelled === true, id);
@@ -766,7 +799,7 @@ function registerIpc() {
     if (['show_subtitles', 'show_japanese', 'show_bubbles'].some(key => key in next && typeof next[key] !== 'boolean')) return;
     if ('portrait_range' in next && !['half', 'full'].includes(String(next.portrait_range))) return;
     if ('background_mode' in next && !['transparent', 'frosted', 'image', 'minimal', 'solid'].includes(String(next.background_mode))) return;
-    if ('theme' in next && !['ink', 'paper', 'forest', 'sea', 'custom'].includes(String(next.theme))) return;
+    if ('theme' in next && !themeIds.has(String(next.theme))) return;
     if (['background_color', 'bubble_color'].some(key => key in next && (typeof next[key] !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(String(next[key]))))) return;
     if ('background_image' in next && (typeof next.background_image !== 'string' || !/^(?:[0-9a-f]{64})?$/.test(next.background_image))) return;
     if ('portrait_side' in next && !['left', 'right'].includes(String(next.portrait_side))) return;
@@ -824,7 +857,7 @@ function registerIpc() {
       await new Promise<void>(resolve => {
         const started = performance.now();
         const timer = setInterval(() => {
-          const t = Math.min(1, (performance.now() - started) / 650);
+          const t = Math.min(1, (performance.now() - started) / 3200);
           const eased = t * t * (3 - 2 * t);
           if (!companion.isDestroyed()) companion.setOpacity(eased);
           if (!introduction.isDestroyed()) introduction.setOpacity(1 - eased);
@@ -953,7 +986,13 @@ function createWindow(kind: 'chat' | 'settings' | 'design' | 'welcome') {
     if (welcomeReplay) { window.hide(); summon(false); }
     else app.quit();
   });
-  if (kind === 'welcome') window.on('hide', () => broadcast({ protocol_version: 1, type: 'desktop.welcome-hidden' }, false));
+  if (kind === 'welcome') {
+    const restore = () => { if (welcomeShortcutCapture) { welcomeShortcutCapture = false; updateShortcuts(companionSettings); } };
+    window.on('blur', restore);
+    window.webContents.on('did-start-loading', restore);
+    window.on('hide', () => { restore(); broadcast({ protocol_version: 1, type: 'desktop.welcome-hidden' }, false); });
+    window.on('closed', restore);
+  }
   window.on('closed', () => {
     if (window === chat) { endCompanionDrag(); chat = undefined; }
     if (window === settingsWindow) settingsWindow = undefined;
@@ -999,10 +1038,13 @@ async function ready() {
   session.defaultSession.setPermissionCheckHandler((webContents, permission) =>
     webContents?.id === windowId(chat) && permission === 'media');
   protocol.handle('ayana-asset', async request => {
-    const id = new URL(request.url).hostname;
+    const assetUrl = new URL(request.url);
+    const id = assetUrl.hostname;
+    const character = assetUrl.searchParams.get('character');
     if (!/^[a-z0-9_-]{1,80}$/i.test(id) || !port || !token) return new Response(null, { status: 404 });
+    if (character && !/^[a-z0-9_-]{1,80}$/i.test(character)) return new Response(null, { status: 404 });
     try {
-      const response = await fetch(`http://127.0.0.1:${port}/assets/${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${token}` } });
+      const response = await fetch(`http://127.0.0.1:${port}/assets/${encodeURIComponent(id)}${character ? `?character=${encodeURIComponent(character)}` : ''}`, { headers: { Authorization: `Bearer ${token}` } });
       return new Response(await response.arrayBuffer(), { status: response.status, headers: { 'Content-Type': response.headers.get('Content-Type') || 'image/png', 'Cache-Control': response.ok ? 'private, max-age=3600' : 'no-store', 'Access-Control-Allow-Origin': '*' } });
     } catch { return new Response(null, { status: 503 }); }
   });

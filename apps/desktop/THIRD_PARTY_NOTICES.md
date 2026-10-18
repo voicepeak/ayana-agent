@@ -1,5 +1,16 @@
 # Third-party notices
 
+## Welcome typography and animation
+
+The welcome screen bundles ZCOOL KuaiLe Regular by the ZCOOL KuaiLe Project
+Authors, losslessly converted from the upstream TTF to WOFF2 for embedded display
+headings. Other text uses system fonts. Source: https://github.com/googlefonts/zcool-kuaile.
+The SIL Open Font License 1.1 is included at `dist/fonts/OFL-ZCOOLKuaiLe.txt`.
+
+Welcome component choreography uses GSAP and `@gsap/react`; their upstream
+licenses are retained in the dependency distribution. Source and terms:
+https://gsap.com/standard-license/ and https://github.com/greensock/react.
+
 The desktop application uses KunUI's actual framework-independent packages
 `@kungal/ui-tokens` and `@kungal/ui-core`, version 2.56.2. Its local React wrappers
 consume KunUI's color tokens, radius system and component variant matrix.
