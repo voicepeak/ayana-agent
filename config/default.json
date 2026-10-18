@@ -34,6 +34,7 @@
   "avatar_root": "assets/ayana",
   "avatar_costume": "校服",
   "sentence_motion": true,
+  "portrait_bounce": true,
   "volume": 1,
   "subtitles": true,
   "companion_ui": {

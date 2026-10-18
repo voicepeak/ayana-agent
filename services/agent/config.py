@@ -77,7 +77,7 @@ class Settings:
         return options
 
     def validate(self, patch: dict):
-        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "remember_user", "ambient_attention", "ambient_speech", "ambient_interval_min", "ambient_interval_max", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "max_tool_rounds", "character", "avatar_costume", "sentence_motion", "volume", "model_max_tokens", "temperature", "history_budget_chars", "native_tools", "search_proxy", "search_provider", "companion_ui"}
+        allowed = {"hotkey", "cancel_hotkey", "provider", "base_url", "model", "send_screenshot", "subtitles", "save_history", "remember_user", "ambient_attention", "ambient_speech", "ambient_interval_min", "ambient_interval_max", "voice", "stt", "max_audio_ahead_ms", "max_utterances", "max_tool_rounds", "character", "avatar_costume", "sentence_motion", "portrait_bounce", "volume", "model_max_tokens", "temperature", "history_budget_chars", "native_tools", "search_proxy", "search_provider", "companion_ui"}
         allowed |= {"user_name", "onboarding_version", "talk_hotkey"}
         if not isinstance(patch, dict) or set(patch) - allowed:
             raise ValueError("Unsupported settings field")
@@ -91,7 +91,7 @@ class Settings:
             raise ValueError("Invalid onboarding version")
         if patch.get("onboarding_version") == 1 and not patch.get("user_name", self.values.get("user_name", "")).strip():
             raise ValueError("请先填写希望彩名称呼你的名字。")
-        for key in ("send_screenshot", "subtitles", "save_history", "remember_user", "ambient_attention", "ambient_speech"):
+        for key in ("send_screenshot", "subtitles", "save_history", "remember_user", "ambient_attention", "ambient_speech", "portrait_bounce"):
             if key in patch and type(patch[key]) is not bool:
                 raise ValueError(f"{key} must be boolean")
         if "native_tools" in patch and type(patch["native_tools"]) is not bool:

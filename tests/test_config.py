@@ -114,6 +114,13 @@ def test_ambient_speech_and_interval_round_trip(tmp_path):
     assert loaded.values["ambient_interval_max"] == 120
 
 
+def test_portrait_bounce_round_trips(tmp_path):
+    settings = Settings(root=ROOT, data_root=tmp_path)
+    assert settings.values["portrait_bounce"] is True
+    settings.update({"portrait_bounce": False})
+    assert Settings(root=ROOT, data_root=tmp_path).values["portrait_bounce"] is False
+
+
 def test_temperature_and_history_budget_round_trip(tmp_path):
     settings = Settings(root=ROOT, data_root=tmp_path)
     assert settings.values["temperature"] == 1.0
@@ -151,7 +158,7 @@ def test_removed_watch_shortcut_does_not_reserve_old_profile_key(tmp_path):
     {"save_history": "false"}, {"subtitles": 1}, {"send_screenshot": None},
     {"voice": {"voice_mode": "missing"}}, {"stt": []}, {"stt": {"language": None}},
     {"task_limits": {"seconds": 601}}, {"max_utterances": 0}, {"max_tool_rounds": 0}, {"max_tool_rounds": 25},
-    {"ambient_speech": "no"}, {"ambient_interval_min": 5}, {"ambient_interval_max": 601},
+    {"ambient_speech": "no"}, {"portrait_bounce": "no"}, {"ambient_interval_min": 5}, {"ambient_interval_max": 601},
     {"ambient_interval_min": 120, "ambient_interval_max": 60},
     {"temperature": -0.1}, {"temperature": 2.5}, {"temperature": "warm"},
     {"history_budget_chars": 8000}, {"history_budget_chars": 600000}, {"history_budget_chars": True},

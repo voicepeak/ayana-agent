@@ -6,7 +6,7 @@ export interface Preferences {
   user_name: string;
   talk_hotkey: string;
   provider: string; base_url: string; model: string; character: string; avatar_costume: string;
-  volume: number; subtitles: boolean; sentence_motion: boolean;
+  volume: number; subtitles: boolean; sentence_motion: boolean; portrait_bounce: boolean;
   hotkey: string; cancel_hotkey: string; ambient_attention: boolean; ambient_speech: boolean; save_history: boolean; send_screenshot: boolean;
   native_tools: boolean; search_provider: string; search_proxy: string;
   max_utterances: number; max_tool_rounds: number; model_max_tokens: number; temperature: number; history_budget_chars: number;
@@ -23,7 +23,7 @@ export function preferences(settings: Record<string, unknown>): Preferences {
     talk_hotkey: String(cfg.talk_hotkey || defaults.talk_hotkey),
     provider: cfg.provider, base_url: cfg.base_url, model: cfg.model,
     character: String(cfg.character || defaults.character || 'ayana'), avatar_costume: cfg.avatar_costume,
-    volume: cfg.volume, subtitles: cfg.subtitles, sentence_motion: cfg.sentence_motion,
+    volume: cfg.volume, subtitles: cfg.subtitles, sentence_motion: cfg.sentence_motion, portrait_bounce: cfg.portrait_bounce,
     hotkey: cfg.hotkey, cancel_hotkey: cfg.cancel_hotkey, ambient_attention: cfg.ambient_attention, ambient_speech: cfg.ambient_speech, save_history: cfg.save_history,
     send_screenshot: cfg.send_screenshot, native_tools: cfg.native_tools,
     search_provider: cfg.search_provider, search_proxy: cfg.search_proxy,

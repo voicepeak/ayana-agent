@@ -1,4 +1,11 @@
 @font-face {
+  font-family: 'Ayana Wordmark';
+  src: url('fonts/Lora-AyanaBold.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
   font-family: 'ZCOOL KuaiLe';
   src: url('fonts/ZCOOLKuaiLe-Regular.woff2') format('woff2');
   font-weight: 400;
@@ -170,46 +177,17 @@ code { font-family: var(--mono); font-size: .84em; }
   flex: 0 0 auto;
 }
 .brand-mark {
-  position: relative;
   width: 34px;
   height: 34px;
   flex: 0 0 auto;
-  border-radius: 50%;
-  background: var(--coral);
-  rotate: -7deg;
-  box-shadow: 3px 4px 0 rgba(200, 84, 47, .22);
-}
-.brand-mark::before {
-  content: '';
-  position: absolute;
-  inset: 8px;
-  border: 1.5px solid var(--paper);
-  border-radius: 50%;
-}
-.brand-mark::after {
-  content: '';
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--gold);
-}
-.brand-mark i {
-  position: absolute;
-  left: 7px;
-  bottom: 6px;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--paper);
-  opacity: .85;
+  border-radius: 10px;
+  display: block;
+  box-shadow: 0 4px 12px rgba(28, 34, 48, .16);
 }
 .brand-name {
-  font-family: var(--display);
-  font-size: 21px;
-  letter-spacing: .02em;
+  font-family: 'Ayana Wordmark', Georgia, serif;
+  font-size: 24px;
+  letter-spacing: .01em;
 }
 .brand-sub {
   margin-left: 2px;

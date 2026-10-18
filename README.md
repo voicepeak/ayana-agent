@@ -1,10 +1,10 @@
-# 桌面聊天伙伴
+# Ayana · 桌面聊天伙伴
 
 **Windows 上的彩名：立绘、对白、日语声音和一点点小心思，收进一张可以随便摆放的便签。**
 
-[一键安装](#一键安装) · [项目主页](https://voicepeak.github.io/ayana-agent/) · [GitHub Releases](https://github.com/voicepeak/ayana-agent/releases) · [0.3.27 发布说明](docs/RELEASE_0.3.27.md)
+[一键安装](#一键安装) · [项目主页](https://voicepeak.github.io/ayana-agent/) · [GitHub Releases](https://github.com/voicepeak/ayana-agent/releases) · [0.3.28 发布说明](docs/RELEASE_0.3.28.md)
 
-`v0.3.27` · Windows 10/11 x64 · 当前公开版本 · 需要配置在线模型 API
+`v0.3.28` · Windows 10/11 x64 · 当前公开版本 · 需要配置在线模型 API
 
 > 想要“做事的 Agent”版本（文件、命令、浏览器自动化、桌面操作、computer use）？它完整保留在 `beta` 分支，`main` 只维护这个聊天伴侣。
 
@@ -14,23 +14,23 @@
 
 | 方式 | 下载 | 说明 |
 | --- | --- | --- |
-| **安装包（推荐）** | [Ayana-0.3.27-win-x64-setup.exe](https://github.com/voicepeak/ayana-agent/releases/download/v0.3.27/Ayana-0.3.27-win-x64-setup.exe) | per-user 一键安装，不要求管理员权限，安装后自动启动 |
-| 便携版 | [Ayana-0.3.27-win-x64.exe](https://github.com/voicepeak/ayana-agent/releases/download/v0.3.27/Ayana-0.3.27-win-x64.exe) | 双击即用，不写入安装目录 |
-| 校验值 | [SHA256SUMS-0.3.27.txt](https://github.com/voicepeak/ayana-agent/releases/download/v0.3.27/SHA256SUMS-0.3.27.txt) | 安装包与便携版的 SHA256 |
+| **安装包（推荐）** | [Ayana-0.3.28-win-x64-setup.exe](https://github.com/voicepeak/ayana-agent/releases/download/v0.3.28/Ayana-0.3.28-win-x64-setup.exe) | per-user 一键安装，不要求管理员权限，安装后自动启动 |
+| 便携版 | [Ayana-0.3.28-win-x64.exe](https://github.com/voicepeak/ayana-agent/releases/download/v0.3.28/Ayana-0.3.28-win-x64.exe) | 双击即用，不写入安装目录 |
+| 校验值 | [SHA256SUMS-0.3.28.txt](https://github.com/voicepeak/ayana-agent/releases/download/v0.3.28/SHA256SUMS-0.3.28.txt) | 安装包与便携版的 SHA256 |
 
-安装包约 **342 MB**。安装完成后打开应用，按开屏导览完成称呼与模型配置；语音包可以稍后再下载，不影响文字聊天。
+安装包约 **342 MB**。安装完成后打开 Ayana，按开屏导览完成称呼与模型配置；语音包可以稍后再下载，不影响文字聊天。
 
 SHA256（安装包）：
 
 ```text
-0cd4e082d1bfa0dc4ad7535eeb87dfbc4b69ad2f1e55a46d53be74af586e8366
+ff8c703e83c1788cfcf0da5442fe06f7ea5e28e17b61586cf427e4da34b55ca1
 ```
 
 ### 安装后三步
 
 1. **配置模型**：打开「设置 → 模型与连接」，填写服务地址、模型名称和 API Key。推荐 DeepSeek：`https://api.deepseek.com` + `deepseek-flash`。
 2. **认识彩名**：在开屏导览里填写称呼，选主题、服装和快捷键。默认呼出键为 `Ctrl + Alt + A`。
-3. **按需下载声音**：在便签的语音包气泡或设置里下载完整彩名音色；不下载时对话会按纯文字显示。
+3. **按需下载声音**：在便签的语音包气泡或设置里下载完整 Ayana 音色；不下载时对话会按纯文字显示。
 
 > 本版不提供本地演示模型。没有 API Key 和模型名称时，不能进入桌面开始对话。
 
@@ -40,7 +40,7 @@ SHA256（安装包）：
 
 - **互动开屏导览**：名字、聊天、按住说话、搜索、屏幕观察、摆放、主题和呼出快捷键都可以亲手点一遍。
 - **电影对白便签**：每句台词跟随真实语音播放进度点亮；静音时也有相同的阅读节奏。
-- **日语彩名音色**：GPT-SoVITS 本地推理，可打断播放；完整音色包支持 CPU 与 CUDA 版本。
+- **日语 Ayana 音色**：GPT-SoVITS 本地推理，可打断播放；完整音色包支持 CPU 与 CUDA 版本。
 - **按住说话**：按住 `Ctrl + Shift + Space` 说，松开后识别为文字，修改后再发送。
 - **八套主题**：夜墨、茶白、苔绿、雾蓝、樱夜、晴空、琥珀、竹月，也支持纯色和私人背景图片。
 - **服装与摆放**：黑制服、内衣与裸露三种服装状态；便签可拖动、缩放，立绘可在框内移动。
@@ -49,7 +49,7 @@ SHA256（安装包）：
 - **记忆与话题**：跨话题摘要、长期记忆、对话搜索、改名、导出和删除都留在本机。
 - **纯文字兜底**：语音引擎不可用时直接显示文字，不再反复重试或让对话卡片抽搐、重放。
 
-彩名只聊天和陪伴：**不读写你的文件、不执行命令、不操作应用**。她可以查资料、按需看屏幕，并把结果用普通的话说出来。
+Ayana 只聊天和陪伴：**不读写你的文件、不执行命令、不操作应用**。她可以查资料、按需看屏幕，并把结果用普通的话说出来。
 
 ---
 
@@ -76,7 +76,7 @@ SHA256（安装包）：
 
 | 功能 | 默认快捷键 |
 | --- | --- |
-| 呼出 / 隐藏彩名 | `Ctrl + Alt + A` |
+| 呼出 / 隐藏 Ayana | `Ctrl + Alt + A` |
 | 按住说话 | `Ctrl + Shift + Space` |
 | 立即打断 | `Ctrl + Alt + Space` |
 | 收起输入 / 关闭便签 | `Esc` |
@@ -111,7 +111,7 @@ temperature = 1.0
 
 ## 语音包
 
-开屏内置三段彩名日语语音片段，安装后即可听到开场。完整音色包在应用内下载：
+开屏内置三段 Ayana 日语语音片段，安装后即可听到开场。完整音色包在应用内下载：
 
 | 变体 | 适用设备 | 大小 |
 | --- | --- | --- |
@@ -119,7 +119,7 @@ temperature = 1.0
 | CUDA 12.4 | RTX 20/30/40（计算能力 7.5 / 8.0 / 8.6 / 8.9） | 约 8.3 GB |
 | CUDA 12.8 | RTX 50（计算能力 12.0） | 约 9.5 GB |
 
-下载逻辑会自动选择镜像并使用 **8 线程分段下载**，支持断点续传和失败回退。安装期间仍可正常文字聊天；下载完成后重启应用生效。也可以导入本地语音包，或把 `.zip` 放到下载目录让应用自动识别。
+下载逻辑会自动选择镜像并使用 **8 线程分段下载**，支持断点续传和失败回退。安装期间仍可正常文字聊天；下载完成后重启 Ayana 生效。也可以导入本地语音包，或把 `.zip` 放到下载目录让应用自动识别。
 
 语音包目录：
 
@@ -229,7 +229,8 @@ npm --prefix apps/desktop test
 
 | 版本 | 重点 | 链接 |
 | --- | --- | --- |
-| **0.3.27** | 搜索来源校正、来源顺序与去重、安装器与界面品牌整理 | [Release](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.27) · [说明](docs/RELEASE_0.3.27.md) |
+| **0.3.28** | 新 Logo、随声音 Q 弹立绘、点击回弹、Ayana 品牌回归 | [Release](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.28) · [说明](docs/RELEASE_0.3.28.md) |
+| 0.3.27 | 搜索来源校正、来源顺序与去重、安装器与界面品牌整理 | [Release](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.27) · [说明](docs/RELEASE_0.3.27.md) |
 | 0.3.26 | 互动开屏、在线模型必配、八套主题、语音下载加速、纯文字对话稳定 | [Release](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.26) · [说明](docs/RELEASE_0.3.26.md) |
 | 0.3.25 | 退出、回执与 WebSocket 清理；SHA256 清单 | [Release](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.25) |
 | 0.3.24 | 本地测试构建；安装包校验不一致，由 0.3.25 取代 | 未发布 |
@@ -258,6 +259,6 @@ python -m http.server 4173 --directory site
 ## 边界与许可
 
 - 屏幕观察支持普通权限、已解锁、可捕获且未最小化的窗口；受保护内容和管理员窗口会明确失败。
-- 模型权重、GPT-SoVITS 引擎、角色素材、缓存和密钥独立于 Git 管理。没有语音资源时文字模式完整可用；不会用别的音色冒充彩名。
+- 模型权重、GPT-SoVITS 引擎、角色素材、缓存和密钥独立于 Git 管理。没有语音资源时文字模式完整可用；不会用别的音色冒充 Ayana。
 - 界面使用 Kun UI 主题 tokens 与框架无关 core；GSAP 用于开屏动画。第三方字体、动画与依赖许可见 [THIRD_PARTY_NOTICES.md](apps/desktop/THIRD_PARTY_NOTICES.md)。
 - 角色与声音仅供个人研究使用；请勿商业使用或用于冒充他人。

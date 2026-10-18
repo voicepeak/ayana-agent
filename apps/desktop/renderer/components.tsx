@@ -45,8 +45,6 @@ export function Icon({ name, size = 18 }: { name: string; size?: number }) {
 export function Character({ expression = 'neutral', className = '', motion = true, onDimensions, character }: { expression?: string; className?: string; motion?: boolean; onDimensions?: (width: number, height: number) => void; character?: string }) {
   const [loaded, setLoaded] = useState('');
   const [missing, setMissing] = useState(false);
-  const previous = useRef<string | null>(null);
-  const frame = useRef<HTMLDivElement>(null);
   const figure = useRef<HTMLDivElement>(null);
   const shimmer = useRef<HTMLDivElement>(null);
   const loadedRef = useRef(loaded);
@@ -109,15 +107,7 @@ export function Character({ expression = 'neutral', className = '', motion = tru
     next.src = `ayana-asset://${expression}/${character ? `?character=${encodeURIComponent(character)}` : ''}`;
     return () => { cancelled = true; animations.forEach(animation => animation.cancel()); };
   }, [expression, motion, character]);
-  useEffect(() => {
-    // Only dip when the visible face actually changes, not on every sentence.
-    const changed = Boolean(previous.current) && previous.current !== loaded;
-    previous.current = loaded;
-    if (!changed || changingCostume.current || !motion || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    const animation = frame.current?.animate([{ transform: 'translateY(0)' }, { transform: 'translateY(12px)', offset: .35 }, { transform: 'translateY(0)' }], { duration: 300, easing: 'ease-out' });
-    return () => animation?.cancel();
-  }, [loaded, motion]);
-  return <div ref={frame} className={cn('character-frame', className)}>
+  return <div className={cn('character-frame', className)}>
     <div ref={figure} className="character-figure">{loaded && <img className="character" crossOrigin="anonymous" src={`ayana-asset://${loaded}/${character ? `?character=${encodeURIComponent(character)}` : ''}`} alt="Ayana 立绘" draggable={false} onLoad={event => onDimensions?.(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)} />}</div>
     {missing && <span className="asset-missing" role="status">新立绘加载失败，请检查素材后重试</span>}
     <div ref={shimmer} className="costume-shimmer" aria-hidden="true"><i/><i/><i/><i/><i/></div>

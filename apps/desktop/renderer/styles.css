@@ -1,6 +1,7 @@
 @import 'tailwindcss';
 @import '@kungal/ui-tokens/css';
 @source '../node_modules/@kungal/ui-core';
+@font-face{font-family:'Ayana Wordmark';src:url('/fonts/Lora-AyanaBold.ttf') format('truetype');font-display:swap}
 
 .agent-workspace { padding: 27px 31px 40px; flex: 1; min-height: 0; overflow: auto; display: grid; align-content: start; gap: 24px; }
 @media (max-width: 1050px) { }
@@ -82,6 +83,7 @@ select{ width: 100%; outline: none; border: 1px solid var(--color-default-200); 
 .portrait-stage:focus-visible{ outline: none; }
 .portrait-stage:focus-visible .character{ filter: drop-shadow(0 0 3px #efddc2); }
 .portrait-reveal{ position: absolute; inset: 0; opacity: 1; transform-origin: center bottom; }
+.portrait-squash{ position: absolute; inset: 0; transform-origin: 50% 100%; will-change: transform; }
 .portrait-stage .character-frame{ position: absolute; inset: 0; width: 100%; height: 100%; }
 .character-figure{ position: absolute; inset: 0; }
 .costume-shimmer{ position: absolute; inset: 0; opacity: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 45%, rgb(255 244 209 / .88), rgb(240 212 160 / .3) 34%, transparent 66%); }

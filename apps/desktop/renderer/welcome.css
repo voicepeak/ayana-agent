@@ -17,8 +17,9 @@
 
 /* Header: progress is the only persistent chrome. */
 .mg-header{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:0 clamp(24px,4.5vw,72px);border-bottom:1px solid rgba(64,74,83,.12);z-index:10}
-.mg-brand{display:flex;align-items:center;gap:10px;font:800 15px/1 var(--sans);letter-spacing:.22em;text-transform:uppercase;color:#34394e}
-.mg-brand i{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}
+.mg-brand{display:flex;align-items:center;gap:10px;color:#34394e}
+.mg-brand img{display:block;width:26px;height:26px;border-radius:8px;box-shadow:0 3px 10px rgba(28,34,48,.14)}
+.mg-brand span{font:400 22px/1 'Ayana Wordmark',Georgia,serif;letter-spacing:.02em}
 .mg-progress{display:flex;align-items:center;gap:6px}
 .mg-progress span{width:18px;height:2px;border-radius:2px;background:#dedcd5;transition:width .4s var(--ease-out),background .4s}
 .mg-progress span[data-past=true]{background:#bbc2cc}
@@ -321,7 +322,7 @@
 .mg-swatches button[aria-pressed=true] i{box-shadow:0 0 0 4px #fff9ef,0 0 0 6px var(--accent)}
 @media(max-width:1000px){.mg-scene .mg-scene-copy{align-items:center;text-align:center}.mg-scene .mg-split{gap:26px}.mg-thread{min-height:150px}.mg-portrait{width:230px}}
 @media(max-height:720px){.mg-footer{min-height:58px}.mg-thread{min-height:140px;padding:16px}.mg-composer{height:50px}.mg-portrait{width:190px}.mg-search-board{padding:18px}.mg-ready-orb{width:72px;height:72px}}
-@media(max-width:760px){.mg-meet-copy{align-items:center}.mg-meet-title{text-align:center}.mg-meet .mg-kicker{align-self:center}.mg-scene .mg-search-board{width:100%;padding:16px}.mg-scene .mg-split{gap:18px}.mg-header{gap:8px;padding:0 20px}.mg-brand{font-size:12px;letter-spacing:.08em}.mg-progress{gap:4px}.mg-progress span{width:10px}.mg-progress span[data-active=true]{width:20px}}
+@media(max-width:760px){.mg-meet-copy{align-items:center}.mg-meet-title{text-align:center}.mg-meet .mg-kicker{align-self:center}.mg-scene .mg-search-board{width:100%;padding:16px}.mg-scene .mg-split{gap:18px}.mg-header{gap:8px;padding:0 20px}.mg-brand span{font-size:18px}.mg-brand img{width:22px;height:22px}.mg-progress{gap:4px}.mg-progress span{width:10px}.mg-progress span[data-active=true]{width:20px}}
 .mg-tools button[aria-pressed=false]{opacity:.45}
 
 /* Sound and direct manipulation feedback. The overlay never intercepts input. */
@@ -404,7 +405,8 @@
 .mg-footer{justify-content:flex-end;border-top:0}
 .mg-service-status{margin:0 auto 0 0;color:#a34e3e;font-size:17px}
 .mg-form-error{font-size:17px}
-.mg-brand{font-size:18px}
+.mg-brand span{font-size:24px}
+.mg-brand img{width:28px;height:28px}
 .mg-tools{font-size:16px}
 .mg-tools button{padding:10px}
 .mg-note-top b,.mg-style-top b{font:600 18px/1.4 var(--sans)}

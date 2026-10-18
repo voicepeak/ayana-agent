@@ -1,4 +1,5 @@
 import type { AyanaBridge, RuntimeEvent } from './types';
+import { publishAudioLevel, resetAudioLevel } from './audioLevel';
 
 /** Bounded, mono float32 LE queue. Avatar and highlight never instantiate this. */
 export class AudioPlayer {
@@ -11,6 +12,9 @@ export class AudioPlayer {
   private disposed = false;
   private volume = 1;
   private gain?: GainNode;
+  private analyser?: AnalyserNode;
+  private levelRaf = 0;
+  private levelValue = 0;
   private chain = Promise.resolve();
 
   constructor(private bridge: AyanaBridge, private onLocal: (event: RuntimeEvent) => void) {}
@@ -24,7 +28,10 @@ export class AudioPlayer {
         this.node = new AudioWorkletNode(this.context, 'ayana-pcm-player', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1] });
         this.gain = this.context.createGain();
         this.gain.gain.value = this.volume;
-        this.node.connect(this.gain).connect(this.context.destination);
+        this.analyser = this.context.createAnalyser();
+        this.analyser.fftSize = 256;
+        this.node.connect(this.analyser).connect(this.gain).connect(this.context.destination);
+        this.watchLevel();
         this.node.port.onmessage = ({ data }: MessageEvent<Record<string, unknown>>) => {
           const utterance = this.pending.get(String(data.utterance_id));
           if (!utterance) return;
@@ -90,7 +97,30 @@ export class AudioPlayer {
     }).catch(error => { this.pending.delete(id); this.fail(event, `语音播放失败：${String(error)}`); });
   }
 
+  private watchLevel() {
+    const analyser = this.analyser;
+    if (!analyser) return;
+    const samples = new Float32Array(analyser.fftSize);
+    let last = 0;
+    const tick = (now: number) => {
+      if (this.disposed) return;
+      if (now - last >= 33) {
+        last = now;
+        analyser.getFloatTimeDomainData(samples);
+        let energy = 0;
+        for (const sample of samples) energy += sample * sample;
+        const target = Math.min(1, Math.sqrt(energy / samples.length) * 5.5);
+        this.levelValue += (target - this.levelValue) * (target > this.levelValue ? .55 : .16);
+        publishAudioLevel(this.levelValue);
+      }
+      this.levelRaf = requestAnimationFrame(tick);
+    };
+    this.levelRaf = requestAnimationFrame(tick);
+  }
+
   private fail(event: RuntimeEvent, message: string) {
+    this.levelValue = 0;
+    resetAudioLevel();
     const receipt: RuntimeEvent = {
       protocol_version: 1, type: 'playback.error', generation_id: event.generation_id,
       session_id: event.session_id, turn_id: event.turn_id, utterance_id: event.utterance_id,
@@ -103,6 +133,8 @@ export class AudioPlayer {
   cancel(generation: number) {
     this.cancelledGeneration = Math.max(this.cancelledGeneration, generation);
     this.node?.port.postMessage({ type: 'cancel', generation_id: this.cancelledGeneration });
+    this.levelValue = 0;
+    resetAudioLevel();
     // Worklet sends the exact final consumed position for an active cancelled segment.
     for (const [id, item] of this.pending) {
       if (Number(item.event.generation_id) <= generation) {
@@ -118,8 +150,11 @@ export class AudioPlayer {
 
   dispose() {
     this.disposed = true;
+    cancelAnimationFrame(this.levelRaf);
     this.node?.disconnect();
+    this.analyser?.disconnect();
     void this.context?.close();
     this.pending.clear();
+    resetAudioLevel();
   }
 }

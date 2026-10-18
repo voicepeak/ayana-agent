@@ -4,9 +4,10 @@ import type { CompanionDesign } from './CompanionDesign';
 import { portraitLayout, portraitSlotAspect } from './portraitGeometry';
 import type { PortraitScene } from './captionLayout';
 import { wheelZoom } from './designZoom';
+import { subscribeAudioLevel } from './audioLevel';
 
-export function CompanionPortrait({ design, expression, motion, connected, editable, onChange, onCommit, onClick, onSceneChange, bottomInset = 0, aspect = portraitSlotAspect, interactionScale = 1, character }: {
-  design: CompanionDesign; expression: string; motion: boolean; connected: boolean;
+export function CompanionPortrait({ design, expression, motion, bounce = true, connected, editable, onChange, onCommit, onClick, onSceneChange, bottomInset = 0, aspect = portraitSlotAspect, interactionScale = 1, character }: {
+  design: CompanionDesign; expression: string; motion: boolean; bounce?: boolean; connected: boolean;
   editable: boolean; aspect?: number; interactionScale?: number; character?: string;
   onChange: (patch: Partial<CompanionDesign>) => void;
   onCommit: (patch: Partial<CompanionDesign>) => void; onClick: () => void;
@@ -14,6 +15,9 @@ export function CompanionPortrait({ design, expression, motion, connected, edita
 }) {
   const canvas = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
+  const squash = useRef<HTMLDivElement>(null);
+  const spring = useRef({ value: 0, velocity: 0, target: 0, impulse: 0 });
+  const previousExpression = useRef(expression);
   const [area, setArea] = useState({ width: 1, height: 1 });
   const [dragging, setDragging] = useState(false);
   const layout = portraitLayout(area, aspect, design);
@@ -60,6 +64,47 @@ export function CompanionPortrait({ design, expression, motion, connected, edita
     window.addEventListener('blur', stop);
     return () => { window.removeEventListener('blur', stop); stop(); };
   }, []);
+  useEffect(() => {
+    const node = squash.current;
+    if (!node || !bounce || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      if (node) node.style.transform = '';
+      spring.current = { value: 0, velocity: 0, target: 0, impulse: 0 };
+      return;
+    }
+    let raf = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      const dt = Math.min(.05, Math.max(.001, (now - last) / 1000));
+      last = now;
+      const state = spring.current;
+      const target = state.target + state.impulse;
+      const force = (target - state.value) * 180 - state.velocity * 15;
+      state.velocity += force * dt;
+      state.value += state.velocity * dt;
+      state.impulse *= Math.exp(-dt * 5.5);
+      if (Math.abs(state.value) < .0004 && Math.abs(state.velocity) < .0004) {
+        state.value = 0; state.velocity = 0;
+      }
+      node.style.transform = `scale(${(1 + state.value).toFixed(4)}, ${(1 - state.value * .82).toFixed(4)})`;
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [bounce]);
+  useEffect(() => {
+    if (!bounce || editable) {
+      spring.current.target = 0;
+      return;
+    }
+    return subscribeAudioLevel(level => { spring.current.target = level * .085; });
+  }, [bounce, editable]);
+  useEffect(() => {
+    if (previousExpression.current !== expression && bounce && motion && !editable
+        && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      spring.current.impulse += .1;
+    }
+    previousExpression.current = expression;
+  }, [expression, bounce, motion, editable]);
   function move(event: PointerEvent<HTMLButtonElement>) {
     const current = gesture.current;
     if (!current || current.id !== event.pointerId) return;
@@ -85,9 +130,13 @@ export function CompanionPortrait({ design, expression, motion, connected, edita
         event.currentTarget.setPointerCapture(event.pointerId);
       }} onPointerMove={move} onPointerUp={event => { move(event); finish(); }}
       onPointerCancel={finish} onLostPointerCapture={finish} onDragStart={event => event.preventDefault()}
-      onClick={event => { if (suppressClick.current) { event.preventDefault(); suppressClick.current = false; } else onClick(); }}>
+      onClick={event => {
+        if (suppressClick.current) { event.preventDefault(); suppressClick.current = false; return; }
+        if (bounce && !matchMedia('(prefers-reduced-motion: reduce)').matches) spring.current.impulse += .14;
+        onClick();
+      }}>
       <div className="portrait-position"><div className="portrait-reveal">
-        <Character key={String(connected)} expression={expression} motion={motion} character={character}/>
+        <div ref={squash} className="portrait-squash"><Character key={String(connected)} expression={expression} motion={motion} character={character}/></div>
       </div></div>
       {editable && <span className="portrait-position-hint">{dragging ? '气泡实时跟随' : '拖动移动 · 滚轮缩放'}</span>}
     </button>

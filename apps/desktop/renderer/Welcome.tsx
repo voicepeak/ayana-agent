@@ -14,6 +14,7 @@ import { outfitAsset } from './avatarOutfit';
 import { themes } from './companionThemes';
 import { surfacePalette } from './companionPalette';
 import { Icon } from './components';
+import logoMark from './assets/logo-mark.png';
 import './welcome.css';
 
 type MeetPhase = 'name' | 'greeting';
@@ -540,7 +541,7 @@ export function Welcome() {
     }}>
     <div ref={feedbackLayer} className="mg-feedback-layer" aria-hidden="true"/>
     <header className="mg-header">
-      <strong className="mg-brand" aria-hidden="true"><i/></strong>
+      <strong className="mg-brand"><img src={logoMark} alt=""/><span>Ayana</span></strong>
       <nav className="mg-progress" aria-label="初次见面进度">{chapterOrder.map((item, index) => (
         <span key={item} data-active={item === chapter} data-past={index < chapterIndex} aria-current={item === chapter ? 'step' : undefined}/>
       ))}</nav>
@@ -555,7 +556,7 @@ export function Welcome() {
             onPointerUp={() => soundRef.current?.cue('confirm')} onKeyUp={() => soundRef.current?.cue('confirm')}/>
         </label>
         <button aria-label="跳过介绍" disabled={saving || leaving} onClick={skipTour}>跳过</button>
-        <button aria-label={replay ? '关闭初次见面' : '退出'} disabled={saving || leaving} onClick={close}><Icon name="close" size={17}/></button>
+        <button aria-label={replay ? '关闭初次见面' : '退出 Ayana'} disabled={saving || leaving} onClick={close}><Icon name="close" size={17}/></button>
       </div>
     </header>
     {cut && <WelcomeMotion key={cut.id} chapter={cut.chapter}/>}
