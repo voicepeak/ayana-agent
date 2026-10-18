@@ -32,15 +32,28 @@
   const header = $('#siteHeader');
   const progress = $('.scroll-progress i');
   const navLinks = $$('.main-nav a');
+  const downloadDock = $('#downloadDock');
+  const installSection = $('#install');
   const sections = ['meet', 'features', 'themes', 'screens', 'install', 'releases'].map(id => document.getElementById(id)).filter(Boolean);
+  let installVisible = false;
 
+  const updateDock = () => {
+    downloadDock?.classList.toggle('is-visible', scrollY > innerHeight * .72 && !installVisible);
+  };
   const onScroll = () => {
     header.classList.toggle('is-scrolled', scrollY > 24);
     const max = document.documentElement.scrollHeight - innerHeight;
     progress.style.width = `${max > 0 ? Math.min(1, scrollY / max) * 100 : 0}%`;
+    updateDock();
   };
   onScroll();
   addEventListener('scroll', onScroll, { passive: true });
+  if (installSection && 'IntersectionObserver' in window) {
+    new IntersectionObserver(entries => {
+      installVisible = entries.some(entry => entry.isIntersecting);
+      updateDock();
+    }, { rootMargin: '-10% 0px -10% 0px' }).observe(installSection);
+  }
 
   if ('IntersectionObserver' in window) {
     const navObserver = new IntersectionObserver(entries => {
@@ -318,6 +331,14 @@
     dots?.querySelectorAll('button').forEach(button => {
       button.setAttribute('aria-pressed', String(button.dataset.theme === theme.id));
     });
+    if (themeNote && !reduced) {
+      const glow = $('.theme-note-glow', themeNote);
+      if (glow) glow.style.background = theme.bubble;
+      themeNote.classList.remove('is-washing');
+      void themeNote.offsetWidth;
+      themeNote.classList.add('is-washing');
+      setTimeout(() => themeNote.classList.remove('is-washing'), 780);
+    }
   }
 
   if (themeList) {
@@ -488,6 +509,22 @@
     stage.addEventListener('pointerleave', () => {
       stage.style.setProperty('--tilt-x', '0px');
       stage.style.setProperty('--tilt-y', '0px');
+    });
+  }
+
+  if (!reduced && matchMedia('(pointer:fine)').matches) {
+    $$('.shot').forEach(shot => {
+      shot.addEventListener('pointermove', event => {
+        const box = shot.getBoundingClientRect();
+        const x = (event.clientX - box.left) / box.width - .5;
+        const y = (event.clientY - box.top) / box.height - .5;
+        shot.style.setProperty('--shot-ry', `${x * 6}deg`);
+        shot.style.setProperty('--shot-rx', `${-y * 6}deg`);
+      });
+      shot.addEventListener('pointerleave', () => {
+        shot.style.setProperty('--shot-ry', '0deg');
+        shot.style.setProperty('--shot-rx', '0deg');
+      });
     });
   }
 })();

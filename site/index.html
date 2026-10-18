@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
@@ -24,7 +24,7 @@
 
 <header class="site-header" id="siteHeader">
   <a class="brand" href="#top" aria-label="回到顶部">
-    <span class="brand-seal" aria-hidden="true">彩</span>
+    <span class="brand-mark" aria-hidden="true"><i></i></span>
     <span class="brand-name">Ayana</span>
     <span class="brand-sub">彩名</span>
   </a>
@@ -41,6 +41,11 @@
   </a>
 </header>
 
+<a class="download-dock" id="downloadDock" href="https://github.com/voicepeak/ayana-agent/releases/download/v0.3.26/Ayana-0.3.26-win-x64-setup.exe" data-download data-download-label="一键安装 Ayana" aria-label="下载 Ayana 0.3.26 安装包">
+  <span class="download-dock-copy"><small>AYANA · V0.3.26</small><strong>一键安装</strong></span>
+  <span class="download-dock-action">下载 <i aria-hidden="true">↘</i></span>
+</a>
+
 <main id="main">
 
 <section class="hero" id="top">
@@ -55,7 +60,7 @@
   <div class="hero-inner">
     <div class="hero-copy">
       <p class="kicker reveal"><span class="kicker-mark">✦</span> AYANA · WINDOWS CHAT COMPANION</p>
-      <h1 class="display hero-title reveal">
+      <h1 class="display hero-title">
         <span>你好。</span>
         <span>今天，</span>
         <span><em>聊点什么</em>？</span>
@@ -83,7 +88,7 @@
         <span class="arch-caption">音无 彩名 <em>AYANA</em></span>
       </div>
       <div class="hero-note" aria-live="polite">
-        <div class="hero-note-head"><span class="mini-seal">彩</span><b>彩名</b><i>在线</i></div>
+        <div class="hero-note-head"><span class="note-mark" aria-hidden="true"></span><b>彩名</b><i>在线</i></div>
         <p id="heroNoteText">今天想聊什么？</p>
         <span class="hero-note-tail" aria-hidden="true"></span>
       </div>
@@ -203,38 +208,26 @@
   </div>
 </section>
 
-<section class="section features" id="features">
+<div class="marquee" aria-hidden="true">
+  <div class="marquee-track">
+    <span>台词跟着真实声音走</span><b>✦</b><span>八套主题</span><b>✦</b><span>按住说话</span><b>✦</b><span>真实搜索来源</span><b>✦</b><span>只在允许时看屏幕</span><b>✦</b><span>API Key 本机加密</span><b>✦</b>
+    <span>台词跟着真实声音走</span><b>✦</b><span>八套主题</span><b>✦</b><span>按住说话</span><b>✦</b><span>真实搜索来源</span><b>✦</b><span>只在允许时看屏幕</span><b>✦</b><span>API Key 本机加密</span><b>✦</b>
+  </div>
+</div>
+
+<section class="section about" id="features">
   <div class="section-head split-head">
     <div class="reveal">
       <p class="eyebrow">02 · 她会什么</p>
-      <h2 class="display">不是工具，<br>是坐在旁边的人。</h2>
+      <h2 class="display">她只聊天，<br>也认真听。</h2>
     </div>
-    <p class="section-note reveal">她只聊天和陪伴：不读写文件、不执行命令、不操作应用。需要查资料或看屏幕时，她会先问，再把真实来源留下。</p>
+    <p class="section-note reveal">不读写文件、不执行命令、不操作应用。需要查资料或看屏幕时，她会先问，再把真实来源留下。</p>
   </div>
-  <div class="feature-grid">
-    <article class="feature-card feature-wide reveal">
-      <div class="feature-index">01</div>
-      <div class="feature-copy">
-        <h3 class="display">台词跟着声音走。</h3>
-        <p>每个字由真实播放进度点亮，停顿和句尾呼吸都对齐。静音时也有同样的阅读节奏。</p>
-      </div>
-      <div class="sound-sculpture" aria-hidden="true"><span class="pulse-ring"></span><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-    </article>
-    <article class="feature-card feature-mint reveal">
-      <div class="feature-index">02</div>
-      <div class="theme-stack" aria-hidden="true"><i class="stack-a"></i><i class="stack-b"></i><i class="stack-c"></i><span>8</span></div>
-      <div class="feature-copy"><h3 class="display">八套主题，<br>一层心情。</h3><p>夜墨、茶白、苔绿、雾蓝、樱夜、晴空、琥珀、竹月。也可以换成自己的图片。</p></div>
-    </article>
-    <article class="feature-card feature-blue reveal">
-      <div class="feature-index">03</div>
-      <div class="feature-copy"><h3 class="display">她记得，<br>但不越界。</h3><p>跨话题保存摘要和长期记忆；保存记录、屏幕观察、偶尔偷看都能单独关闭。</p></div>
-      <div class="paper-stack" aria-hidden="true"><span>昨天的对话</span><span>记住的事</span><span>来源</span></div>
-    </article>
-    <article class="feature-card feature-rose reveal">
-      <div class="feature-index">04</div>
-      <div class="feature-copy"><h3 class="display">声音可以慢慢来。</h3><p>先文字聊天，语音包稍后再下载。镜像加速、分段续传，安装期间也不耽误说话。</p></div>
-      <div class="voice-chip-row" aria-hidden="true"><span>CPU · 4.86 GB</span><span>CUDA 12.4</span><span>CUDA 12.8</span></div>
-    </article>
+  <div class="about-strip">
+    <article class="about-item reveal"><span>01</span><h3>声音同步</h3><p>每个字跟随真实播放进度，静音也有同样的阅读节奏。</p></article>
+    <article class="about-item reveal"><span>02</span><h3>八套主题</h3><p>夜墨、茶白、苔绿、雾蓝、樱夜、晴空、琥珀、竹月。</p></article>
+    <article class="about-item reveal"><span>03</span><h3>会记得</h3><p>跨话题摘要和长期记忆，保存、观察和偷看都能单独关闭。</p></article>
+    <article class="about-item reveal"><span>04</span><h3>慢慢来</h3><p>先文字聊天，语音包稍后下载；镜像加速、断点续传。</p></article>
   </div>
 </section>
 
@@ -248,7 +241,7 @@
   <div class="theme-note-wrap reveal">
     <span class="tape tape-top" aria-hidden="true"></span>
     <div class="theme-note" id="themeNote" data-theme="paper">
-      <div class="theme-note-head"><span class="mini-seal">彩</span><b>彩名</b><span id="themeName">纸笺 · 茶白</span></div>
+      <div class="theme-note-head"><span class="note-mark" aria-hidden="true"></span><b>彩名</b><span id="themeName">纸笺 · 茶白</span></div>
       <p class="theme-bubble">这个颜色怎么样？</p>
       <div class="theme-composer"><span>写下一句话…</span><i aria-hidden="true">↗</i></div>
       <span class="theme-note-glow" aria-hidden="true"></span>
@@ -268,7 +261,7 @@
     </div>
   </div>
   <div class="voice-visual reveal" aria-hidden="true">
-    <div class="voice-disc"><span class="disc-ring"></span><span class="disc-ring disc-ring-2"></span><span class="disc-center">彩</span></div>
+    <div class="voice-disc"><span class="disc-ring"></span><span class="disc-ring disc-ring-2"></span><span class="disc-center" aria-hidden="true">✦</span></div>
     <div class="voice-wave" id="voiceWave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
     <div class="voice-meta"><span>Ayana · GPT-SoVITS</span><span>48 kHz</span></div>
   </div>
@@ -292,11 +285,6 @@
       <span class="shot-tape" aria-hidden="true"></span>
       <button type="button" class="shot-button" data-full="shots/companion-paper.webp"><img src="shots/companion-paper.webp" alt="纸笺主题的浅色便签" loading="lazy"><span>点击放大</span></button>
       <figcaption>纸笺 · 茶白</figcaption>
-    </figure>
-    <figure class="shot reveal" data-caption="滚动查看历史对白，当前一句仍然清楚">
-      <span class="shot-tape" aria-hidden="true"></span>
-      <button type="button" class="shot-button" data-full="shots/companion-scroll.webp"><img src="shots/companion-scroll.webp" alt="便签中滚动查看历史对白" loading="lazy"><span>点击放大</span></button>
-      <figcaption>会回看的对话</figcaption>
     </figure>
     <figure class="shot reveal" data-caption="管理窗口：主题、服装、语音和模型都在这里">
       <span class="shot-tape" aria-hidden="true"></span>
@@ -331,32 +319,18 @@
   </ol>
 </section>
 
-<section class="section releases" id="releases">
-  <div class="section-head split-head">
-    <div class="reveal"><p class="eyebrow">06 · 版本</p><h2 class="display">每一次见面，<br>都留下记录。</h2></div>
-    <p class="section-note reveal">安装包、便携版和 SHA256 都在 GitHub Releases。公开版本从 0.3.17 起可追溯。</p>
+<section class="section release-strip" id="releases">
+  <div class="release-strip-head reveal">
+    <p class="eyebrow">06 · 版本</p>
+    <h2 class="display">0.3.26</h2>
+    <p>开屏导览 · 在线模型 · 八套主题 · 语音下载加速</p>
+    <small>0.3.24 为本地测试构建，未发布；0.3.25 起继续公开。</small>
   </div>
-  <ol class="release-list">
-    <li class="release-item reveal"><span class="release-version">0.3.26</span><div><h3>开屏导览 · 在线模型 · 语音下载加速</h3><p>完成互动开屏；移除本地演示，必须配置 API；扩展八套主题；修复无语音时的对话卡片抽搐与重放。</p></div><a href="https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.26">Latest ↗</a></li>
-    <li class="release-item reveal"><span class="release-version">0.3.25</span><div><h3>退出、回执与 WebSocket 清理</h3><p>统一关闭流程；迟到回执不再复活已结束的语音；发布包补充 SHA256。</p></div><a href="https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.25">Release ↗</a></li>
-    <li class="release-item reveal"><span class="release-version">0.3.23</span><div><h3>心情、表情与偷看节奏</h3><p>跨对话心情影响表情与语气；回复轮换推荐未展示表情；温度与历史预算可调。</p></div><span class="release-local">本机构建</span></li>
-    <li class="release-item reveal"><span class="release-version">0.3.22</span><div><h3>偷看更可控，表情更完整</h3><p>偷看时允许搭话；表情引导优先未展示表情；思考回复回传推理轨迹并修复工具请求。</p></div><a href="https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.22">Release ↗</a></li>
-  </ol>
-  <a class="all-releases reveal" href="https://github.com/voicepeak/ayana-agent/releases">查看全部版本 <span>↗</span></a>
-</section>
-
-<section class="section faq" id="faq">
-  <div class="section-head split-head">
-    <div class="reveal"><p class="eyebrow">07 · 常见问题</p><h2 class="display">安装之前，<br>你可能想问。</h2></div>
-    <p class="section-note reveal">还有问题？到 GitHub Issues 或 Discussions 留一句。</p>
-  </div>
-  <div class="faq-list reveal">
-    <details open><summary>需要准备什么？</summary><p>Windows 10/11 x64，以及一个 OpenAI 兼容接口的 API Key 和模型名称。推荐 DeepSeek：服务地址 <code>https://api.deepseek.com</code>，模型 <code>deepseek-flash</code>。</p></details>
-    <details><summary>没有 API Key 可以先用演示模式吗？</summary><p>不能。0.3.26 已移除本地演示模型，首次进入桌面前必须配置 API Key 与模型名称。</p></details>
-    <details><summary>语音包有多大？必须先下载吗？</summary><p>不必。没有语音包时，对话会自动按纯文字显示。CPU 语音包约 4.86 GB，CUDA 版本约 8.3–9.5 GB；应用内下载会自动选择镜像并使用多线程分段续传。</p></details>
-    <details><summary>安装包和便携版有什么区别？</summary><p>安装包使用 per-user NSIS，一键安装并创建快捷方式；便携版双击即可运行，不写入安装目录。两者使用同一个 <code>%APPDATA%\Ayana</code> 配置目录。</p></details>
-    <details><summary>API Key 存在哪里？</summary><p>使用当前 Windows 用户的 DPAPI 加密保存在本机，不写入 <code>config/local.json</code>，界面和日志不会回显密钥。也可以改用 <code>AYANA_API_KEY</code> 或 <code>DEEPSEEK_API_KEY</code> 环境变量。</p></details>
-    <details><summary>这一版还有白制服彩名吗？</summary><p>没有。当前发布版只提供黑制服彩名，设置和开屏都不再出现白制服切换；便签内保留黑制服、内衣与裸露三种服装状态。</p></details>
+  <div class="release-strip-links reveal">
+    <a href="https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.26">v0.3.26 <span>Latest ↗</span></a>
+    <a href="https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.25">v0.3.25 <span>Release ↗</span></a>
+    <a href="https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.23">v0.3.23 <span>Source ↗</span></a>
+    <a href="https://github.com/voicepeak/ayana-agent/releases">全部版本 <span>↗</span></a>
   </div>
 </section>
 
@@ -373,7 +347,7 @@
 </main>
 
 <footer class="site-footer">
-  <div class="footer-top"><a class="brand" href="#top"><span class="brand-seal" aria-hidden="true">彩</span><span class="brand-name">Ayana</span></a><p>Windows 桌面聊天伙伴 · v0.3.26</p></div>
+  <div class="footer-top"><a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"><i></i></span><span class="brand-name">Ayana</span></a><p>Windows 桌面聊天伙伴 · v0.3.26</p></div>
   <div class="footer-links"><a href="#meet">初次见面</a><a href="#features">她会什么</a><a href="#install">一键安装</a><a href="https://github.com/voicepeak/ayana-agent/releases">版本</a><a href="https://github.com/voicepeak/ayana-agent">GitHub</a></div>
   <p class="footer-note">角色立绘与声音版权归原作及权利方所有。第三方字体、动画与依赖许可见仓库中的 <a href="https://github.com/voicepeak/ayana-agent/blob/main/apps/desktop/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a>。</p>
 </footer>
@@ -386,3 +360,4 @@
 <script src="app.js" defer></script>
 </body>
 </html>
+
