@@ -307,6 +307,12 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                 await self._attention_configure(False)
             elif attention_text in {"继续看", "可以偷看", "恢复偷看", "彩名继续看"}:
                 await self._attention_configure(True)
+            model_ready = self.settings.values.get("provider") == "local" or (
+                bool(str(self.settings.values.get("model", "")).strip()) and bool(self.settings.key()))
+            if not model_ready:
+                await self.emit("error", source="model", message="请先在设置 → 模型与连接中填写 API Key 与模型名称。")
+                await self.emit("task.state", state="failed")
+                return
             self.turn_id = identifier("turn")
             await self.emit("user.message", text=text)
             await self._conversation_snapshot()
@@ -318,6 +324,20 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         elif kind == "settings.get":
             await self.emit("settings.ready", settings=self.settings.public(), api_key_configured=bool(self.settings.key()))
             await self.emit("service.state", service="tts", **self.tts.status)
+            await self._capabilities_snapshot()
+        elif kind == "credentials.update":
+            key = cmd.get("api_key")
+            if not isinstance(key, str):
+                raise ValueError("API Key 格式无效")
+            if key.strip():
+                self.settings.save_key(key)
+                if (str(self.settings.values.get("model", "")).strip()
+                        and self.settings.values.get("provider") != "openai"):
+                    self.settings.update({"provider": "openai"})
+            else:
+                self.settings.clear_key()
+            await self.emit("settings.ready", settings=self.settings.public(),
+                            api_key_configured=bool(self.settings.key()), request_id=cmd.get("request_id"))
             await self._capabilities_snapshot()
         elif kind == "settings.update":
             patch = cmd.get("settings", {})
@@ -473,11 +493,15 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
     async def _speech_worker(self, queue, gen):
         if self.start_task:
             await asyncio.shield(self.start_task)
+        voice_failed = not self._voice_available()
         while gen == self.generation:
             item = await queue.get()
             if item is None:
                 return
             uid, speech = item
+            if voice_failed:
+                self.pending.pop(uid, None)
+                continue
             await self._reserve_audio(uid, 2000, gen)
             try:
                 audio = await self.tts.synthesize(speech, gen)
@@ -485,9 +509,10 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                 raise
             except Exception as e:
                 self.pending.pop(uid, None)
+                voice_failed = True
                 await self.emit("service.state", service="tts", state="failed", message=str(e)[:300])
-                await self.emit("error", source="tts", message="语音合成失败，本轮后续语音已停止；文字仍可阅读。")
-                return
+                await self.emit("error", source="tts", message="语音不可用，本轮改用文字显示；可以在设置中下载语音包。")
+                continue
             if gen != self.generation:
                 return
             duration = audio["duration_ms"]
@@ -518,6 +543,11 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
     def _speech_budget(self, used=0):
         limit = self.settings.values["max_utterances"]
         return {"limit": limit, "used": used, "remaining": max(0, limit - used)}
+
+    def _voice_available(self):
+        status = self.tts.status
+        return (status.get("state") not in {"failed", "stopped"}
+                and status.get("engine") != "silent" and status.get("enabled") is not False)
 
     def _record_prompt(self, body, *, phase):
         self.prompt_trace.record(body, phase=phase, turn_id=self.turn_id,
@@ -601,7 +631,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                             raise ValueError("Model speech event is missing its key")
                         # Narration limits must not abort tools or translations.
                         # Overflow sentences remain readable.
-                        speech["audio_enabled"] = self._speech_budget(audio_count)["remaining"] > 0
+                        speech["audio_enabled"] = self._speech_budget(audio_count)["remaining"] > 0 and self._voice_available()
                         speech.update(self.avatars.resolve(speech, self.settings.values.get("avatar_costume", "校服")))
                         issues = []
                         if speech["expression_source"].startswith("fallback_"):

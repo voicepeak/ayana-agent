@@ -195,14 +195,19 @@ export function reduceEvent(state: ModelState, event: RuntimeEvent): ModelState 
     case 'desktop.present':
     case 'playback.started': {
       const id = String(event.utterance_id);
-      if (event.type === 'playback.started') { next.current = id; next.progress = 0; }
       const speech = state.speeches.find(s => s.id === id);
       if (!speech) break;
-      if (state.presented !== id) { next.presented = id; next.sentenceVersion = state.sentenceVersion + 1; }
-      const expression = ['explain', 'encourage', 'caution', 'playful'].includes(speech?.intent || '') ? speech!.intent : 'neutral';
-      if (speech.assetId || speech.intensity >= .35) {
-        next.expression = outfitAsset(speech.assetId || expression, String(state.settings.avatar_costume || '校服'), activeCatalog(state.settings));
-        next.expressionAt = Date.now();
+      const presentedAt = state.speeches.findIndex(s => s.id === state.presented);
+      const eventAt = state.speeches.findIndex(s => s.id === id);
+      const canPresent = presentedAt < 0 || eventAt < 0 || eventAt >= presentedAt;
+      if (canPresent) {
+        if (event.type === 'playback.started') { next.current = id; next.progress = 0; }
+        if (state.presented !== id) { next.presented = id; next.sentenceVersion = state.sentenceVersion + 1; }
+        const expression = ['explain', 'encourage', 'caution', 'playful'].includes(speech.intent) ? speech.intent : 'neutral';
+        if (speech.assetId || speech.intensity >= .35) {
+          next.expression = outfitAsset(speech.assetId || expression, String(state.settings.avatar_costume || '校服'), activeCatalog(state.settings));
+          next.expressionAt = Date.now();
+        }
       }
       if (event.type === 'playback.started') next.speeches = state.speeches.map(s => s.id === id ? { ...s, state: 'playing', total: Number(event.total_samples) } : s);
       break;
@@ -248,6 +253,8 @@ const previewBridge: AyanaBridge = {
   beginTalk: async () => ({ ok: false }), endTalk: async () => {},
   openWelcome: async () => {}, welcomeTarget: async () => null,
   finishWelcome: async () => ({ ok: false, error: '请在桌面应用中打开初次见面。' }), closeWelcome: async () => {},
+  welcomeShortcutCapture: async () => ({ ok: false }),
+  welcomeShortcutCheck: async () => ({ ok: false, error: '请在桌面应用中设置快捷键。' }),
   voicePack: {
     get: async () => null,
     start: async () => null,

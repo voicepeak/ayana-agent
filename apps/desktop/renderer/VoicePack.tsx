@@ -101,7 +101,7 @@ export function VoicePackSettings({ state }: { state: ModelState }) {
       {!busy && <Button type="button" variant="light" onClick={importLocal}>导入本地包</Button>}
       {restartNeeded && <Button type="button" color="primary" variant="solid" onClick={restart}>立即重启 Ayana</Button>}
     </div>
-    {!canDownload && !busy && <p className="form-hint">下载地址尚未配置。你可以在发布配置里填写语音包清单，或先导入本地语音包。</p>}
-    <p className="form-hint">下载和安装期间可以继续文字聊天。语音包不会影响对话功能，安装完成后才会切换声音。</p>
+    {!canDownload && !busy && <p className="form-hint">下载暂未开放，可以导入本地语音包。</p>}
+    <p className="form-hint">下载会自动选择镜像并使用多线程加速，可随时暂停后继续；安装期间也可以继续文字聊天。</p>
   </div>;
 }

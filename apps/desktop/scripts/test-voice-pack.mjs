@@ -44,6 +44,11 @@ assert.equal(voicePack.selectVariant(manifest, { ...rtx4060, driver: '540.00' })
 assert.equal(voicePack.selectVariant(manifest, { ...rtx4060, memory_mb: 4096 }).id, 'cpu');
 assert.equal(voicePack.selectVariant(manifest, null).id, 'cpu');
 assert.throws(() => voicePack.validateManifest({ ...manifest, variants: [{ ...variants[0], sha256: 'bad' }] }), /校验值/);
+assert.deepEqual(voicePack.downloadCandidates('https://huggingface.co/Vociepeak/ayana-voice/resolve/main/voice-pack.json'), [
+  'https://hf-mirror.com/Vociepeak/ayana-voice/resolve/main/voice-pack.json',
+  'https://huggingface.co/Vociepeak/ayana-voice/resolve/main/voice-pack.json',
+]);
+assert.deepEqual(voicePack.downloadCandidates('https://example.com/pack.zip'), ['https://example.com/pack.zip']);
 
 const silent = {
   settingsLoaded: true, settings: { voice: { voice_mode: 'silent' } },
@@ -123,6 +128,49 @@ try {
   assert.equal(applied.reference_text, 'こんにちは。');
   assert.ok(fs.existsSync(path.join(workspace, 'voice', 'ayana-test-1.0.0-cpu', 'voice-pack.json')));
   assert.equal(JSON.parse(fs.readFileSync(path.join(workspace, 'state.json'), 'utf8')).installed.pack_id, 'ayana-test');
+
+  const http = await import('node:http');
+  const payload = fs.readFileSync(archive);
+  let rangeRequests = 0;
+  const server = http.createServer((request, response) => {
+    const match = /bytes=(\d+)-(\d*)/.exec(String(request.headers.range || ''));
+    if (!match) {
+      response.writeHead(200, { 'content-length': payload.length, 'accept-ranges': 'bytes' });
+      response.end(payload);
+      return;
+    }
+    rangeRequests++;
+    const start = Number(match[1]);
+    const end = match[2] ? Number(match[2]) : payload.length - 1;
+    if (start >= payload.length) { response.writeHead(416); response.end(); return; }
+    response.writeHead(206, {
+      'content-length': end - start + 1, 'accept-ranges': 'bytes',
+      'content-range': `bytes ${start}-${end}/${payload.length}`,
+    });
+    response.end(payload.subarray(start, end + 1));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const remoteManifest = path.join(workspace, 'manifest-http.json');
+  fs.writeFileSync(remoteManifest, JSON.stringify({
+    format: 1, pack_id: 'ayana-test', version: '1.0.0',
+    variants: [{ id: 'cpu', kind: 'cpu', url: `http://127.0.0.1:${server.address().port}/pack.zip`, sha256, size: payload.length }],
+  }));
+  let remoteApplied;
+  const remote = new voicePack.VoicePackManager({
+    voiceRoot: path.join(workspace, 'voice-http'),
+    stateFile: path.join(workspace, 'state-http.json'),
+    manifestPath: remoteManifest,
+    detectGpu: async () => null,
+    applyVoice: async voice => { remoteApplied = voice; },
+    parallelMinBytes: 1,
+    parallelChunkBytes: 256,
+  });
+  await remote.start();
+  assert.equal(remote.getState().phase, 'ready', JSON.stringify(remote.getState()));
+  assert.equal(remoteApplied.voice_mode, 'sovits');
+  assert(rangeRequests >= 2, 'large remote packs download through multiple range connections');
+  assert.equal(fs.existsSync(path.join(workspace, 'voice-http', '.downloads', 'ayana-test-1.0.0-cpu.zip.part.segments')), false);
+  await new Promise(resolve => server.close(resolve));
 
   let imported;
   const local = new voicePack.VoicePackManager({

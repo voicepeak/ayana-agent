@@ -119,10 +119,27 @@ export interface VoicePackManagerOptions {
   detectGpu?: () => Promise<GpuInfo | null>;
   applyVoice?: (voice: Record<string, unknown>) => Promise<void>;
   onState?: (state: VoicePackState) => void;
+  parallelMinBytes?: number;
+  parallelChunkBytes?: number;
 }
 
 const REQUIRED_PATH_KEYS = ['python', 'engine_root', 'model_gpt', 'model_sovits', 'reference_audio'] as const;
 const SAFE_ID = /^[a-z0-9][a-z0-9._-]{0,100}$/i;
+const PARALLEL_CONNECTIONS = 8;
+const PARALLEL_MIN_BYTES = 64 * 1024 * 1024;
+
+export function downloadCandidates(url: string): string[] {
+  const candidates = [url];
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === 'huggingface.co' || parsed.hostname.endsWith('.huggingface.co')) {
+      const mirror = new URL(url);
+      mirror.hostname = 'hf-mirror.com';
+      candidates.unshift(mirror.href);
+    }
+  } catch { /* Local paths are not URLs. */ }
+  return [...new Set(candidates)];
+}
 
 function parseJson(text: string): unknown {
   return JSON.parse(text.replace(/^\uFEFF/, ''));
@@ -292,6 +309,8 @@ export class VoicePackManager {
   private readonly detectGpu: () => Promise<GpuInfo | null>;
   private readonly applyVoice?: (voice: Record<string, unknown>) => Promise<void>;
   private readonly onState?: (state: VoicePackState) => void;
+  private readonly parallelMinBytes: number;
+  private readonly parallelChunkBytes: number;
   private state: VoicePackState;
   private installed?: InstalledRecord;
   private pending?: PendingDownload;
@@ -310,6 +329,8 @@ export class VoicePackManager {
     this.detectGpu = options.detectGpu || detectNvidiaGpu;
     this.applyVoice = options.applyVoice;
     this.onState = options.onState;
+    this.parallelMinBytes = options.parallelMinBytes ?? PARALLEL_MIN_BYTES;
+    this.parallelChunkBytes = options.parallelChunkBytes ?? 32 * 1024 * 1024;
     mkdirSync(this.voiceRoot, { recursive: true });
     mkdirSync(this.downloadRoot, { recursive: true });
     for (const entry of readdirSync(this.voiceRoot, { withFileTypes: true })) {
@@ -323,8 +344,9 @@ export class VoicePackManager {
     const installed = this.installed && this.isInstalledUsable(this.installed) ? this.installed : undefined;
     if (!installed) this.installed = undefined;
     const needsConfig = installed?.configured === false;
+    const partial = this.pending ? this.pendingBytes(this.pending) : 0;
     this.state = {
-      phase: needsConfig ? 'failed' : installed ? 'ready' : this.pending && this.partFile(this.pending) && existsSync(this.partFile(this.pending)) ? 'paused' : 'idle',
+      phase: needsConfig ? 'failed' : installed ? 'ready' : partial > 0 ? 'paused' : 'idle',
       installed: Boolean(installed),
       manifest_configured: Boolean(this.manifestUrl || this.manifestPath),
       can_download: Boolean(this.manifestUrl || this.manifestPath),
@@ -334,7 +356,7 @@ export class VoicePackManager {
       variant: installed?.variant || this.pending?.variant,
       kind: installed?.kind || this.pending?.kind,
       total: this.pending?.total,
-      downloaded: this.pending && existsSync(this.partFile(this.pending)) ? statSync(this.partFile(this.pending)).size : undefined,
+      downloaded: partial || undefined,
       error: needsConfig ? '上次语音配置未完成，请重试' : undefined,
       message: needsConfig ? '语音资源包已安装，等待写入配置' : installed ? '语音资源包已安装' : this.pending ? '语音资源包下载未完成' : undefined,
     };
@@ -403,7 +425,7 @@ export class VoicePackManager {
       this.state = {
         ...this.state, phase: 'downloading', pack_id: manifest.pack_id, version: manifest.version,
         variant: variant.id, kind: variant.kind, label: variant.label || (variant.kind === 'cuda' ? 'GPU 加速' : 'CPU'),
-        total: variant.size, downloaded: 0, progress: 0, speed: undefined, eta_seconds: undefined,
+        total: variant.size, downloaded: this.pendingBytes(pending), progress: 0, speed: undefined, eta_seconds: undefined,
         message: variant.kind === 'cuda' ? '正在下载 GPU 语音资源包'
           : this.state.gpu ? '当前显卡暂不满足加速条件，将使用 CPU 语音' : '正在下载语音资源包',
       };
@@ -513,9 +535,15 @@ export class VoicePackManager {
       return validateManifest(parseJson(await fs.readFile(this.manifestPath, 'utf8')));
     }
     if (!this.manifestUrl) throw new Error('语音资源包下载地址尚未配置');
-    const response = await this.fetchImpl(this.manifestUrl, { headers: { Accept: 'application/json' } });
-    if (!response.ok) throw new Error(`无法获取语音资源包清单（HTTP ${response.status}）`);
-    return validateManifest(parseJson(await response.text()));
+    let lastError: unknown;
+    for (const url of downloadCandidates(this.manifestUrl)) {
+      try {
+        const response = await this.fetchImpl(url, { headers: { Accept: 'application/json' } });
+        if (!response.ok) throw new Error(`无法获取语音资源包清单（HTTP ${response.status}）`);
+        return validateManifest(parseJson(await response.text()));
+      } catch (error) { lastError = error; }
+    }
+    throw lastError instanceof Error ? lastError : new Error('无法获取语音资源包清单');
   }
 
   private resolveUrl(url: string): string {
@@ -533,11 +561,28 @@ export class VoicePackManager {
     return path.join(this.downloadRoot, `${pending.pack_id}-${pending.version}-${pending.variant}.zip`);
   }
 
+  private segmentDirectory(pending: PendingDownload): string {
+    return `${this.partFile(pending)}.segments`;
+  }
+
+  private pendingBytes(pending: PendingDownload): number {
+    const directory = this.segmentDirectory(pending);
+    if (existsSync(directory)) {
+      try {
+        return readdirSync(directory, { withFileTypes: true })
+          .filter(entry => entry.isFile())
+          .reduce((sum, entry) => sum + statSync(path.join(directory, entry.name)).size, 0);
+      } catch { /* Fall back to the plain part file. */ }
+    }
+    const part = this.partFile(pending);
+    return existsSync(part) ? statSync(part).size : 0;
+  }
+
   private async download(manifest: VoicePackManifest, variant: VoicePackVariant, pending: PendingDownload): Promise<string> {
     const part = this.partFile(pending);
     const archive = this.archiveFile(pending);
     const url = this.resolveUrl(variant.url);
-    let offset = existsSync(part) ? statSync(part).size : 0;
+    const offset = this.pendingBytes(pending);
     this.state.downloaded = offset;
     if (!/^https?:/i.test(url)) {
       const source = url.startsWith('file:') ? fileURLToPath(url) : url;
@@ -553,32 +598,174 @@ export class VoicePackManager {
       const output = createWriteStream(part, { flags: offset ? 'a' : 'w' });
       await this.pipeWithProgress(input, output, offset, size, pending);
     } else {
-      const headers: Record<string, string> = {};
-      if (offset > 0) headers.Range = `bytes=${offset}-`;
-      const response = await this.fetchImpl(url, { headers, signal: this.abort?.signal });
-      if (response.status === 416 && offset > 0) {
-        await fs.rm(archive, { force: true });
-        await fs.rename(part, archive);
-        this.state = { ...this.state, downloaded: offset, total: offset, progress: 1 };
-        this.emit(true);
-        return archive;
+      let lastError: unknown;
+      for (const endpoint of downloadCandidates(url)) {
+        try {
+          return await this.downloadRemote(endpoint, part, archive, variant, pending);
+        } catch (error) {
+          if (this.abort?.signal.aborted) throw error;
+          if (this.pendingBytes(pending) === 0) {
+            await fs.rm(this.segmentDirectory(pending), { recursive: true, force: true });
+          }
+          lastError = error;
+        }
       }
-      if (!response.ok) throw new Error(`语音资源包下载失败（HTTP ${response.status}）`);
-      if (offset > 0 && response.status !== 206) {
-        offset = 0;
-        await fs.rm(part, { force: true });
-      }
-      const contentLength = Number(response.headers.get('content-length') || 0);
-      const total = variant.size || (contentLength > 0 ? offset + contentLength : undefined);
-      this.state = { ...this.state, total, downloaded: offset };
-      const input = Readable.fromWeb(response.body as import('node:stream/web').ReadableStream);
-      const output = createWriteStream(part, { flags: offset ? 'a' : 'w' });
-      await this.pipeWithProgress(input, output, offset, total, pending);
+      throw lastError instanceof Error ? lastError : new Error('语音资源包下载失败');
     }
     if (!existsSync(part)) throw new Error('语音资源包下载未完成');
     await fs.rm(archive, { force: true });
     await fs.rename(part, archive);
     return archive;
+  }
+
+  private async downloadRemote(url: string, part: string, archive: string, variant: VoicePackVariant, pending: PendingDownload): Promise<string> {
+    const total = variant.size || await this.remoteSize(url);
+    const segments = this.segmentDirectory(pending);
+    const canSplit = Boolean(total && total >= this.parallelMinBytes
+      && (existsSync(segments) || (!existsSync(part) && await this.rangeSupported(url))));
+    if (canSplit) {
+      await this.downloadParallel(url, part, archive, pending, total!);
+      return archive;
+    }
+    let offset = existsSync(part) ? statSync(part).size : 0;
+    const headers: Record<string, string> = {};
+    if (offset > 0) headers.Range = `bytes=${offset}-`;
+    const response = await this.fetchImpl(url, { headers, signal: this.abort?.signal });
+    if (response.status === 416 && offset > 0) {
+      await fs.rm(archive, { force: true });
+      await fs.rename(part, archive);
+      this.state = { ...this.state, downloaded: offset, total: offset, progress: 1 };
+      this.emit(true);
+      return archive;
+    }
+    if (!response.ok) throw new Error(`语音资源包下载失败（HTTP ${response.status}）`);
+    if (offset > 0 && response.status !== 206) {
+      offset = 0;
+      await fs.rm(part, { force: true });
+    }
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    const size = variant.size || (contentLength > 0 ? offset + contentLength : undefined);
+    this.state = { ...this.state, total: size, downloaded: offset };
+    const input = Readable.fromWeb(response.body as import('node:stream/web').ReadableStream);
+    const output = createWriteStream(part, { flags: offset ? 'a' : 'w' });
+    await this.pipeWithProgress(input, output, offset, size, pending);
+    if (!existsSync(part)) throw new Error('语音资源包下载未完成');
+    await fs.rm(archive, { force: true });
+    await fs.rename(part, archive);
+    return archive;
+  }
+
+  private async remoteSize(url: string): Promise<number | undefined> {
+    try {
+      const response = await this.fetchImpl(url, { method: 'HEAD', signal: this.abort?.signal });
+      const size = Number(response.headers.get('content-length') || 0);
+      return Number.isFinite(size) && size > 0 ? size : undefined;
+    } catch { return undefined; }
+  }
+
+  private async rangeSupported(url: string): Promise<boolean> {
+    try {
+      const response = await this.fetchImpl(url, { headers: { Range: 'bytes=0-0' }, signal: this.abort?.signal });
+      const supported = response.status === 206;
+      await response.body?.cancel().catch(() => {});
+      return supported;
+    } catch { return false; }
+  }
+
+  private async downloadParallel(url: string, part: string, archive: string, pending: PendingDownload, total: number): Promise<void> {
+    const directory = this.segmentDirectory(pending);
+    mkdirSync(directory, { recursive: true });
+    const count = Math.max(1, Math.min(PARALLEL_CONNECTIONS, Math.ceil(total / this.parallelChunkBytes)));
+    const ranges = Array.from({ length: count }, (_, index) => {
+      const start = Math.floor(total * index / count);
+      const end = Math.floor(total * (index + 1) / count) - 1;
+      return { start, end, file: path.join(directory, `${index}.segment`) };
+    });
+    let downloaded = ranges.reduce((sum, range) => {
+      const size = existsSync(range.file) ? statSync(range.file).size : 0;
+      return sum + Math.min(size, range.end - range.start + 1);
+    }, 0);
+    this.state = { ...this.state, total, downloaded, progress: total ? downloaded / total : undefined };
+    this.emit(true);
+    let last = this.now();
+    let lastBytes = downloaded;
+    const note = (bytes: number) => {
+      downloaded += bytes;
+      const at = this.now();
+      if (at - last < 250) return;
+      const seconds = Math.max(0.001, (at - last) / 1000);
+      const speed = Math.max(0, (downloaded - lastBytes) / seconds);
+      this.state = {
+        ...this.state, downloaded, total, speed,
+        eta_seconds: speed > 0 ? Math.max(0, (total - downloaded) / speed) : undefined,
+        progress: total ? Math.min(1, downloaded / total) : undefined,
+      };
+      this.pending = { ...pending, total };
+      this.emit();
+      last = at;
+      lastBytes = downloaded;
+    };
+    const controller = new AbortController();
+    const forwardAbort = () => controller.abort();
+    this.abort?.signal.addEventListener('abort', forwardAbort, { once: true });
+    let failure: unknown;
+    try {
+      const results = await Promise.allSettled(ranges.map(async range => {
+        try {
+          let have = existsSync(range.file) ? statSync(range.file).size : 0;
+          if (have >= range.end - range.start + 1) return;
+          const response = await this.fetchImpl(url, {
+            headers: { Range: `bytes=${range.start + have}-${range.end}` }, signal: controller.signal,
+          });
+          if (response.status !== 206 || !response.body) {
+            throw new Error(response.status === 200 ? '下载服务器不支持分段下载，正在改用单线程' : `语音资源包下载失败（HTTP ${response.status}）`);
+          }
+          const input = Readable.fromWeb(response.body as import('node:stream/web').ReadableStream);
+          const output = createWriteStream(range.file, { flags: have ? 'a' : 'w' });
+          await new Promise<void>((resolve, reject) => {
+            input.on('data', chunk => note(Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(String(chunk))));
+            input.on('error', reject);
+            output.on('error', reject);
+            output.on('finish', resolve);
+            input.pipe(output);
+          });
+        } catch (error) {
+          controller.abort();
+          throw error;
+        }
+      }));
+      failure = results.find(result => result.status === 'rejected')?.reason;
+    } finally {
+      this.abort?.signal.removeEventListener('abort', forwardAbort);
+    }
+    if (failure) {
+      controller.abort();
+      throw failure;
+    }
+    const completed = ranges.reduce((sum, range) => sum + (existsSync(range.file) ? statSync(range.file).size : 0), 0);
+    if (completed !== total) throw new Error('语音资源包下载不完整，请重试');
+    await fs.rm(part, { force: true });
+    const handle = await fs.open(part, 'w');
+    let position = 0;
+    try {
+      for (const range of ranges) {
+        const input = createReadStream(range.file);
+        for await (const chunk of input) {
+          const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          let offset = 0;
+          while (offset < data.length) {
+            const { bytesWritten } = await handle.write(data, offset, data.length - offset, position);
+            offset += bytesWritten;
+            position += bytesWritten;
+          }
+        }
+      }
+    } finally { await handle.close(); }
+    await fs.rm(directory, { recursive: true, force: true });
+    this.state = { ...this.state, downloaded: total, total, progress: 1, speed: undefined, eta_seconds: undefined };
+    this.emit(true);
+    await fs.rm(archive, { force: true });
+    await fs.rename(part, archive);
   }
 
   private async pipeWithProgress(
@@ -664,6 +851,7 @@ export class VoicePackManager {
     await fs.rm(staging, { recursive: true, force: true });
     await fs.rm(archive, { force: true });
     await fs.rm(path.join(this.downloadRoot, `${manifest.pack_id}-${manifest.version}-${variant.id}.zip.part`), { force: true });
+    await fs.rm(path.join(this.downloadRoot, `${manifest.pack_id}-${manifest.version}-${variant.id}.zip.part.segments`), { recursive: true, force: true });
     return final;
   }
 

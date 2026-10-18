@@ -85,6 +85,46 @@ async def test_audio_generation_association_and_receipts(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_unavailable_voice_falls_back_to_text_without_synthesis_errors(tmp_path):
+    class MissingVoice(Tts):
+        status = {"state": "failed", "engine": "silent", "error": "voice pack not installed"}
+        async def synthesize(self, text, generation_id):
+            raise AssertionError("synthesis must not run when the voice engine failed")
+
+    runtime = AgentRuntime(settings(tmp_path), desktop=Desktop(), tts=MissingVoice())
+    ws = Ws()
+    runtime.clients.add(ws)
+    try:
+        await runtime.start()
+        await runtime.handle({"type": "turn.start", "text": "hello"})
+        await runtime.task
+        utterances = [event for event in ws.events if event["type"] == "utterance.ready"]
+        assert utterances and all(event["audio_enabled"] is False for event in utterances)
+        assert not any(event["type"] == "audio.ready" for event in ws.events)
+        assert not any(event["type"] == "error" and event.get("source") == "tts" for event in ws.events)
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_online_turn_requires_api_key_and_model(tmp_path, monkeypatch):
+    monkeypatch.delenv("AYANA_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    cfg = settings(tmp_path)
+    cfg.values.update(provider="openai", model="", voice={"voice_mode": "silent"})
+    runtime = AgentRuntime(cfg, desktop=Desktop(), tts=Tts())
+    ws = Ws()
+    runtime.clients.add(ws)
+    try:
+        await runtime.handle({"type": "turn.start", "text": "hello"})
+        assert runtime.task is None
+        assert any(event["type"] == "error" and "API Key" in event.get("message", "") for event in ws.events)
+        assert any(event["type"] == "task.state" and event.get("state") == "failed" for event in ws.events)
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
 async def test_bounded_audio_wait_is_released_by_cancel(tmp_path):
     runtime = AgentRuntime(settings(tmp_path), desktop=Desktop(), tts=Tts())
     runtime.pending.update({"1": 4000, "2": 4000})

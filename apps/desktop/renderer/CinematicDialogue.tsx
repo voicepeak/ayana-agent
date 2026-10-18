@@ -3,6 +3,8 @@ import type { Speech } from './state';
 import { dialogueGlyphs, dialogueRevealCount, dialogueRevealDuration } from './cinematic';
 import { dialogueText, dialogueLanguageTag, type DialogueLanguage } from './dialogueLanguages';
 
+const revealStarts = new Map<string, number>();
+
 /** A sentence keeps the same text nodes when it becomes history. */
 export function CinematicDialogue({ speech, primaryLanguage, translationLanguage, textOnly, active = true, show = true, onVisibilityChange }: {
   speech: Speech; primaryLanguage: DialogueLanguage; translationLanguage: 'none' | DialogueLanguage;
@@ -22,10 +24,26 @@ export function CinematicDialogue({ speech, primaryLanguage, translationLanguage
   }, []);
   useEffect(() => {
     if (!active || !timed) return;
-    const started = performance.now();
-    const interval = setInterval(() => { const next = Math.min(duration, performance.now() - started); setElapsed(next); if (next >= duration) clearInterval(interval); }, 45);
+    let origin = revealStarts.get(speech.id);
+    if (origin === undefined) {
+      const consumed = speech.state === 'played' ? 1 : speech.total ? Math.max(0, Math.min(1, speech.played / speech.total)) : 0;
+      origin = performance.now() - duration * consumed;
+      revealStarts.set(speech.id, origin);
+      if (revealStarts.size > 2000) {
+        const oldest = revealStarts.keys().next().value;
+        if (oldest !== undefined) revealStarts.delete(oldest);
+      }
+    }
+    const start = origin;
+    const update = () => {
+      const next = Math.min(duration, Math.max(0, performance.now() - start));
+      setElapsed(next);
+      if (next >= duration) clearInterval(interval);
+    };
+    const interval = window.setInterval(update, 45);
+    update();
     return () => clearInterval(interval);
-  }, [speech.id, timed, active, duration]);
+  }, [timed, active, duration, speech.id, speech.state, speech.total, speech.played]);
   const progress = !active || speech.state === 'played' ? 1 : timed ? Math.min(1, elapsed / duration) : speech.total ? speech.played / speech.total : 0;
   const mainCount = dialogueRevealCount(main, progress), translatedCount = dialogueRevealCount(translation, progress);
   const visible = show && Boolean(main);
