@@ -29,7 +29,7 @@ export class AudioPlayer {
         this.gain = this.context.createGain();
         this.gain.gain.value = this.volume;
         this.analyser = this.context.createAnalyser();
-        this.analyser.fftSize = 256;
+        this.analyser.fftSize = 512;
         this.node.connect(this.analyser).connect(this.gain).connect(this.context.destination);
         this.watchLevel();
         this.node.port.onmessage = ({ data }: MessageEvent<Record<string, unknown>>) => {
@@ -110,7 +110,7 @@ export class AudioPlayer {
         let energy = 0;
         for (const sample of samples) energy += sample * sample;
         const target = Math.min(1, Math.sqrt(energy / samples.length) * 5.5);
-        this.levelValue += (target - this.levelValue) * (target > this.levelValue ? .55 : .16);
+        this.levelValue += (target - this.levelValue) * (target > this.levelValue ? .65 : .38);
         publishAudioLevel(this.levelValue);
       }
       this.levelRaf = requestAnimationFrame(tick);

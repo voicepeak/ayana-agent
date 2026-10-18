@@ -2,9 +2,9 @@
 
 **Windows 上的彩名：立绘、对白、日语声音和一点点小心思，收进一张可以随便摆放的便签。**
 
-[一键安装](#一键安装) · [项目主页](https://voicepeak.github.io/ayana-agent/) · [GitHub Releases](https://github.com/voicepeak/ayana-agent/releases) · [0.3.28 发布说明](docs/RELEASE_0.3.28.md)
+[一键安装](#一键安装) · [项目主页](https://voicepeak.github.io/ayana-agent/) · [GitHub Releases](https://github.com/voicepeak/ayana-agent/releases) · [0.3.29 发布说明](docs/RELEASE_0.3.29.md)
 
-`v0.3.28` · Windows 10/11 x64 · 当前公开版本 · 需要配置在线模型 API
+`v0.3.29` · Windows 10/11 x64 · 当前公开版本 · 需要配置在线模型 API
 
 > 想要“做事的 Agent”版本（文件、命令、浏览器自动化、桌面操作、computer use）？它完整保留在 `beta` 分支，`main` 只维护这个聊天伴侣。
 
@@ -14,16 +14,16 @@
 
 | 方式 | 下载 | 说明 |
 | --- | --- | --- |
-| **安装包（推荐）** | [Ayana-0.3.28-win-x64-setup.exe](https://github.com/voicepeak/ayana-agent/releases/download/v0.3.28/Ayana-0.3.28-win-x64-setup.exe) | per-user 一键安装，不要求管理员权限，安装后自动启动 |
-| 便携版 | [Ayana-0.3.28-win-x64.exe](https://github.com/voicepeak/ayana-agent/releases/download/v0.3.28/Ayana-0.3.28-win-x64.exe) | 双击即用，不写入安装目录 |
-| 校验值 | [SHA256SUMS-0.3.28.txt](https://github.com/voicepeak/ayana-agent/releases/download/v0.3.28/SHA256SUMS-0.3.28.txt) | 安装包与便携版的 SHA256 |
+| **安装包（推荐）** | [Ayana-0.3.29-win-x64-setup.exe](https://github.com/voicepeak/ayana-agent/releases/download/v0.3.29/Ayana-0.3.29-win-x64-setup.exe) | per-user 一键安装，不要求管理员权限，安装后自动启动 |
+| 便携版 | [Ayana-0.3.29-win-x64.exe](https://github.com/voicepeak/ayana-agent/releases/download/v0.3.29/Ayana-0.3.29-win-x64.exe) | 双击即用，不写入安装目录 |
+| 校验值 | [SHA256SUMS-0.3.29.txt](https://github.com/voicepeak/ayana-agent/releases/download/v0.3.29/SHA256SUMS-0.3.29.txt) | 安装包与便携版的 SHA256 |
 
 安装包约 **342 MB**。安装完成后打开 Ayana，按开屏导览完成称呼与模型配置；语音包可以稍后再下载，不影响文字聊天。
 
 SHA256（安装包）：
 
 ```text
-ff8c703e83c1788cfcf0da5442fe06f7ea5e28e17b61586cf427e4da34b55ca1
+a148f51eaf75c7719bb46ab3b7e1b8b88a96207467572eef7d396389ae8ecd5f
 ```
 
 ### 安装后三步
@@ -229,7 +229,8 @@ npm --prefix apps/desktop test
 
 | 版本 | 重点 | 链接 |
 | --- | --- | --- |
-| **0.3.28** | 新 Logo、随声音 Q 弹立绘、点击回弹、Ayana 品牌回归 | [Release](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.28) · [说明](docs/RELEASE_0.3.28.md) |
+| **0.3.29** | Q 弹立绘回弹调校：更快回弹、音头脉冲、持续说话不再一直扁着 | [Release](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.29) · [说明](docs/RELEASE_0.3.29.md) |
+| 0.3.28 | 新 Logo、随声音 Q 弹立绘、点击回弹、Ayana 品牌回归 | [Release](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.28) · [说明](docs/RELEASE_0.3.28.md) |
 | 0.3.27 | 搜索来源校正、来源顺序与去重、安装器与界面品牌整理 | [Release](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.27) · [说明](docs/RELEASE_0.3.27.md) |
 | 0.3.26 | 互动开屏、在线模型必配、八套主题、语音下载加速、纯文字对话稳定 | [Release](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.26) · [说明](docs/RELEASE_0.3.26.md) |
 | 0.3.25 | 退出、回执与 WebSocket 清理；SHA256 清单 | [Release](https://github.com/voicepeak/ayana-agent/releases/tag/v0.3.25) |

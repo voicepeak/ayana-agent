@@ -78,10 +78,10 @@ export function CompanionPortrait({ design, expression, motion, bounce = true, c
       last = now;
       const state = spring.current;
       const target = state.target + state.impulse;
-      const force = (target - state.value) * 180 - state.velocity * 15;
+      const force = (target - state.value) * 460 - state.velocity * 14;
       state.velocity += force * dt;
-      state.value += state.velocity * dt;
-      state.impulse *= Math.exp(-dt * 5.5);
+      state.value = Math.max(-.12, Math.min(.18, state.value + state.velocity * dt));
+      state.impulse *= Math.exp(-dt * 8);
       if (Math.abs(state.value) < .0004 && Math.abs(state.velocity) < .0004) {
         state.value = 0; state.velocity = 0;
       }
@@ -96,7 +96,15 @@ export function CompanionPortrait({ design, expression, motion, bounce = true, c
       spring.current.target = 0;
       return;
     }
-    return subscribeAudioLevel(level => { spring.current.target = level * .085; });
+    let previous = 0;
+    return subscribeAudioLevel(level => {
+      const jump = level - previous;
+      previous = level;
+      spring.current.target = level * .04;
+      if (jump > .06) {
+        spring.current.impulse = Math.min(.16, spring.current.impulse + jump * .12);
+      }
+    });
   }, [bounce, editable]);
   useEffect(() => {
     if (previousExpression.current !== expression && bounce && motion && !editable
