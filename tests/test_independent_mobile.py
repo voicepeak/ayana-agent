@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 import httpx
 import pytest
 
-from services.gateway.server import create_app, Gateway
+from services.gateway.server import create_app, Gateway, model_events
 from services.gateway.store import Store
 from services.mobile_transport import audio_frame, read_audio_frame
 from services.tts_remote.__main__ import DiagnosticLog, RemoteWorker
@@ -257,3 +257,42 @@ async def test_real_provider_adapter_decodes_sse_ndjson(tmp_path):
         gw = Gateway(None, {"api_key": "secret", "model": "test", "base_url": "https://api.deepseek.com"}, client)
         result = [event async for event in gw.model([{"role": "user", "content": "hello"}])]
         assert result == [speech]
+
+
+def test_legacy_history_reply_reaches_phone_as_speech_and_subtitle(setup_gateway):
+    app, store, key, config = setup_gateway
+    legacy = {"speech_ja": "ここにいるよ。", "display_zh": "我在这里。", "displayed": True,
+              "status": "played", "played_samples": 48000, "total_samples": 48000}
+    content = json.dumps(legacy, ensure_ascii=False)
+    wire = "".join("data: " + json.dumps({"choices": [{"delta": {"content": char}}]}) + "\n\n" for char in content)
+    wire += "data: [DONE]\n\n"
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, text=wire))
+    provider = httpx.AsyncClient(transport=transport)
+    actual = create_app(config, store=store, model_client=provider)
+    with TestClient(actual) as client:
+        session = activate(client, key)
+        with client.websocket_connect("/v1/mobile") as phone:
+            phone.send_json({"access_token": session["access_token"]})
+            receive_kind(phone, "gateway.ready")
+            phone.send_json(turn())
+            speech = receive_kind(phone, "utterance.ready")
+            subtitle = receive_kind(phone, "subtitle.ready")
+            done = receive_kind(phone, "task.state")
+            assert speech["speech_ja"] == legacy["speech_ja"]
+            assert subtitle["display_zh"] == legacy["display_zh"]
+            assert speech["utterance_id"] == subtitle["utterance_id"]
+            assert done["state"] == "idle"
+            assert not set(speech) & {"displayed", "status", "played_samples", "total_samples"}
+    assert any(e["type"] == "turn.finished" and e["state"] == "complete" for e in store.next_logs(100))
+    asyncio.run(provider.aclose())
+
+
+@pytest.mark.parametrize("value", [
+    {"speech_ja": "ここにいるよ。", "name": "run_tool", "arguments": {}},
+    {"speech_ja": "https://example.com"},
+    {"speech_ja": "ここにいるよ。", "display_zh": {"nested": "invalid"}},
+    {"events": [{"speech_ja": "ここにいるよ。"}]},
+])
+def test_legacy_adapter_rejects_actions_and_invalid_speech(value):
+    with pytest.raises(ValueError):
+        model_events(value, "legacy_s1")

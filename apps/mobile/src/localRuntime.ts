@@ -3,6 +3,7 @@ import { characterBootstrap, prompt, resolveExpression, settings, setCharacterSe
 import type { Conversation, HistoryRecord, RuntimeEvent } from './types';
 import { identifier } from './identifier';
 import { sessionOwner } from './api';
+import { modelHistoryContent } from './modelHistory';
 
 type RecordItem = HistoryRecord & { asset_id?: string; resolved_expression?: string; resolved_pose?: string; conversation_id?: string };
 type Saved = { settings: typeof settings; conversations: Conversation[]; current: string; history: Record<string, RecordItem[]>; memory: string[]; generation: number };
@@ -54,9 +55,7 @@ export class LocalRuntime {
     let budget = 0;
     const context: { role: string; content: string }[] = [];
     for (const item of [...history].reverse()) {
-      const content = item.role === 'user' ? item.text || '' : JSON.stringify({ speech_ja: item.speech_ja,
-        display_zh: item.display_zh, displayed: item.displayed, status: item.status,
-        played_samples: item.played_samples, total_samples: item.total_samples });
+      const content = modelHistoryContent(item);
       if (budget + content.length > 60000 || context.length >= 85) break;
       budget += content.length;
       context.unshift({ role: item.role === 'user' ? 'user' : 'assistant', content });

@@ -32,6 +32,26 @@ def identity(value):
     return value
 
 
+def model_events(event, fallback_key):
+    """Adapt the closed history shape emitted by mobile 0.2.0, never tool calls."""
+    if event.get("type") is not None:
+        return [event]
+    legacy_fields = {"key", "speech_ja", "display_zh", "displayed", "status",
+                     "played_samples", "total_samples", "intent", "affect", "intensity",
+                     "expression", "pose"}
+    if not event.get("speech_ja") or set(event) - legacy_fields:
+        raise ValueError("unsupported_model_event")
+    speech = validate_speech(event)
+    translation = event.get("display_zh")
+    if translation is not None and (not isinstance(translation, str) or not 1 <= len(translation) <= 1200):
+        raise ValueError("invalid_translation")
+    key = str(event.get("key") or fallback_key)
+    result = [{"type": "speech", "key": key, **speech}]
+    if translation is not None:
+        result.append({"type": "translation", "key": key, "display_zh": translation})
+    return result
+
+
 class Gateway:
     def __init__(self, store, config, model_client=None):
         self.store, self.config = store, config
@@ -76,7 +96,7 @@ class Gateway:
                                  json=body, headers={"Authorization": "Bearer " + self.config["api_key"]}) as response:
             if response.status_code != 200:
                 raise ValueError("model_http_" + str(response.status_code))
-            completed, size = False, 0
+            completed, size, event_serial = False, 0, 0
             async for line in response.aiter_lines():
                 if not line.startswith("data:"):
                     continue
@@ -99,7 +119,9 @@ class Gateway:
                     if size > 100000:
                         raise ValueError("model_output_too_large")
                     for event in parser.feed(content):
-                        yield event
+                        event_serial += 1
+                        for normalized in model_events(event, f"legacy_s{event_serial}"):
+                            yield normalized
             if not completed:
                 raise ValueError("model_disconnected")
             parser.finish()
@@ -281,6 +303,8 @@ class Phone:
         except Exception as error:
             state = "failed"
             code = str(error) if isinstance(error, ValueError) and ID.fullmatch(str(error)) else "model_stream_failed"
+            with suppress(ValueError):
+                await gw.log(self.event("model.failed", user_id=user, code=code))
             self.emit(self.event("error", source="turn", code=code, message="模型回复中断：" + code))
         finally:
             gw.active_users.discard(user)

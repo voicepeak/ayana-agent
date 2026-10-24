@@ -46,6 +46,8 @@ jobs:
           node-version: 22
       - name: Check bundled character assets
         run: test -f apps/mobile/src/generated/characters.json && test -d apps/mobile/public/characters
+      - name: Check multi-turn model history protocol
+        run: node --experimental-strip-types scripts/test_mobile_model_history.mjs
       - name: Build unsigned IPA
         run: bash scripts/build_mobile_ios.sh
       - name: Validate package and checksum
