@@ -2,6 +2,8 @@
 
 2026-10-24 初版，2026-10-25 补充公网验证。方案跟踪：[Issue #2](https://github.com/voicepeak/ayana-agent/issues/2)。
 
+**2026-10-25 最新交付为 Android build 3，网关已更新。** 完整验收见[回复中断修复与验收](MOBILE_ACCEPTANCE_2026-10-25.md)：449 项通过、5 项跳过，双角色真实对话、异常格式修复、打断/重连及网页离线重载均有验证。下文逐次修复记录属于历史，旧日志“不记录原始响应”的说明已被新的本机截断/脱敏诊断取代；原生实机验收仍未完成。
+
 已实现独立手机客户端、轻量网关和常驻语音/诊断进程，Android APK 已在 Windows 重建。iOS 已通过 GitHub Mac/Xcode 26.0.1 编译并生成 **未签名 IPA**，安装到普通 iPhone 前仍需 Apple 签名，尚未完成实机安装验证。[最新跨网测试及 iOS 构建记录](https://github.com/voicepeak/ayana-agent/actions/runs/40109340743)，构建代码为提交 `a10cb8f`。
 
 ## 实际运行边界

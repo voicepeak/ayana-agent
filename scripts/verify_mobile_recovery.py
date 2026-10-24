@@ -4,10 +4,12 @@ Uses a temporary, revoked-on-exit user. Never prints credentials or chat content
 The intentionally malformed source is synthetic test data, not user conversation.
 """
 import asyncio
+from array import array
 import base64
 import json
 from pathlib import Path
 import sqlite3
+import sys
 import time
 import uuid
 
@@ -37,7 +39,8 @@ async def main():
         long_speech = {**speech, "speech_ja": "きょうはとても楽しい気分なので、あなたといっしょにいろいろなお話をしながらゆっくりと過ごしたいと思っているよ。"}
         cases = {
             "plain_japanese": "ここにいるよ。",
-            "duplicate_inline_groups": "\n".join(json.dumps(e, ensure_ascii=False) for e in [speech, speech]),
+            "duplicate_inline_groups": "\n".join(json.dumps(e, ensure_ascii=False) for e in [speech,
+                {**speech, "speech_ja": "ゆっくり話そうね。", "display_zh": "慢慢聊吧。"}]),
             "duplicate_deferred_captions": "\n".join(json.dumps(e, ensure_ascii=False) for e in [
                 {k: v for k, v in speech.items() if k != "display_zh"},
                 {"type": "speech", "key": "s1", "speech_ja": "また話そうね。"},
@@ -53,8 +56,7 @@ async def main():
             async with asyncio.timeout(30):
                 while True:
                     event = json.loads(await socket.recv())
-                    if event["type"] == "service.state":
-                        assert event["state"] == "ready"
+                    if event["type"] == "service.state" and event["state"] == "ready":
                         break
             for generation, (name, source) in enumerate(cases.items(), 1):
                 turn = user + "_" + str(generation)
@@ -73,6 +75,10 @@ async def main():
                         if isinstance(raw, bytes):
                             event, pcm = read_audio_frame(raw)
                             assert event["generation_id"] == generation and len(pcm) > 100
+                            samples = array("h", pcm)
+                            if sys.byteorder != "little":
+                                samples.byteswap()
+                            assert max(abs(sample) for sample in samples) > 100, "Silent PCM returned"
                             audio.add(event["utterance_id"])
                             arrivals.append(round((time.monotonic() - started) * 1000))
                             await socket.send(json.dumps({"type": "audio.consumed", "utterance_id": event["utterance_id"]}))
