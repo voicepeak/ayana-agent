@@ -2,7 +2,7 @@
 
 2026-10-24。方案跟踪：[Issue #2](https://github.com/voicepeak/ayana-agent/issues/2)。
 
-已实现独立手机客户端、轻量网关和常驻语音/诊断进程，Android APK 已在 Windows 构建。iOS 工程和构建脚本已准备，当前没有 macOS/Xcode 与签名凭据，**尚未生成或验证可安装的 iOS IPA**。
+已实现独立手机客户端、轻量网关和常驻语音/诊断进程，Android APK 已在 Windows 构建。用户授权公开推送代码/素材后，iOS 已通过 GitHub Mac/Xcode 26.0.1 编译并生成 **未签名 IPA**，安装到普通 iPhone 前仍需 Apple 签名，尚未完成实机安装验证。[成功构建记录](https://github.com/voicepeak/ayana-agent/actions/runs/40106800657)，构建代码为提交 `8c965e3`。
 
 ## 实际运行边界
 
@@ -108,16 +108,18 @@ APPLE_TEAM_ID=自己的TeamID AYANA_IOS_BUNDLE_ID=自己的唯一BundleID \
   IOS_DEVICE_ID=自己的设备UDID bash scripts/build_mobile_ios.sh
 ```
 
-安装开发版本也可直接用 Xcode 打开 `apps/mobile/ios/App/App.xcodeproj`，选择 App → Signing & Capabilities → Personal Team，选择已连接 iPhone 后运行。签名证书、密码不应发送到聊天或提交仓库。Keychain 原生凭据插件随工程提供，但尚未在 iOS 编译和实机验证。[Capacitor 8 环境要求](https://capacitorjs.com/docs/getting-started/environment-setup)。
+安装开发版本也可直接用 Xcode 打开 `apps/mobile/ios/App/App.xcodeproj`，选择 App → Signing & Capabilities → Personal Team，选择已连接 iPhone 后运行。签名证书、密码不应发送到聊天或提交仓库。Keychain 原生凭据插件已通过 iOS 编译，读写与权限行为仍待实机验证。[Capacitor 8 环境要求](https://capacitorjs.com/docs/getting-started/environment-setup)。
 
-另提供手动触发的 `.github/workflows/mobile-ios.yml`，选择 Xcode 26 构建未签名 IPA；本轮仅准备文件，未推送源代码/角色资源、未触发云构建。PWA 的 HTTPS 安装模式可以避开原生签名需求，但当前局域网 HTTP 只作为网页试用；不能承诺同等的离线与后台能力。
+`.github/workflows/mobile-ios.yml` 已在公开分支 `codex/mobile-independent` 执行成功，提供 `Ayana-0.2.0-ios-unsigned.ipa` 和云端 SHA256 校验文件。首轮 macOS Bash 空数组兼容问题已修复，第二轮编译、ZIP 完整性检查和产物上传全部通过，耗时约 1 分 59 秒。没有向构建环境提供 Apple 凭据或本机服务凭据。
+
+没有自己的 Mac 也可使用云构建的 IPA，在 Windows 通过自己的免费 Apple 账号签名安装；详见 [iPhone 安装步骤](MOBILE_IOS_INSTALL.md)。这仍然需要签名。PWA 的 HTTPS 安装模式可以避开原生签名需求，但当前局域网 HTTP 只作为网页试用；不能承诺同等的离线与后台能力。
 
 ## 验证与未完成事项
 
 - 最新后端全量回归通过 411 项、跳过 5 项，其中独立手机测试 12 项通过。模型 SSE 逐字符分片、重复消息、刷新撤销、日志去重/满队列、慢音频网络不停止下一句合成均有覆盖。
 - 真实 DeepSeek → SoVITS → 协议客户端：两句音频在约 1.75/2.83 秒到达，合成约 0.87/1.07 秒；日志落库核对通过。这里只是一次热机合成测试，不是延迟 SLA。
 - Chrome 手机视口：激活、真实双句音频、播放回执、立绘资源、本地角色/称呼/记忆持久化通过；localhost 安全环境断网重载通过。LAN HTTP 的 HTMLAudio 降级播放也通过浏览器测试。远端命令仅见 `turn.start`、`audio.consumed`。
-- TypeScript/Vite、Capacitor Android/iOS 资源同步及 Android Gradle 构建通过；生产 JS 依赖 npm audit 未报告漏洞。**没有连接 Android/iPhone 实机**，原生安全存储、系统后台行为、手机真实 Wi-Fi 延迟仍待实机验收。
+- TypeScript/Vite、Capacitor Android/iOS 资源同步、Android Gradle 构建、iOS Xcode arm64 Release 编译和 IPA 打包通过；生产 JS 依赖 npm audit 未报告漏洞。**没有连接 Android/iPhone 实机**，原生安全存储、系统后台行为、手机真实 Wi-Fi 延迟仍待实机验收。
 - 第一版只提供文字输入和语音回复。尚未接入独立 STT 或搜索服务，麦克风明确禁用，不会暗中调用电脑 STT/工具。
 - 记忆支持手工保存和“记住…”语句，长上下文在手机裁剪；尚未迁移桌面的自动摘要与所有工具。单句内部仍为整句 PCM，逐句流水线已实现。
 - 未提供完整日志管理界面、手机历史导入导出、云端用户门户、商店发布和正式发布签名。

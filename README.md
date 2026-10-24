@@ -228,7 +228,7 @@ Get-Content .runtime\mobile-services\activation-code.txt
 
 同一 Wi-Fi 下访问电脑局域网 IP 的 17330 端口；Android 安装包位于 `release/mobile/`。本地试用不依赖 Tailscale，跨网使用仍需 HTTPS 公网入口。对话会写入电脑诊断库，界面与播放进度保留在手机。首句音频完成立即转发，后续句继续合成。
 
-完整步骤、Android/iOS 构建与签名、验证和限制见 [本地交付说明](docs/MOBILE_INDEPENDENT_DELIVERY.md)。iOS 工程已准备，但尚未在 Mac 构建签名；当前无可安装 IPA。麦克风/STT、搜索与完整工具迁移尚未完成。
+完整步骤、Android/iOS 构建与签名、验证和限制见 [本地交付说明](docs/MOBILE_INDEPENDENT_DELIVERY.md)。iOS 已通过云端 Mac 编译并生成未签名 IPA，安装前仍需 Apple 签名；[Windows 免费个人签名路线](docs/MOBILE_IOS_INSTALL.md) 已整理。麦克风/STT、搜索与完整工具迁移尚未完成。
 
 ---
 

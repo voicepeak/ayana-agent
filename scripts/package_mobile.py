@@ -20,9 +20,9 @@ def main():
             for path in (mobile / directory).rglob("*"):
                 if path.is_file() and not {"build", "DerivedData", ".build", "xcuserdata"}.intersection(path.parts):
                     archive.write(path, path.relative_to(ROOT))
-        for name in ("package.json", "package-lock.json", "tsconfig.json", "vite.config.ts", "capacitor.config.ts", "index.html"):
+        for name in ("package.json", "package-lock.json", "tsconfig.json", "vite.config.ts", "capacitor.config.ts", "index.html", "README.md"):
             archive.write(mobile / name, (mobile / name).relative_to(ROOT))
-        for name in ("scripts/build_mobile_ios.sh", "docs/MOBILE_INDEPENDENT_DELIVERY.md"):
+        for name in ("scripts/build_mobile_ios.sh", "docs/MOBILE_INDEPENDENT_DELIVERY.md", "docs/MOBILE_IOS_INSTALL.md"):
             path = ROOT / name
             if path.is_file():
                 archive.write(path, name)
@@ -30,7 +30,7 @@ def main():
         for path in (ROOT / "apps/mobile/dist").rglob("*"):
             if path.is_file():
                 archive.write(path, path.relative_to(ROOT / "apps/mobile/dist"))
-    files = [output / "Ayana-0.2.0-android.apk", ios, output / "Ayana-0.2.0-web.zip"]
+    files = [output / "Ayana-0.2.0-android.apk", output / "Ayana-0.2.0-ios-unsigned.ipa", ios, output / "Ayana-0.2.0-web.zip"]
     (output / "SHA256SUMS-0.2.0.txt").write_text("\n".join(
         hashlib.sha256(path.read_bytes()).hexdigest() + "  " + path.name for path in files if path.is_file()) + "\n", encoding="ascii")
     for path in files:
