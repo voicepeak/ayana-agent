@@ -1,7 +1,9 @@
-"""Live LAN gateway -> DeepSeek -> resident SoVITS smoke test; never prints credentials."""
+"""Live gateway -> DeepSeek -> resident SoVITS smoke test; never prints credentials."""
+import argparse
 import asyncio
 import base64
 import json
+import os
 from pathlib import Path
 import sqlite3
 import time
@@ -14,19 +16,30 @@ from services.mobile_transport import read_audio_frame
 
 
 async def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--url", default="")
+    parser.add_argument("--remote", action="store_true", help="Use an ephemeral activation code from AYANA_MOBILE_SMOKE_ACTIVATION; skip local SQLite checks")
+    args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    encoded = (root / ".runtime/mobile-services/activation-code.txt").read_text().strip().split(".", 1)[1]
+    code = os.environ["AYANA_MOBILE_SMOKE_ACTIVATION"] if args.remote else (root / ".runtime/mobile-services/activation-code.txt").read_text()
+    encoded = code.strip().split(".", 1)[1]
     activation = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
-    # Keep the test loopback; the issued activation code still contains the LAN URL.
+    base = (args.url or (activation["url"] if args.remote else "http://127.0.0.1:17330")).rstrip("/")
     async with httpx.AsyncClient(trust_env=False) as client:
-        response = await client.post("http://127.0.0.1:17330/v1/activate", json={"key": activation["key"], "device_id": "gateway_smoke"})
+        health = await client.get(base + "/v1/health")
+        health.raise_for_status()
+        assert health.json() == {"ok": True, "protocol_version": 1}
+        denied = await client.post(base + "/v1/activate", json={"key": "invalid-public-probe", "device_id": "rejected_probe"})
+        assert denied.status_code == 401, "Unauthenticated public request was not rejected"
+        response = await client.post(base + "/v1/activate", json={"key": activation["key"], "device_id": "gateway_smoke"})
         response.raise_for_status()
         session = response.json()
     turn = "smoke_" + uuid.uuid4().hex
     started = time.monotonic()
     speech, audio, idle, ready = 0, 0, False, False
     timings = []
-    async with connect("ws://127.0.0.1:17330/v1/mobile", max_size=17 * 1024 * 1024) as socket:
+    ws_url = base.replace("https://", "wss://", 1).replace("http://", "ws://", 1)
+    async with connect(ws_url + "/v1/mobile", max_size=17 * 1024 * 1024, proxy=None) as socket:
         await socket.send(json.dumps({"access_token": session["access_token"]}))
         async with asyncio.timeout(180):
             while not ready:
@@ -55,6 +68,9 @@ async def main():
                         assert "asset_id" not in event and event["audio_enabled"]
                     if event["type"] == "task.state":
                         idle = event["state"] == "idle"
+    if args.remote:
+        print(json.dumps({"passed": True, "turn_id": turn, "speech_count": speech, "audio_count": audio, "timings": timings}, ensure_ascii=False))
+        return
     database = root / ".runtime/mobile-services/worker/dialogue.sqlite3"
     async with asyncio.timeout(10):
         while True:

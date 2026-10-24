@@ -31,7 +31,7 @@ async function request<T>(gateway: string, path: string, body: unknown, token = 
     response = await fetch(`${gateway}${path}`, { method: 'POST', signal: AbortSignal.timeout(15000),
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify(body), credentials: 'omit' });
-  } catch { throw new ApiError('无法连接网关，请确认电脑服务已启动、手机与电脑在同一 Wi-Fi'); }
+  } catch { throw new ApiError('无法连接网关，请检查手机网络、激活码地址及电脑服务是否在线'); }
   if (!response.ok) throw new ApiError(response.status === 401 ? '激活凭据失效，请重新输入激活码' : `网关请求失败（${response.status}）`, response.status);
   return response.json() as Promise<T>;
 }

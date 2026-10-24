@@ -11,4 +11,4 @@ npm run dev      # http://127.0.0.1:5174/ ，需同时启动独立网关
 npm run cap:sync # 生成/同步 Android 与 iOS 工程
 ```
 
-首次打开粘贴完整 `ayana1.…` 激活码即可自动配置网关和会话。无需填写官方 DeepSeek Key，也不依赖 Tailscale。当前局域网 HTTP 仅供可信 Wi-Fi 测试，正式跨网需 HTTPS。iOS 原生包仍需 Apple 签名。
+首次打开粘贴完整 `ayana1.…` 激活码即可自动配置网关和会话。无需填写官方 DeepSeek Key，手机无需安装 Tailscale。电脑执行 `scripts/enable_mobile_public.ps1` 后生成 HTTPS 公网激活码，支持蜂窝和其他 Wi-Fi；也可接入自行部署的 HTTPS 网关。局域网 HTTP 仅供可信 Wi-Fi 测试。iOS 原生包仍需 Apple 签名。

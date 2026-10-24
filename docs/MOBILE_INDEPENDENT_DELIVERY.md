@@ -33,20 +33,23 @@ sequenceDiagram
 - 诊断：SQLite 按用户/turn 保存用户消息、模型逐句输出、翻译、结束状态及 TTS 耗时/失败类型。日志 ACK 独立于音频发送；网关先持久入队，再向电脑投递并去重。当前支持 SQLite 查询，尚无管理界面。
 - 播放进度留在手机；只有音频结束/失败/取消发回消费确认，用于释放预取名额。不会发送 10 Hz 播放进度。
 
-## 立即在本地使用
+## 立即跨网使用
 
 1. 将 `release/mobile/Ayana-0.2.0-android.apk` 安装到 Android。此包使用开发调试签名，仅供本地测试；没有发布到商店，也未接入自动更新。
-2. 手机与电脑连接同一可信 Wi-Fi；当前网关地址是 `http://192.168.1.3:17330`。电脑 IP 变化后需要重新生成激活码。
+2. 公网模式支持蜂窝或其他 Wi-Fi；手机无需安装 Tailscale。网关电脑需已登录允许 Funnel 的 Tailscale 账号。此部署复用电脑既有域名，HTTPS 根路径从旧版 17321 切换到独立网关 17330。
 3. 电脑运行以下命令。配置脚本从当前 `config/local.json` 复制 SoVITS 配置，从本机已有 DPAPI 凭据读取 DeepSeek Key；不会在终端输出 Key。无需启动桌面应用。
 
 ```powershell
 cd D:\ayana-agent
 .\scripts\start_mobile_independent.ps1
+.\scripts\enable_mobile_public.ps1
 Get-Content .runtime\mobile-services\activation-code.txt
 ```
 
 4. 在手机激活页粘贴完整的 `ayana1.…` 激活码。它包含网关地址和用户随机密钥，不是加密文本，需像密码一样保管。手机无需另外输入 DeepSeek/TTS 地址或主 Key。
-5. 浏览器试用入口同样是 `http://192.168.1.3:17330/`。Safari 的实际播放、安装和后台行为仍需 iPhone 实机验证。
+5. 浏览器试用入口是脚本输出的 HTTPS 地址，支持 Safari“添加到主屏幕”作为无需原生签名的网页使用方式。其实际播放、安装和后台行为仍需 iPhone 实机验证。原生安装包内置立绘，初次网页访问则需要下载资源；二者不能用网页首次资源下载耗时作语音延迟对比。
+
+已有旧激活的手机需退出激活，再粘贴电脑上重新生成的公网激活码；退出保留本地历史。地址保存在 `gateway.json` 的 `public_url`，后续普通启动不会回写成局域网 IP。激活用户密钥保持原值。语音 Worker 始终只连接本机 `127.0.0.1:17330`。
 
 服务已经运行时重复启动会提示 PID，停止后再启动：
 
@@ -59,7 +62,11 @@ Get-Content .runtime\mobile-services\activation-code.txt
 
 Windows 防火墙如提示需允许 Python 在**专用网络**接收连接。网关监听 TCP 17330；语音 Worker 不开放额外入站端口。未自动修改系统防火墙规则。路由器 AP 隔离、访客 Wi-Fi 隔离、电脑休眠都会影响访问。
 
-当前是局域网 HTTP 原型，凭据/对话传输未由 TLS 加密；不要直接映射到公网。跨 Wi-Fi/蜂窝尚未提供公网入口。Android/iOS 配置暂允许局域网明文访问；正式部署应启用 HTTPS/WSS 并收紧这些例外。Tailscale 不是必需依赖。
+公网入口由 Funnel 提供 HTTPS/WSS，不需要路由器端口映射、另购域名或每台手机加入私网。Funnel 只承担网络传输，网关仍执行鉴权、受限会话和逐句分发，不会恢复桌面状态广播。它有中继带宽和网络可达性限制，不能保证各运营商相同延迟。[官方 Funnel 说明](https://tailscale.com/docs/features/tailscale-funnel)。
+
+`enable_mobile_public.ps1` 会在本机保存原入口配置到 `.runtime/mobile-services/funnel-before.json`，只更新 443 根处理路径，不重置其他入口。关闭公网命令为 `tailscale funnel --https=443 off`；重新启用执行同一脚本。`--bg` 的入口配置可随 Tailscale 重启恢复，但网关和 SoVITS 进程需另行启动，电脑休眠/断网时服务不可用。[官方持久运行说明](https://tailscale.com/docs/reference/tailscale-cli/funnel#effects-of-rebooting-and-restarting)。
+
+若只想局域网测试，可显式传 `-GatewayUrl http://电脑内网IP:17330`，此时 HTTP 不提供 TLS 保护，仅用于可信 Wi-Fi，不能直接映射公网。Android/iOS 暂保留此测试例外。
 
 ## 本地资料与日志
 
@@ -112,7 +119,7 @@ APPLE_TEAM_ID=自己的TeamID AYANA_IOS_BUNDLE_ID=自己的唯一BundleID \
 
 `.github/workflows/mobile-ios.yml` 已在公开分支 `codex/mobile-independent` 执行成功，提供 `Ayana-0.2.0-ios-unsigned.ipa` 和云端 SHA256 校验文件。首轮 macOS Bash 空数组兼容问题已修复，第二轮编译、ZIP 完整性检查和产物上传全部通过，耗时约 1 分 59 秒。没有向构建环境提供 Apple 凭据或本机服务凭据。
 
-没有自己的 Mac 也可使用云构建的 IPA，在 Windows 通过自己的免费 Apple 账号签名安装；详见 [iPhone 安装步骤](MOBILE_IOS_INSTALL.md)。这仍然需要签名。PWA 的 HTTPS 安装模式可以避开原生签名需求，但当前局域网 HTTP 只作为网页试用；不能承诺同等的离线与后台能力。
+没有自己的 Mac 也可使用云构建的 IPA，在 Windows 通过自己的免费 Apple 账号签名安装；详见 [iPhone 安装步骤](MOBILE_IOS_INSTALL.md)。这仍然需要签名。公网 HTTPS 网页可通过 Safari 添加到主屏幕使用，不需要原生代码签名；不能承诺与原生相同的离线、音频和后台能力。
 
 ## 验证与未完成事项
 

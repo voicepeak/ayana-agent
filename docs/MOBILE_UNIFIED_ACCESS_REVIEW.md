@@ -166,4 +166,4 @@ DeepSeek：输出第1句 → 输出第2句 → 输出第3句 …
 
 ## 9. 本轮交付范围
 
-继续使用 Issue #2 跟踪，已完成本地可运行原型、Android 测试包和 iOS 未签名 IPA：手机拥有本地资源/状态，网关完成统一激活和 DeepSeek 流分发，语音进程完成逐句合成和持久诊断日志；真实模型/语音与浏览器联调通过。用户授权后代码/随包立绘已推送公开分支 `codex/mobile-independent`，GitHub Mac 构建成功：[构建记录](https://github.com/voicepeak/ayana-agent/actions/runs/40106800657)。没有选择付费云服务或提供 Apple 凭据。iOS 个人签名、手机实机、跨网 HTTPS、STT/搜索与完整工具迁移仍是后续验收项，不能把设计清单全部视为已完成。详细验证与交付见交付说明。
+继续使用 Issue #2 跟踪，已完成独立手机原型、Android 测试包和 iOS 未签名 IPA：手机拥有本地资源/状态，网关完成统一激活和 DeepSeek 流分发，语音进程完成逐句合成和持久诊断日志；真实模型/语音与浏览器联调通过。用户授权后代码/随包立绘已推送公开分支 `codex/mobile-independent`，GitHub Mac 构建成功：[首次构建记录](https://github.com/voicepeak/ayana-agent/actions/runs/40106800657)。后续已补充 Funnel 公网 HTTPS/WSS 入口配置与持久公网激活地址，手机不需加入私网，入口指向新网关而非旧 Agent。没有选择付费云服务或提供 Apple 凭据。iOS 个人签名、手机蜂窝实机、STT/搜索与完整工具迁移仍是后续验收项，不能把设计清单全部视为已完成。详细验证与交付见交付说明。

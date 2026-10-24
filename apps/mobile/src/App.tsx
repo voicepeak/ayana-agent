@@ -465,7 +465,7 @@ export default function App() {
         <div className="pair-card">
           <img src="icon.png" alt="" className="pair-logo" />
           <h1>Ayana</h1>
-          <p className="pair-lead">粘贴你的 Ayana 激活码，自动连接聊天和语音服务。本地试用时，手机和电脑需在同一 Wi-Fi。</p>
+          <p className="pair-lead">粘贴你的 Ayana 激活码，自动连接聊天和语音服务。公网激活码支持手机流量和其他 Wi-Fi，电脑需保持在线。</p>
           {!sessionAvailable && <p className="pair-error">接入服务暂不可用。</p>}
           <form onSubmit={connectWithToken}>
             <label htmlFor="mobile-token">激活码</label>

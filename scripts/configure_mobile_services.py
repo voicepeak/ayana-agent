@@ -10,12 +10,36 @@ import secrets
 import socket
 import subprocess
 import sys
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from services.gateway.store import Store
 from services.agent.credentials import load_key, save_key
+
+
+def gateway_url(value: str) -> str:
+    """Store an origin only; activation secrets never belong in URLs."""
+    parsed = urlsplit(value)
+    if (parsed.scheme not in {"https", "http"} or not parsed.hostname
+            or parsed.username or parsed.password or parsed.query or parsed.fragment
+            or parsed.path not in {"", "/"}):
+        raise ValueError("Gateway URL must be an HTTP(S) origin without credentials or path")
+    if parsed.scheme == "http":
+        import ipaddress
+        try:
+            address = ipaddress.ip_address(parsed.hostname)
+        except ValueError:
+            raise ValueError("Public gateway URLs require HTTPS") from None
+        allowed = (address.is_loopback or any(address in network for network in (
+            ipaddress.ip_network("10.0.0.0/8"), ipaddress.ip_network("172.16.0.0/12"),
+            ipaddress.ip_network("192.168.0.0/16")) if address.version == network.version))
+        if not allowed:
+            raise ValueError("Public gateway URLs require HTTPS")
+    # Accessing port also validates malformed port numbers.
+    parsed.port
+    return value.rstrip("/")
 
 
 def main():
@@ -27,6 +51,9 @@ def main():
     directory = args.directory.resolve()
     directory.mkdir(parents=True, exist_ok=True)
     profile = json.loads(args.profile.read_text(encoding="utf-8"))
+    previous = directory / "gateway.json"
+    existing = json.loads(previous.read_text(encoding="utf-8")) if previous.exists() else {}
+    args.gateway_url = args.gateway_url or existing.get("public_url", "")
     if not args.gateway_url:
         address = ""
         if os.name == "nt":
@@ -42,19 +69,19 @@ def main():
                 sock.connect(("8.8.8.8", 80))
                 address = sock.getsockname()[0]
         args.gateway_url = f"http://{address}:17330"
+    args.gateway_url = gateway_url(args.gateway_url)
     key_path = directory / "deepseek.dpapi"
     source_key = os.environ.get("AYANA_GATEWAY_API_KEY") or os.environ.get("DEEPSEEK_API_KEY")
     if not source_key and profile.get("base_url", "").rstrip("/") in {"https://api.deepseek.com", "https://api.deepseek.com/v1"}:
         source_key = load_key(args.profile.parent.parent / ".runtime/credentials.dpapi")
     if source_key:
         save_key(key_path, source_key)
-    previous = directory / "gateway.json"
-    existing = json.loads(previous.read_text(encoding="utf-8")) if previous.exists() else {}
     worker_token = existing.get("worker_token") or secrets.token_urlsafe(40)
     config = {"data_dir": str(directory / "gateway"), "api_key_file": str(key_path),
               "base_url": "https://api.deepseek.com", "model": profile.get("model") or "deepseek-flash",
               "worker_token": worker_token, "voice_id": profile.get("character", "ayana"),
-              "origins": [], "mobile_root": str(ROOT / "apps/mobile/dist")}
+              "origins": [], "mobile_root": str(ROOT / "apps/mobile/dist"),
+              "public_url": args.gateway_url if args.gateway_url.startswith("https://") else ""}
     store = Store(Path(config["data_dir"]) / "gateway.sqlite3")
     activation_file = directory / "activation-code.txt"
     if activation_file.exists():

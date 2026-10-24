@@ -222,11 +222,14 @@ npm --prefix apps/mobile run build
 # 读取本机已有 DeepSeek/SoVITS 配置，启动网关和语音/日志进程
 .\scripts\start_mobile_independent.ps1
 
+# 跨 Wi-Fi / 蜂窝：在网关电脑启用已有 Tailscale 账号的公网 HTTPS 入口
+.\scripts\enable_mobile_public.ps1
+
 # 在手机粘贴完整激活码（地址和用户密钥一次配置）
 Get-Content .runtime\mobile-services\activation-code.txt
 ```
 
-同一 Wi-Fi 下访问电脑局域网 IP 的 17330 端口；Android 安装包位于 `release/mobile/`。本地试用不依赖 Tailscale，跨网使用仍需 HTTPS 公网入口。对话会写入电脑诊断库，界面与播放进度保留在手机。首句音频完成立即转发，后续句继续合成。
+公网模式使用 HTTPS/WSS，手机可用蜂窝或其他 Wi-Fi，无需安装 Tailscale。电脑上的 Funnel 仅将网络请求送到独立网关的 17330 端口，不连接旧桌面服务；已生成的公网地址在服务重启时保留。Android 安装包位于 `release/mobile/`。对话会写入电脑诊断库，界面与播放进度保留在手机。首句音频完成立即转发，后续句继续合成。电脑及本地网关需要在线。
 
 完整步骤、Android/iOS 构建与签名、验证和限制见 [本地交付说明](docs/MOBILE_INDEPENDENT_DELIVERY.md)。iOS 已通过云端 Mac 编译并生成未签名 IPA，安装前仍需 Apple 签名；[Windows 免费个人签名路线](docs/MOBILE_IOS_INSTALL.md) 已整理。麦克风/STT、搜索与完整工具迁移尚未完成。
 
