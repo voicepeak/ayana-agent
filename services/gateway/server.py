@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 import httpx
 
 from packages.protocol import SpeechParser, validate_speech
+from packages.protocol.events import speech_sentences
 from services.mobile_transport import audio_frame, read_audio_frame
 from .store import Store
 
@@ -32,24 +33,102 @@ def identity(value):
     return value
 
 
-def model_events(event, fallback_key):
-    """Adapt the closed history shape emitted by mobile 0.2.0, never tool calls."""
-    if event.get("type") is not None:
-        return [event]
+class ReplyEvents:
+    """Normalize complete provider sentence groups without another model request."""
     legacy_fields = {"key", "speech_ja", "display_zh", "displayed", "status",
                      "played_samples", "total_samples", "intent", "affect", "intensity",
                      "expression", "pose"}
-    if not event.get("speech_ja") or set(event) - legacy_fields:
-        raise ValueError("unsupported_model_event")
-    speech = validate_speech(event)
-    translation = event.get("display_zh")
-    if translation is not None and (not isinstance(translation, str) or not 1 <= len(translation) <= 1200):
-        raise ValueError("invalid_translation")
-    key = str(event.get("key") or fallback_key)
-    result = [{"type": "speech", "key": key, **speech}]
-    if translation is not None:
-        result.append({"type": "translation", "key": key, "display_zh": translation})
+
+    def __init__(self):
+        self.groups = {}
+        self.used = set()
+
+    def feed(self, event, fallback_key):
+        kind = event.get("type")
+        if kind is None:
+            if not event.get("speech_ja") or set(event) - self.legacy_fields:
+                raise ValueError("unsupported_model_event")
+            speech = {"type": "speech", **{k: v for k, v in event.items()
+                                          if k not in {"display_zh", "displayed", "status", "played_samples", "total_samples"}}}
+            result = self.feed(speech, fallback_key)
+            if "display_zh" in event:
+                result += self.feed({"type": "translation", "key": speech.get("key") or fallback_key,
+                                     "display_zh": event["display_zh"]}, fallback_key)
+            return result
+        if kind == "speech":
+            text = event.get("speech_ja")
+            if not isinstance(text, str) or not text.strip() or len(text) > 3072:
+                raise ValueError("invalid_speech_length")
+            parts = speech_sentences(text)
+            if not 1 <= len(parts) <= 64:
+                raise ValueError("invalid_speech_sequence")
+            # Validate the whole group before publishing any sentence or invoking TTS.
+            validated = [validate_speech({**event, "speech_ja": part}) for part in parts]
+            key = str(event.get("key") or fallback_key)
+            if key in self.groups or key in self.used:
+                raise ValueError("invalid_speech_sequence")
+            keys = [key] if len(parts) == 1 else [f"{key}__part{n + 1}" for n in range(len(parts))]
+            if any(part_key in self.used for part_key in keys):
+                raise ValueError("invalid_speech_sequence")
+            self.used.update(keys)
+            self.groups[key] = keys
+            return [{"type": "speech", "key": part_key, **speech} for part_key, speech in zip(keys, validated)]
+        if kind == "translation":
+            key = str(event.get("key", ""))
+            keys = self.groups.get(key)
+            zh = event.get("display_zh")
+            if not keys or not isinstance(zh, str) or not 1 <= len(zh) <= 1200:
+                raise ValueError("invalid_translation")
+            parts = speech_sentences(zh)
+            # When punctuation cannot align sentences, retain the faithful group
+            # caption for each part; never guess or fabricate a translation.
+            captions = parts if len(parts) == len(keys) else [zh] * len(keys)
+            return [{"type": "translation", "key": part_key, "display_zh": caption}
+                    for part_key, caption in zip(keys, captions)]
+        return [event]
+
+
+def model_events(event, fallback_key):
+    return ReplyEvents().feed(event, fallback_key)
+
+
+def model_context(messages):
+    """Migrate old phone history on the wire; keep user/system text untouched."""
+    result = []
+    for message in messages:
+        content = message["content"]
+        if message["role"] == "assistant":
+            try:
+                value = json.loads(content)
+            except ValueError:
+                value = None
+            if (isinstance(value, dict) and value.get("type") is None
+                    and isinstance(value.get("speech_ja"), str) and not set(value) - ReplyEvents.legacy_fields):
+                events = [{"type": "speech", "key": "s1", "speech_ja": value["speech_ja"]}]
+                if isinstance(value.get("display_zh"), str) and value["display_zh"]:
+                    events.append({"type": "translation", "key": "s1", "display_zh": value["display_zh"]})
+                content = "\n".join(json.dumps(event, ensure_ascii=False) for event in events)
+        result.append({**message, "content": content})
     return result
+
+
+def model_error_code(error):
+    if isinstance(error, httpx.TimeoutException):
+        return "model_timeout"
+    if isinstance(error, httpx.HTTPError):
+        return "model_connection_failed"
+    if isinstance(error, ValueError):
+        code = str(error)
+        if ID.fullmatch(code):
+            return code
+        if code.startswith("speech_ja must be a complete short Japanese sentence"):
+            return "invalid_speech_length"
+        if code == "Only complete sentences may be committed":
+            return "incomplete_speech"
+        if code == "speech_ja must contain Japanese speech":
+            return "invalid_speech_language"
+        return "invalid_model_format"
+    return "model_stream_failed"
 
 
 class Gateway:
@@ -89,7 +168,8 @@ class Gateway:
         if not self.config.get("api_key"):
             raise ValueError("model_not_configured")
         parser = SpeechParser()
-        body = {"model": self.config["model"], "messages": messages, "stream": True,
+        events = ReplyEvents()
+        body = {"model": self.config["model"], "messages": model_context(messages), "stream": True,
                 "max_tokens": 6000, "thinking": {"type": "disabled"}, "temperature": 1.0}
         client = self.model_client
         async with client.stream("POST", self.config["base_url"].rstrip("/") + "/chat/completions",
@@ -120,7 +200,7 @@ class Gateway:
                         raise ValueError("model_output_too_large")
                     for event in parser.feed(content):
                         event_serial += 1
-                        for normalized in model_events(event, f"legacy_s{event_serial}"):
+                        for normalized in events.feed(event, f"legacy_s{event_serial}"):
                             yield normalized
             if not completed:
                 raise ValueError("model_disconnected")
@@ -302,9 +382,9 @@ class Phone:
             raise
         except Exception as error:
             state = "failed"
-            code = str(error) if isinstance(error, ValueError) and ID.fullmatch(str(error)) else "model_stream_failed"
+            code = model_error_code(error)
             with suppress(ValueError):
-                await gw.log(self.event("model.failed", user_id=user, code=code))
+                await gw.log(self.event("model.failed", user_id=user, code=code, error_class=type(error).__name__))
             self.emit(self.event("error", source="turn", code=code, message="模型回复中断：" + code))
         finally:
             gw.active_users.discard(user)

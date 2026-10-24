@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 import httpx
 import pytest
 
-from services.gateway.server import create_app, Gateway, model_events
+from services.gateway.server import create_app, Gateway, model_events, ReplyEvents, model_context, model_error_code
 from services.gateway.store import Store
 from services.mobile_transport import audio_frame, read_audio_frame
 from services.tts_remote.__main__ import DiagnosticLog, RemoteWorker
@@ -256,7 +256,7 @@ async def test_real_provider_adapter_decodes_sse_ndjson(tmp_path):
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
         gw = Gateway(None, {"api_key": "secret", "model": "test", "base_url": "https://api.deepseek.com"}, client)
         result = [event async for event in gw.model([{"role": "user", "content": "hello"}])]
-        assert result == [speech]
+        assert [{key: event[key] for key in speech} for event in result] == [speech]
 
 
 def test_legacy_history_reply_reaches_phone_as_speech_and_subtitle(setup_gateway):
@@ -296,3 +296,58 @@ def test_legacy_history_reply_reaches_phone_as_speech_and_subtitle(setup_gateway
 def test_legacy_adapter_rejects_actions_and_invalid_speech(value):
     with pytest.raises(ValueError):
         model_events(value, "legacy_s1")
+
+
+@pytest.mark.asyncio
+async def test_grouped_speech_streams_before_translation_and_preserves_caption_pairing():
+    release_translation = asyncio.Event()
+    def sse(event):
+        return ("data: " + json.dumps({"choices": [{"delta": {"content": json.dumps(event)}}]}) + "\n\n").encode()
+    class Stream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield sse({"type": "speech", "key": "s1", "speech_ja": "うん。ここにいるよ。", "expression": "休闲"})
+            await release_translation.wait()
+            yield sse({"type": "translation", "key": "s1", "display_zh": "嗯。我在这里。"})
+            yield b"data: [DONE]\n\n"
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, stream=Stream()))) as client:
+        gateway = Gateway(None, {"api_key": "secret", "model": "test", "base_url": "https://api.deepseek.com"}, client)
+        stream = gateway.model([{"role": "user", "content": "hi"}])
+        first = await asyncio.wait_for(anext(stream), 2)
+        second = await asyncio.wait_for(anext(stream), 2)
+        assert [first["speech_ja"], second["speech_ja"]] == ["うん。", "ここにいるよ。"]
+        assert first["expression"] == second["expression"] == "休闲"
+        assert first["key"] != second["key"]
+        release_translation.set()
+        captions = [event async for event in stream]
+        assert [(e["key"], e["display_zh"]) for e in captions] == [(first["key"], "嗯。"), (second["key"], "我在这里。")]
+
+
+def test_grouped_legacy_reply_retains_unalignable_caption_without_inventing_translation():
+    events = model_events({"speech_ja": "うん。ここにいるよ。", "display_zh": "嗯，我在这里。", "status": "played"}, "s1")
+    assert [e["type"] for e in events] == ["speech", "speech", "translation", "translation"]
+    assert [e["display_zh"] for e in events[2:]] == ["嗯，我在这里。"] * 2
+    assert [e["key"] for e in events[:2]] == [e["key"] for e in events[2:]]
+
+
+def test_grouped_reply_validates_all_sentences_before_publication():
+    normalizer = ReplyEvents()
+    with pytest.raises(ValueError):
+        normalizer.feed({"type": "speech", "key": "s1", "speech_ja": "うん。https://example.com。"}, "unused")
+    assert normalizer.groups == {} and normalizer.used == set()
+
+
+def test_old_phone_context_migration_preserves_text_and_drops_playback_example():
+    legacy = {"speech_ja": "ここにいるよ。", "display_zh": "我在这里。", "status": "played", "played_samples": 200}
+    messages = [{"role": "system", "content": "persona"}, {"role": "assistant", "content": json.dumps(legacy)},
+                {"role": "user", "content": "你好"}]
+    actual = model_context(messages)
+    assert actual[0] == messages[0] and actual[-1] == messages[-1]
+    assert "played_samples" not in actual[1]["content"]
+    assert [json.loads(line)["type"] for line in actual[1]["content"].splitlines()] == ["speech", "translation"]
+    assert messages[1]["content"] == json.dumps(legacy)
+
+
+def test_model_failure_codes_distinguish_format_from_connection_errors():
+    assert model_error_code(httpx.ReadTimeout("private transport context")) == "model_timeout"
+    assert model_error_code(ValueError("Only complete sentences may be committed")) == "incomplete_speech"
+    assert model_error_code(ValueError("unrecognized private context")) == "invalid_model_format"
