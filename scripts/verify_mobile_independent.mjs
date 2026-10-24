@@ -11,6 +11,7 @@ const option = name => process.argv.includes(name) ? process.argv[process.argv.i
 const library = option('--playwright-root') || root;
 const { chromium } = require(require.resolve('playwright-core', { paths: [library] }));
 const address = option('--url') || 'http://127.0.0.1:17330/';
+const checkOffline = !process.argv.includes('--online-only');
 const stored = readFileSync(path.join(root, '.runtime/mobile-services/activation-code.txt'), 'utf8').trim();
 const activation = JSON.parse(Buffer.from(stored.split('.')[1], 'base64url'));
 const code = 'ayana1.' + Buffer.from(JSON.stringify({ ...activation, url: new URL(address).origin })).toString('base64url');
@@ -115,7 +116,7 @@ try {
   assert.equal(await page.getByLabel('本机记忆（每行一条）').inputValue(), '喜欢安静的咖啡店');
   await page.locator('.drawer').getByLabel('关闭', { exact: true }).click();
   const secure = await page.evaluate(() => window.isSecureContext);
-  if (secure) {
+  if (secure && checkOffline) {
     await page.waitForFunction(() => navigator.serviceWorker.controller !== null);
     await page.waitForFunction(async () => {
       const portrait = [...document.images].find(image => image.className.includes('portrait') && image.naturalWidth > 0);
@@ -131,5 +132,11 @@ try {
   assert.ok(!commands.some(type => /^(settings|playback|history|utterance|conversation|memory)\./.test(type)), 'Local state leaked into remote commands');
   assert.ok(!requests.some(url => /^\/(mobile|assets\/ayana|ws)/.test(url)), 'Uses old desktop transport/assets');
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, live_turns: turns.length, live_audio_sentences: audio.length, arrival_ms: timings, remote_commands: [...new Set(commands)], offline_local_state: secure, screenshot }));
+  console.log(JSON.stringify({ passed: true, live_turns: turns.length, live_audio_sentences: audio.length, arrival_ms: timings, remote_commands: [...new Set(commands)], offline_local_state: secure && checkOffline, screenshot }));
+} catch (error) {
+  console.error(JSON.stringify({ failed: true, live_turns: turns.length, received_audio: audio.length,
+    completed_turns: completedTurns.size, playback_receipts: commands.filter(type => type === 'audio.consumed').length,
+    images: await page.evaluate(() => [...document.images].map(image => ({ source: image.currentSrc || image.src,
+      loaded: image.naturalWidth > 0 }))) }));
+  throw error;
 } finally { await browser.close(); }
