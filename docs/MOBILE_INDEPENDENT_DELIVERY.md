@@ -1,8 +1,8 @@
 # 手机独立运行版 0.2.0：本地部署与交付
 
-2026-10-24。方案跟踪：[Issue #2](https://github.com/voicepeak/ayana-agent/issues/2)。
+2026-10-24 初版，2026-10-25 补充公网验证。方案跟踪：[Issue #2](https://github.com/voicepeak/ayana-agent/issues/2)。
 
-已实现独立手机客户端、轻量网关和常驻语音/诊断进程，Android APK 已在 Windows 构建。用户授权公开推送代码/素材后，iOS 已通过 GitHub Mac/Xcode 26.0.1 编译并生成 **未签名 IPA**，安装到普通 iPhone 前仍需 Apple 签名，尚未完成实机安装验证。[成功构建记录](https://github.com/voicepeak/ayana-agent/actions/runs/40106800657)，构建代码为提交 `8c965e3`。
+已实现独立手机客户端、轻量网关和常驻语音/诊断进程，Android APK 已在 Windows 重建。iOS 已通过 GitHub Mac/Xcode 26.0.1 编译并生成 **未签名 IPA**，安装到普通 iPhone 前仍需 Apple 签名，尚未完成实机安装验证。[最新跨网测试及 iOS 构建记录](https://github.com/voicepeak/ayana-agent/actions/runs/40109340743)，构建代码为提交 `a10cb8f`。
 
 ## 实际运行边界
 
@@ -117,13 +117,16 @@ APPLE_TEAM_ID=自己的TeamID AYANA_IOS_BUNDLE_ID=自己的唯一BundleID \
 
 安装开发版本也可直接用 Xcode 打开 `apps/mobile/ios/App/App.xcodeproj`，选择 App → Signing & Capabilities → Personal Team，选择已连接 iPhone 后运行。签名证书、密码不应发送到聊天或提交仓库。Keychain 原生凭据插件已通过 iOS 编译，读写与权限行为仍待实机验证。[Capacitor 8 环境要求](https://capacitorjs.com/docs/getting-started/environment-setup)。
 
-`.github/workflows/mobile-ios.yml` 已在公开分支 `codex/mobile-independent` 执行成功，提供 `Ayana-0.2.0-ios-unsigned.ipa` 和云端 SHA256 校验文件。首轮 macOS Bash 空数组兼容问题已修复，第二轮编译、ZIP 完整性检查和产物上传全部通过，耗时约 1 分 59 秒。没有向构建环境提供 Apple 凭据或本机服务凭据。
+`.github/workflows/mobile-ios.yml` 已在公开分支 `codex/mobile-independent` 执行成功，提供 `Ayana-0.2.0-ios-unsigned.ipa` 和云端 SHA256 校验文件。最新一轮同时通过 iOS 编译、ZIP 校验和独立 Ubuntu 云主机的公网协议测试。云主机只接收专用临时测试用户的激活码，测试后已撤销用户并删除 CI Secret；没有向构建环境提供 Apple、owner、DeepSeek 或 Worker 凭据。
 
 没有自己的 Mac 也可使用云构建的 IPA，在 Windows 通过自己的免费 Apple 账号签名安装；详见 [iPhone 安装步骤](MOBILE_IOS_INSTALL.md)。这仍然需要签名。公网 HTTPS 网页可通过 Safari 添加到主屏幕使用，不需要原生代码签名；不能承诺与原生相同的离线、音频和后台能力。
 
 ## 验证与未完成事项
 
 - 最新后端全量回归通过 411 项、跳过 5 项，其中独立手机测试 12 项通过。模型 SSE 逐字符分片、重复消息、刷新撤销、日志去重/满队列、慢音频网络不停止下一句合成均有覆盖。
+- 跨网变更后定向回归 19 项通过，包含激活地址校验；配置脚本无参数重跑后仍保留已选公网 HTTPS 地址，用户密钥未更换。
+- 未加入 tailnet 的 GitHub Ubuntu 云主机通过公网 HTTPS 健康检查、拒绝无效密钥、合法激活、WSS 鉴权、真实 DeepSeek/双句 SoVITS 音频；首句/次句音频约 4.69/5.79 秒到达，合成约 0.70/1.22 秒。电脑日志有对应的 1 条用户输入、2 条模型语句/译文/合成记录和结束事件。这是云主机的单次公网测量，不能代替手机运营商实测。
+- 本机 Chrome 使用 HTTPS 域名直接连接时，通过激活、双句音频、本地立绘/设置/记忆持久化和离线重载；约 3.76/5.25 秒收到双句音频，远端命令只有 `turn.start` 和 `audio.consumed`。本机系统代理曾使 Chrome 域名连接超时，验证脚本可传 `--direct` 排除该代理影响；这不表示已覆盖所有手机网络。
 - 真实 DeepSeek → SoVITS → 协议客户端：两句音频在约 1.75/2.83 秒到达，合成约 0.87/1.07 秒；日志落库核对通过。这里只是一次热机合成测试，不是延迟 SLA。
 - Chrome 手机视口：激活、真实双句音频、播放回执、立绘资源、本地角色/称呼/记忆持久化通过；localhost 安全环境断网重载通过。LAN HTTP 的 HTMLAudio 降级播放也通过浏览器测试。远端命令仅见 `turn.start`、`audio.consumed`。
 - TypeScript/Vite、Capacitor Android/iOS 资源同步、Android Gradle 构建、iOS Xcode arm64 Release 编译和 IPA 打包通过；生产 JS 依赖 npm audit 未报告漏洞。**没有连接 Android/iPhone 实机**，原生安全存储、系统后台行为、手机真实 Wi-Fi 延迟仍待实机验收。

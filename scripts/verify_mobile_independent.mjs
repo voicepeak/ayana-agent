@@ -16,7 +16,10 @@ const activation = JSON.parse(Buffer.from(stored.split('.')[1], 'base64url'));
 const code = 'ayana1.' + Buffer.from(JSON.stringify({ ...activation, url: new URL(address).origin })).toString('base64url');
 const screenshot = path.join(root, '.runtime/benchmarks/mobile-independent.png');
 mkdirSync(path.dirname(screenshot), { recursive: true });
-const browser = await chromium.launch({ headless: true, channel: 'chrome', args: ['--autoplay-policy=no-user-gesture-required'] });
+const browser = await chromium.launch({ headless: true, channel: 'chrome', args: [
+  '--autoplay-policy=no-user-gesture-required',
+  ...(process.argv.includes('--direct') ? ['--no-proxy-server'] : []),
+] });
 const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
 const page = await context.newPage();
 const errors = [], requests = [], commands = [], audio = [], timings = [];
@@ -36,7 +39,8 @@ page.on('websocket', socket => {
   });
 });
 try {
-  await page.goto(address, { waitUntil: 'networkidle' });
+  // The web edition precaches bundled portraits; don't block interaction on all downloads.
+  await page.goto(address, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.evaluate(() => new Promise((resolve, reject) => {
     const request = indexedDB.open('ayana-independent-mobile', 1);
     request.onupgradeneeded = () => request.result.createObjectStore('state');
@@ -68,7 +72,7 @@ try {
   await page.getByLabel('称呼', { exact: true }).click();
   await page.locator('.drawer').getByLabel('关闭', { exact: true }).click();
   await page.waitForFunction(() => [...document.images].some(image => image.className.includes('portrait') && image.naturalWidth > 0));
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.getByLabel('打开菜单').click();
   assert.equal(await page.locator('.drawer select').nth(0).inputValue(), 'ayana-su');
   assert.equal(await page.getByLabel('称呼', { exact: true }).inputValue(), '联调用户');

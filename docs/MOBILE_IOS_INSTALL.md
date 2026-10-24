@@ -10,7 +10,7 @@
 2. 按 Sideloadly 官网的要求安装 Windows 版本及 Apple 设备驱动/组件。连接 iPhone USB 数据线，在手机上确认信任此电脑。
 3. 在 Sideloadly 选择自己的 iPhone，将 IPA 拖入程序，使用自己的 Apple Account 完成签名和安装。密码及验证码只在自己操作的登录流程中输入，不发送到聊天、Issue 或仓库。
 4. 按系统提示信任开发者。iOS 16 及以上如果提示开发者模式，可在“设置 → 隐私与安全 → 开发者模式”按提示启用；开发者信任入口通常在“设置 → 通用 → VPN 与设备管理”。[Sideloadly 安装与故障说明](https://sideloadly.io/faq)
-5. 手机与本机网关连接同一可信 Wi-Fi，打开 Ayana，粘贴电脑生成的完整 `ayana1.…` 激活码。首次访问局域网时允许系统网络权限。
+5. 打开 Ayana，粘贴电脑最新生成的完整 `ayana1.…` 公网激活码，即可使用手机流量或其他 Wi-Fi；手机无需安装 Tailscale，电脑需保持在线。如果仍使用旧局域网激活码，请先退出激活再粘贴新码；本地历史保留。
 
 免费账户的开发描述文件 7 天过期，需重新签名；官方工具提供自动续签选项，需要满足其电脑与设备连接条件。保留相同 Apple Account 和 Bundle ID 覆盖更新，有助于保留手机本地数据；不要先卸载应用。本项目尚无历史导出功能。[Sideloadly FAQ](https://sideloadly.io/faq)、[Apple Personal Team 限制](https://developer.apple.com/help/account/basics/about-your-developer-account)
 
@@ -22,4 +22,4 @@
 
 ## 尚需实机确认
 
-首次局域网授权、Keychain 凭据读写、实际音频设备播放、后台/锁屏、断线恢复和手机 Wi-Fi 延迟都需在目标 iPhone 验证。构建成功只确认项目可以编译打包，不代表已通过这些项目。
+Keychain 凭据读写、实际音频设备播放、后台/锁屏、断线恢复和手机 Wi-Fi/蜂窝延迟都需在目标 iPhone 验证。公网链路已由独立云主机完成真实模型与双句音频测试；构建成功仍不能代替这些实机项目。
