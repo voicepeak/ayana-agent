@@ -20,9 +20,9 @@ SIGNING=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO)
 LABEL=unsigned
 CONFIGURATION=Release
 DESTINATION='generic/platform=iOS'
-EXTRA=()
+BUILD_ARGS=(-project ios/App/App.xcodeproj -scheme App)
 if [[ -n "${AYANA_IOS_BUNDLE_ID:-}" ]]; then
-  EXTRA+=("PRODUCT_BUNDLE_IDENTIFIER=$AYANA_IOS_BUNDLE_ID")
+  BUILD_ARGS+=("PRODUCT_BUNDLE_IDENTIFIER=$AYANA_IOS_BUNDLE_ID")
 fi
 if [[ -n "${APPLE_TEAM_ID:-}" ]]; then
   SIGNING=(CODE_SIGN_STYLE=Automatic 'CODE_SIGN_IDENTITY=Apple Development' "DEVELOPMENT_TEAM=$APPLE_TEAM_ID" -allowProvisioningUpdates)
@@ -30,9 +30,9 @@ if [[ -n "${APPLE_TEAM_ID:-}" ]]; then
   CONFIGURATION=Debug
   if [[ -n "${IOS_DEVICE_ID:-}" ]]; then DESTINATION="platform=iOS,id=$IOS_DEVICE_ID"; fi
 fi
-xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration "$CONFIGURATION" \
+xcodebuild "${BUILD_ARGS[@]}" -configuration "$CONFIGURATION" \
   -sdk iphoneos -destination "$DESTINATION" -derivedDataPath "$ROOT/.runtime/ios-build" \
-  "${SIGNING[@]}" "${EXTRA[@]}" build
+  "${SIGNING[@]}" build
 APP="$ROOT/.runtime/ios-build/Build/Products/$CONFIGURATION-iphoneos/App.app"
 test -d "$APP"
 STAGE="$(mktemp -d)"
