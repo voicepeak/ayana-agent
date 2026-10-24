@@ -1,0 +1,15 @@
+{
+  "name": "Ayana",
+  "short_name": "Ayana",
+  "description": "Ayana 手机陪伴客户端",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#181b20",
+  "theme_color": "#181b20",
+  "icons": [
+    { "src": "icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

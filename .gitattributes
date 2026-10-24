@@ -1,0 +1,2 @@
+scripts/build_mobile_ios.sh text eol=lf
+apps/mobile/android/gradlew text eol=lf

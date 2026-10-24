@@ -1,0 +1,41 @@
+name: Build iOS mobile package
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/mobile-independent]
+    paths:
+      - apps/mobile/**
+      - scripts/build_mobile_ios.sh
+      - .github/workflows/mobile-ios.yml
+permissions:
+  contents: read
+concurrency:
+  group: mobile-ios-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 25
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check bundled character assets
+        run: test -f apps/mobile/src/generated/characters.json && test -d apps/mobile/public/characters
+      - name: Build unsigned IPA
+        run: bash scripts/build_mobile_ios.sh
+      - name: Validate package and checksum
+        run: |
+          unzip -t release/mobile/Ayana-0.2.0-ios-unsigned.ipa
+          cd release/mobile
+          shasum -a 256 Ayana-0.2.0-ios-unsigned.ipa > SHA256SUMS-ios.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ayana-iOS-unsigned
+          path: |
+            release/mobile/*ios-unsigned.ipa
+            release/mobile/SHA256SUMS-ios.txt
+          if-no-files-found: error

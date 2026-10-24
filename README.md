@@ -211,6 +211,27 @@ npm --prefix apps/desktop test
 
 ---
 
+## 手机端（PWA / Android / iOS）
+
+手机独立管理提示词、上下文、历史/记忆、立绘、字幕和播放。独立网关负责用户密钥与 DeepSeek；电脑语音进程负责常驻 SoVITS 和对话诊断日志。当前没有云服务器，网关暂作为独立轻量进程部署在本机，因此电脑额外承担模型请求与音频转发，不启动桌面 AgentRuntime。
+
+```powershell
+npm --prefix apps/mobile install
+npm --prefix apps/mobile run build
+
+# 读取本机已有 DeepSeek/SoVITS 配置，启动网关和语音/日志进程
+.\scripts\start_mobile_independent.ps1
+
+# 在手机粘贴完整激活码（地址和用户密钥一次配置）
+Get-Content .runtime\mobile-services\activation-code.txt
+```
+
+同一 Wi-Fi 下访问电脑局域网 IP 的 17330 端口；Android 安装包位于 `release/mobile/`。本地试用不依赖 Tailscale，跨网使用仍需 HTTPS 公网入口。对话会写入电脑诊断库，界面与播放进度保留在手机。首句音频完成立即转发，后续句继续合成。
+
+完整步骤、Android/iOS 构建与签名、验证和限制见 [本地交付说明](docs/MOBILE_INDEPENDENT_DELIVERY.md)。iOS 工程已准备，但尚未在 Mac 构建签名；当前无可安装 IPA。麦克风/STT、搜索与完整工具迁移尚未完成。
+
+---
+
 ## 项目结构
 
 | 目录 | 职责 |
@@ -220,6 +241,7 @@ npm --prefix apps/desktop test
 | `services/tts` | 常驻独立推理进程、显式权重加载、参考缓存、单 worker |
 | `native/windows` | Win32 窗口截图与前台窗口观察 |
 | `apps/desktop` | Electron、受限 IPC、React、AudioWorklet 播放器 |
+| `apps/mobile` | Android/iOS 共用的 PWA/Capacitor 客户端 |
 | `characters/ayana` | 角色注册表、人设、观察策略、表情与服装映射 |
 | `site/` | GitHub Pages 主页 |
 
