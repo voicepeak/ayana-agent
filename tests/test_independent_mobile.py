@@ -245,7 +245,8 @@ async def test_worker_keeps_synthesizing_while_audio_network_send_is_blocked(tmp
 @pytest.mark.asyncio
 async def test_real_provider_adapter_decodes_sse_ndjson(tmp_path):
     speech = {"type": "speech", "key": "s1", "speech_ja": "こんにちは。"}
-    content = json.dumps(speech, ensure_ascii=False) + "\n"
+    caption = {"type": "translation", "key": "s1", "display_zh": "你好。"}
+    content = json.dumps(speech, ensure_ascii=False) + "\n" + json.dumps(caption, ensure_ascii=False)
     # Split at every character inside JSON; only a complete event may commit.
     body = "".join("data: " + json.dumps({"choices": [{"delta": {"content": char}}]}, ensure_ascii=False) + "\n\n" for char in content)
     body += 'data: [DONE]\n\n'
@@ -256,7 +257,8 @@ async def test_real_provider_adapter_decodes_sse_ndjson(tmp_path):
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
         gw = Gateway(None, {"api_key": "secret", "model": "test", "base_url": "https://api.deepseek.com"}, client)
         result = [event async for event in gw.model([{"role": "user", "content": "hello"}])]
-        assert [{key: event[key] for key in speech} for event in result] == [speech]
+        assert [{key: event[key] for key in speech} for event in result if event['type'] == 'speech'] == [speech]
+        assert result[-1] == caption
 
 
 def test_legacy_history_reply_reaches_phone_as_speech_and_subtitle(setup_gateway):

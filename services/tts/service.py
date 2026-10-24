@@ -59,7 +59,15 @@ class TtsService:
                     limit=32 * 1024 * 1024, env=env, **options)
                 self._stderr_task = asyncio.create_task(self._logs())
                 self._tasks = [asyncio.create_task(self._read()), self._stderr_task]
-                await self._send({"op": "start", "config": self.config})
+                try:
+                    await self._send({"op": "start", "config": self.config})
+                except (OSError, RuntimeError):
+                    # A fast startup exit can precede the first stdin write.
+                    # Drain its diagnostics just as the stdout EOF path does.
+                    reason = await self._exit_reason()
+                    if self._ready.done() and not self._ready.cancelled():
+                        self._ready.exception()
+                    raise RuntimeError(reason) from None
                 await asyncio.wait_for(asyncio.shield(self._ready),
                                        timeout=float(self.config.get("start_timeout_seconds", 180)))
             except BaseException as error:

@@ -56,6 +56,19 @@ class AudioTests(unittest.TestCase):
 
 
 class ServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_startup_write_race_preserves_worker_exit_diagnostic(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = TtsService({"python": sys.executable})
+            reason = "TTS worker exited unexpectedly (exit code 2): can't open file worker.py"
+            with patch("services.tts.service.__file__", str(Path(directory) / "service.py")), \
+                 patch.object(service, "_send", AsyncMock(side_effect=RuntimeError("TTS worker is not running"))), \
+                 patch.object(service, "_exit_reason", AsyncMock(return_value=reason)):
+                with self.assertLogs("services.tts.service", level="WARNING"):
+                    with self.assertRaisesRegex(RuntimeError, "exit code 2.*can't open file"):
+                        await service.start()
+            self.assertEqual(service.status["error"], reason)
+            self.assertIsNone(service.process)
+
     async def test_missing_worker_file_reports_stderr_and_exit_code(self):
         with tempfile.TemporaryDirectory() as directory:
             service = TtsService({"python": sys.executable})

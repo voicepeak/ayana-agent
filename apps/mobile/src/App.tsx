@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { bootstrap, fetchAsset, logout, pair, serverLabel, sessionState } from './api';
-import { characterOptions, costumes } from './character';
+import { assetUrl, characterOptions, costumes } from './character';
 import { AudioPlayer } from './audio';
 import { MobileBridge } from './bridge';
 import { SpeechLine } from './SpeechLine';
@@ -11,11 +11,12 @@ import type { Bootstrap } from './types';
 const assetCache = new Map<string, string>();
 
 function loadAsset(assetId: string): Promise<string> {
-  const cached = assetCache.get(assetId);
+  const resource = assetUrl(assetId);
+  const cached = assetCache.get(resource);
   if (cached) return Promise.resolve(cached);
   return fetchAsset(assetId).then(blob => {
     const url = URL.createObjectURL(blob);
-    assetCache.set(assetId, url);
+    assetCache.set(resource, url);
     if (assetCache.size > 240) {
       const oldest = assetCache.keys().next().value;
       if (oldest) {
@@ -38,17 +39,18 @@ function AssetImage({ assetId, className, alt, onError }: {
   alt: string;
   onError: () => void;
 }) {
-  const [src, setSrc] = useState(() => assetCache.get(assetId) || '');
+  const resource = assetUrl(assetId);
+  const [src, setSrc] = useState(() => assetCache.get(resource) || '');
   useEffect(() => {
     let active = true;
-    setSrc(assetCache.get(assetId) || '');
+    setSrc(assetCache.get(resource) || '');
     loadAsset(assetId).then(url => {
       if (active) setSrc(url);
     }).catch(() => {
       if (active) onError();
     });
     return () => { active = false; };
-  }, [assetId, onError]);
+  }, [assetId, resource, onError]);
   return src ? <img className={className} src={src} alt={alt} draggable={false} /> : null;
 }
 
@@ -448,7 +450,7 @@ export default function App() {
     '--panel': light ? 'rgba(255,255,255,.72)' : 'rgba(20,23,28,.62)',
   } as CSSProperties;
 
-  useEffect(() => { setImageFailed(false); }, [expression]);
+  useEffect(() => { setImageFailed(false); }, [expression, state.character, state.costume]);
 
   if (paired === null) {
     return (
@@ -502,7 +504,7 @@ export default function App() {
 
       <section className="stage" aria-label="彩名">
         {!imageFailed
-          ? <AssetImage key={expression} assetId={expression} className="portrait" alt="彩名" onError={markImageFailed} />
+          ? <AssetImage key={`${state.character}:${state.costume}:${expression}`} assetId={expression} className="portrait" alt="彩名" onError={markImageFailed} />
           : <div className="portrait-fallback"><img src="icon.png" alt="" /><span>彩名</span></div>}
         <div className="stage-glow" aria-hidden="true" />
       </section>
