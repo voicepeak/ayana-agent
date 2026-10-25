@@ -7,7 +7,7 @@ type Catalog = { name: string; persona: string; style: string; guide: unknown;
     fallbacks?: { affect?: Record<string, string>; intent?: Record<string, string>; default?: string } } };
 const characters = catalogs as unknown as Record<string, Catalog>;
 export const defaultSettings: PublicSettings = { character: 'ayana', avatar_costume: '校服', volume: 1,
-  companion_ui: { theme: 'ink', primary_language: 'zh', translation_language: 'none' } };
+  companion_ui: { theme: 'ink', primary_language: 'ja', translation_language: 'zh', caption_defaults_version: 2 } };
 export let settings: PublicSettings = structuredClone(defaultSettings);
 let sinceOpen = 2;
 export function resetCharacterSettings() { settings = structuredClone(defaultSettings); sinceOpen = 2; }

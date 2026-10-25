@@ -328,8 +328,8 @@ export default function App() {
   const background = /^#[0-9a-f]{6}$/i.test(String(ui.background_color)) ? String(ui.background_color) : theme.background;
   const bubble = /^#[0-9a-f]{6}$/i.test(String(ui.bubble_color)) ? String(ui.bubble_color) : theme.bubble;
   const light = luminance(background) > .55;
-  const primary = String(ui.primary_language || 'zh');
-  const translation = String(ui.translation_language || 'none');
+  const primary = String(ui.primary_language || 'ja');
+  const translation = String(ui.translation_language || 'zh');
   const activeSpeech = state.speeches.find(speech => speech.id === state.presented);
   const knownDefault = state.defaultAsset && state.defaultAsset !== 'neutral' ? state.defaultAsset : boot?.default_asset_id;
   const expression = activeSpeech?.assetId || knownDefault || state.defaultAsset || 'neutral';

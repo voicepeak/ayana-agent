@@ -34,8 +34,8 @@ export function FloatingCompanion(props: Props) {
   const active = state.speeches.find(speech => speech.id === state.presented);
   const recent = [...state.history].reverse().find(item => item.role === 'assistant' && item.displayed !== false && item.status !== 'cancelled');
   const ui = state.settings.companion_ui || {};
-  const primary = String(ui.primary_language || 'zh');
-  const translation = String(ui.translation_language || 'none');
+  const primary = String(ui.primary_language || 'ja');
+  const translation = String(ui.translation_language || 'zh');
   const main = active ? textFor(active, primary) : recent ? textFor({ ja: recent.speech_ja || '', zh: recent.display_zh || '', en: recent.display_en }, primary) : '';
   const secondary = recent && translation !== 'none' && translation !== primary
     ? textFor({ ja: recent.speech_ja || '', zh: recent.display_zh || '', en: recent.display_en }, translation) : '';

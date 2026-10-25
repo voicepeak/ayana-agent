@@ -24,6 +24,12 @@ export class LocalRuntime {
       this.data = saved || { settings: structuredClone(defaultSettings), conversations: [first], current: first.conversation_id,
         history: { [first.conversation_id]: [] }, memory: [], generation: 0 };
       // Restore settings for this owner without inheriting another activation's preferences.
+      const ui = this.data.settings.companion_ui;
+      if (ui && ui.caption_defaults_version !== 2) {
+        this.data.settings.companion_ui = { ...ui, caption_defaults_version: 2,
+          ...(ui.primary_language === 'zh' && ui.translation_language === 'none'
+            ? { primary_language: 'ja', translation_language: 'zh' } : {}) };
+      }
       resetCharacterSettings();
       setCharacterSettings(this.data.settings);
       this.data.settings = structuredClone(settings);

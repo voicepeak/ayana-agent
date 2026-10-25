@@ -126,7 +126,7 @@ try {
   await page.screenshot({ path: path.join(output, 'phone-home.png') });
   await send('第一轮'); await settled();
   await send('第二轮'); await settled();
-  assert.deepEqual(await page.locator('.transcript-inner > .message, .transcript-inner > .speech-line').allTextContents(), ['你第一轮', '回复：第一轮1', '你第二轮', '回复：第二轮1']);
+  assert.deepEqual(await page.locator('.transcript-inner > .message, .transcript-inner > .speech-line').allTextContents(), ['你第一轮', 'ここにいるよ。回复：第一轮1', '你第二轮', 'ここにいるよ。回复：第二轮1']);
   assert.ok(turns[1].messages.some(message => message.role === 'assistant'));
   await send('两句'); await settled();
   assert.ok(await page.getByText('回复：两句2', { exact: true }).count());
