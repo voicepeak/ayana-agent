@@ -48,13 +48,13 @@ final class CompanionFrameRenderer {
         let accent = color(defaults["accent"], fallback: 0xe8c48a)
         let text = state["text"] as? String ?? defaults["text"] as? String ?? "我在这里。"
         let secondary = state["secondary"] as? String ?? ""
-        let mainRect = CGRect(x: 52, y: 220, width: 524, height: secondary.isEmpty ? 306 : 234)
-        let secondaryRect = CGRect(x: 52, y: 476, width: 524, height: 76)
+        let mainSize = CGSize(width: 524, height: secondary.isEmpty ? 306 : 208)
+        let secondarySize = CGSize(width: 524, height: 94)
         let key = text + "\u{0}" + secondary
         if key != contentKey {
             contentKey = key
-            primaryPages = paginate(text, size: mainRect.size, attributes: attributes(size: 44, color: UIColor(white: 0.96, alpha: 1)))
-            secondaryPages = paginate(secondary, size: secondaryRect.size, attributes: attributes(size: 28, color: UIColor(white: 0.8, alpha: 1)))
+            primaryPages = paginate(text, size: mainSize, attributes: attributes(size: 48, color: UIColor(white: 0.96, alpha: 1)))
+            secondaryPages = paginate(secondary, size: secondarySize, attributes: attributes(size: 36, color: UIColor(white: 0.84, alpha: 1)))
             pageStarted = Date.timeIntervalSinceReferenceDate; idleStartPage = 0; lastPage = 0
         }
         let count = max(1, max(primaryPages.count, secondaryPages.count))
@@ -66,6 +66,16 @@ final class CompanionFrameRenderer {
         let selected = playing ? min(count - 1, Int(progress * Double(count))) : (idleStartPage + elapsedPages) % count
         let page = min(count - 1, max(0, pageOverride ?? selected))
         lastPage = page
+        let mainPage = primaryPages.isEmpty ? nil : primaryPages[min(page, primaryPages.count - 1)]
+        let secondaryPage = secondaryPages.isEmpty ? nil : secondaryPages[min(page, secondaryPages.count - 1)]
+        let options: NSStringDrawingOptions = [.usesLineFragmentOrigin, .usesFontLeading]
+        let mainHeight = min(mainSize.height, ceil(mainPage?.boundingRect(with: mainSize, options: options, context: nil).height ?? 0))
+        let secondaryHeight = min(secondarySize.height, ceil(secondaryPage?.boundingRect(with: secondarySize, options: options, context: nil).height ?? 0))
+        let gap: CGFloat = secondaryPage == nil ? 0 : 16
+        let panelHeight = max(104, mainHeight + secondaryHeight + gap + 48)
+        let panel = CGRect(x: 28, y: 568 - panelHeight, width: 572, height: panelHeight)
+        let mainRect = CGRect(x: 52, y: panel.minY + 24, width: 524, height: mainHeight)
+        let secondaryRect = CGRect(x: 52, y: mainRect.maxY + gap, width: 524, height: secondaryHeight)
         let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
         return UIGraphicsImageRenderer(size: Self.size, format: format).image { context in
             color(defaults["background"], fallback: 0x25282d).setFill()
@@ -79,12 +89,11 @@ final class CompanionFrameRenderer {
                 portrait.draw(in: CGRect(x: area.midX - portrait.size.width * scale / 2, y: area.minY, width: portrait.size.width * scale, height: portrait.size.height * scale))
                 context.cgContext.restoreGState()
             }
-            let panel = CGRect(x: 28, y: 192, width: 572, height: 376)
             UIColor(white: 0.06, alpha: 0.94).setFill(); UIBezierPath(roundedRect: panel, cornerRadius: 22).fill()
-            if !primaryPages.isEmpty { primaryPages[min(page, primaryPages.count - 1)].draw(in: mainRect) }
-            if !secondaryPages.isEmpty { secondaryPages[min(page, secondaryPages.count - 1)].draw(in: secondaryRect) }
-            let footer = count > 1 ? "\(page + 1) / \(count) · 自动翻页，返回 Ayana 阅读全文" : "返回 Ayana 继续对话"
-            (footer as NSString).draw(in: CGRect(x: 36, y: 588, width: 888, height: 42), withAttributes: [.font: UIFont.systemFont(ofSize: 28), .foregroundColor: count > 1 ? accent : ink.withAlphaComponent(0.7)])
+            mainPage?.draw(with: mainRect, options: options, context: nil)
+            secondaryPage?.draw(with: secondaryRect, options: options, context: nil)
+            let footer = count > 1 ? "\(page + 1) / \(count) · 自动翻页" : "返回 Ayana 继续对话"
+            (footer as NSString).draw(in: CGRect(x: 36, y: 588, width: 888, height: 42), withAttributes: [.font: UIFont.systemFont(ofSize: 32), .foregroundColor: count > 1 ? accent : ink.withAlphaComponent(0.7)])
         }
     }
 

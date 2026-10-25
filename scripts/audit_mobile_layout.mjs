@@ -12,16 +12,16 @@ mkdirSync(output, { recursive: true });
 const address = option('--url', 'http://127.0.0.1:5174/');
 const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, serviceWorkers: 'block', reducedMotion: 'reduce' });
 const page = await context.newPage();
-const errors = [], cases = [], problems = [];
+const errors = [], cases = [], problems = [], sockets = [];
 page.on('pageerror', error => errors.push(error.message));
-await page.routeWebSocket('**/v1/mobile', socket => socket.onMessage(raw => {
+await page.routeWebSocket('**/v1/mobile', socket => { sockets.push(socket); socket.onMessage(raw => {
   const value = JSON.parse(String(raw));
   if (value.access_token) {
     socket.send(JSON.stringify({ protocol_version: 1, type: 'gateway.ready' }));
     socket.send(JSON.stringify({ protocol_version: 1, type: 'service.state', service: 'tts', state: 'failed' }));
   }
   if (value.type === 'ping') socket.send(JSON.stringify({ type: 'pong', protocol_version: 1 }));
-}));
+}); });
 const mainText = '今天也辛苦了。先慢慢呼吸，再喝一口水，不必急着把所有事情一次做好。我们可以从最小的一件事开始，我会在这里陪你。';
 const japanese = '今日もおつかれさま。ゆっくり息をして、お水を飲んでね。急がなくても大丈夫だから、ここで一緒にひと休みしよう。';
 const english = 'A long continuous address or identifier must wrap without widening the card: ' + 'https://example.test/VeryLongUnbrokenTextWithoutSpaces'.repeat(4);
@@ -50,7 +50,7 @@ async function inspect(name, { strict = true } = {}) {
   await page.waitForTimeout(100);
   const result = await page.evaluate(() => {
     const viewport = { width: innerWidth, height: visualViewport?.height || innerHeight };
-    const selector = '.topbar, .composer, .composer-area, .drawer, .drawer > header, .drawer-scroll, .floating-note, .floating-heading, .floating-composer, .floating-caption';
+    const selector = '.topbar, .composer, .composer-area, .drawer, .drawer > header, .drawer-scroll, .floating-note, .floating-heading, .floating-composer, .floating-caption, .connection-banner, .toast, .pair-card';
     const bounds = [...document.querySelectorAll(selector)].filter(element => element.getClientRects().length).map(element => {
       const box = element.getBoundingClientRect();
       return { name: element.className, x: box.x, y: box.y, width: box.width, height: box.height, overflowX: element.scrollWidth > element.clientWidth + 2, scroll: element.scrollHeight > element.clientHeight + 2 };
@@ -71,9 +71,26 @@ try {
     await page.setViewportSize({ width, height });
     await inspect(`main-${width}x${height}`);
   }
+  // Resizing the window follows the bottom unless the reader intentionally scrolled up.
+  await page.locator('.transcript').dispatchEvent('wheel', { deltaY: -400 });
+  await page.locator('.transcript').evaluate(element => { element.scrollTop = 0; });
+  await page.waitForTimeout(100);
+  await page.setViewportSize({ width: 390, height: 700 });
+  assert.ok(await page.locator('.transcript').evaluate(element => element.scrollTop < 40), 'resize pulled reader away from old messages');
+  await page.getByRole('button', { name: '回到最新', exact: false }).click();
+  await page.waitForTimeout(100);
+  assert.ok(await page.locator('.transcript').evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight < 10));
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByLabel('打开菜单').click();
   await inspect('settings-top');
+  for (const theme of ['夜墨', '茶白', '苔绿', '雾蓝', '樱夜', '晴空', '琥珀', '竹月']) {
+    await page.getByRole('button', { name: `主题：${theme}`, exact: true }).click();
+    await inspect(`theme-${theme}-settings`);
+    await page.locator('.drawer').getByLabel('关闭', { exact: true }).click();
+    await inspect(`theme-${theme}-chat`);
+    await page.getByLabel('打开菜单').click();
+  }
+  await page.getByRole('button', { name: '主题：夜墨', exact: true }).click();
   await page.getByLabel('对白语言', { exact: true }).scrollIntoViewIfNeeded();
   await inspect('settings-language');
   await page.getByLabel('本机记忆（每行一条）').scrollIntoViewIfNeeded();
@@ -106,8 +123,31 @@ try {
   await inspect('settings-text-150');
   await page.locator('html').evaluate(element => element.style.fontSize = '32px');
   await inspect('settings-text-200');
+  await page.getByLabel('对白语言', { exact: true }).scrollIntoViewIfNeeded();
+  await inspect('settings-language-text-200');
+  await page.getByLabel('本机记忆（每行一条）').scrollIntoViewIfNeeded();
+  await inspect('settings-memory-text-200');
   await page.locator('.drawer').getByLabel('关闭', { exact: true }).click();
   await inspect('main-text-200');
+  sockets.at(-1).send(JSON.stringify({ protocol_version: 1, type: 'gateway.offline' }));
+  await page.locator('.connection-banner').waitFor();
+  await inspect('main-disconnected-text-200');
+  const banner = await page.locator('.connection-banner').boundingBox();
+  const header = await page.locator('.topbar').boundingBox();
+  assert.ok(banner.y >= header.y + header.height, 'connection status covers enlarged header');
+  const pair = await context.newPage();
+  await pair.goto(address);
+  await pair.evaluate(async () => { const { credentials } = await import('/src/storage.ts'); await credentials.clear(); });
+  await pair.reload();
+  await pair.locator('.pair-card').waitFor();
+  for (const fontSize of ['16px', '32px']) {
+    await pair.setViewportSize({ width: 320, height: 568 });
+    await pair.locator('html').evaluate((element, size) => element.style.fontSize = size, fontSize);
+    const overflow = await pair.evaluate(() => document.documentElement.scrollWidth > innerWidth || document.querySelector('.pair-card').scrollWidth > document.querySelector('.pair-card').clientWidth + 1);
+    assert.equal(overflow, false, 'activation layout overflows at enlarged font size');
+    await pair.screenshot({ path: path.join(output, `activation-${fontSize}.png`) });
+  }
+  await pair.close();
   assert.deepEqual(errors, []);
 } finally {
   writeFileSync(path.join(output, 'report.json'), JSON.stringify({ errors, problems, cases }, null, 2));

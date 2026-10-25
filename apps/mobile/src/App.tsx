@@ -237,10 +237,13 @@ export default function App() {
     observer.observe(element);
     if (element.firstElementChild) observer.observe(element.firstElementChild);
     const composer = element.parentElement?.querySelector('.composer-area');
+    const topbar = element.parentElement?.querySelector('.app-heading');
     const measure = new ResizeObserver(() => {
       if (composer) document.documentElement.style.setProperty('--composer-height', `${composer.getBoundingClientRect().height}px`);
+      if (topbar) document.documentElement.style.setProperty('--topbar-height', `${topbar.getBoundingClientRect().height}px`);
     });
     if (composer) measure.observe(composer);
+    if (topbar) measure.observe(topbar);
     return () => { observer.disconnect(); measure.disconnect(); };
   }, [paired, companion.floating]);
 
@@ -405,6 +408,7 @@ export default function App() {
 
   return (
     <main className={`app ${light ? 'is-light' : ''}`} style={style}>
+      <div className="app-heading">
       <header className="topbar" inert={drawer}>
         <button className="icon-button" type="button" aria-label="打开菜单" aria-expanded={drawer} aria-controls="mobile-drawer" onClick={() => setDrawer(true)}>
           <span className="menu-glyph" />
@@ -418,7 +422,8 @@ export default function App() {
           : <img className="topbar-logo" src="icon.png" alt="" />}
       </header>
 
-      {!state.connected && <div className="connection-banner" role="status" inert={drawer}><span>本地话题与设置可继续使用</span><button type="button" onClick={() => bridgeRef.current?.reconnect()}>重试连接</button></div>}
+      {!state.connected && <div className="connection-banner" role="status" inert={drawer}><span>本地资料仍可查看</span><button type="button" onClick={() => bridgeRef.current?.reconnect()}>重试连接</button></div>}
+      </div>
       {notice && <div className="toast" role="alert">{notice}<button type="button" onClick={() => setNotice('')} aria-label="关闭"><UiIcon name="close"/></button></div>}
 
       <section className="stage" aria-label="彩名">
