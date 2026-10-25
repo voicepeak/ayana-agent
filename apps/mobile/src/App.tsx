@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent } from 'react';
 import { bootstrap, fetchAsset, logout, pair, sessionState } from './api';
 import { assetUrl } from './character';
@@ -55,18 +55,37 @@ function AssetImage({ assetId, className, alt, onError }: {
 }) {
   const resource = assetUrl(assetId);
   const [src, setSrc] = useState(() => assetCache.get(resource) || '');
+  const imageRef = useRef<HTMLImageElement>(null);
+  const previousSrc = useRef(src);
+  useLayoutEffect(() => {
+    const previous = previousSrc.current;
+    previousSrc.current = src;
+    const image = imageRef.current;
+    if (!image || !previous || previous === src || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const base = getComputedStyle(image).transform;
+    const transform = base === 'none' ? '' : base;
+    const animation = image.animate([
+      { transform: `${transform} translateY(0) scale(1, 1)` },
+      { transform: `${transform} translateY(7px) scale(1.025, .975)`, offset: .2 },
+      { transform: `${transform} translateY(-9px) scale(.99, 1.015)`, offset: .48 },
+      { transform: `${transform} translateY(2px) scale(1.005, .995)`, offset: .76 },
+      { transform: `${transform} translateY(0) scale(1, 1)` },
+    ], { duration: 460, easing: 'ease-out' });
+    return () => animation.cancel();
+  }, [src]);
   useEffect(() => {
     let active = true;
-    const cached = assetCache.get(resource);
-    if (cached) setSrc(cached);
-    loadAsset(assetId).then(url => {
+    loadAsset(assetId).then(async url => {
+      const image = new Image();
+      image.src = url;
+      await image.decode();
       if (active) setSrc(url);
     }).catch(() => {
       if (active) onError();
     });
     return () => { active = false; };
   }, [assetId, resource, onError]);
-  return src ? <img className={className} src={src} alt={alt} draggable={false} onError={onError} /> : null;
+  return src ? <img ref={imageRef} className={className} src={src} alt={alt} draggable={false} onError={onError} /> : null;
 }
 
 function luminance(hex: string) {

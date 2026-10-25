@@ -60,6 +60,7 @@ p, textarea { overflow-wrap: anywhere; }
 .speech-line { width: fit-content; }
 .speech-line.is-active { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
 .speech-main span, .speech-secondary span { visibility: hidden; }.speech-main span.is-shown, .speech-secondary span.is-shown { visibility: visible; }
+.portrait { transform-origin: center bottom; }
 .speech-interrupted { display: block; margin-top: 7px; font-size: .75rem; line-height: 1.6; color: var(--muted); }
 .eyebrow { display: block; color: var(--accent, #e8c48a); font-size: .75rem; font-weight: 500; line-height: 1.6; letter-spacing: .06em; }
 .empty-state { margin: auto auto 20px; width: min(100%, 23rem); min-width: 0; padding: 23px 20px 14px; border: 1px solid var(--line); border-radius: 22px; background: var(--panel); color: var(--muted); }
