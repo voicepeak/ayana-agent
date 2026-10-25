@@ -235,6 +235,7 @@ try {
   assert.equal(await page.locator('.transcript').getByText('回复：悬浮窗对话1', { exact: true }).count(), 1);
   await page.setViewportSize({ width: 390, height: 844 });
   // Scrollback stays where the reader placed it, then the latest button restores it.
+  await page.locator('.transcript').dispatchEvent('wheel', { deltaY: -500 });
   await page.evaluate(() => { const element = document.querySelector('.transcript'); element.scrollTop = 0; element.dispatchEvent(new Event('scroll')); });
   if (await page.locator('.jump-latest').count()) await page.locator('.jump-latest').click();
   // Delete is explicitly confirmed and a new empty topic remains usable.

@@ -63,6 +63,7 @@ export function prompt(memory: string[], recent: unknown[]) {
     + 'Return only NDJSON objects. Emit one complete Japanese sentence per speech, then its faithful Chinese translation. '
     + 'Speech: {"type":"speech","key":"s1","speech_ja":"こんにちは。","intent":"acknowledge","affect":"neutral","intensity":0.25,"expression":"表情目录中的原名","pose":"crossed"}. '
     + 'Each speech must be 1–48 characters with Japanese kana, ending in sentence punctuation. No code or URLs in speech. '
+    + 'Start with a concise, meaningful first sentence (about 8–18 Japanese characters) when natural, then continue the substance in later complete sentences. Do not add a stock acknowledgement just to start sooner. '
     + 'Translation: {"type":"translation","key":"s1","display_zh":"你好。"}. Keys must be unique per reply. '
     + 'Use only speech and translation events. Expression follows your attitude toward this sentence, not random rotation.\n'
     + `表情语义目录：${JSON.stringify(value.guide)}\n当前服装：${settings.avatar_costume}\n`
