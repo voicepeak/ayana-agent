@@ -16,6 +16,32 @@ const report = [];
 try {
   for (const [name, address] of [['before', option('--before-url', 'http://127.0.0.1:4176/')], ['after', option('--after-url', 'http://127.0.0.1:4175/')]]) {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
+    await context.addInitScript(() => {
+      const NativeSocket = window.WebSocket;
+      window.WebSocket = class extends NativeSocket {
+        send(value) {
+          if (typeof value === 'string') {
+            try { if (JSON.parse(value).type === 'turn.start') window.__responseTiming = { start: performance.now() }; } catch {}
+          }
+          return super.send(value);
+        }
+      };
+      new MutationObserver(() => {
+        const timing = window.__responseTiming;
+        if (timing && timing.visible === undefined && document.querySelector('.speech-main')?.textContent.trim()) timing.visible = performance.now()-timing.start;
+      }).observe(document, { childList: true, subtree: true, characterData: true });
+      const NativeWorklet = window.AudioWorkletNode;
+      if (NativeWorklet) window.AudioWorkletNode = class extends NativeWorklet {
+        constructor(...args) {
+          super(...args);
+          this.port.addEventListener('message', ({ data }) => {
+            const timing = window.__responseTiming;
+            if (data.type === 'started' && timing && timing.playback === undefined) timing.playback = performance.now()-timing.start;
+          });
+          this.port.start();
+        }
+      };
+    });
     const page = await context.newPage();
     const errors = []; let active;
     const failed = [];
@@ -61,8 +87,9 @@ try {
       try { await page.getByLabel('发送', { exact: true }).click(); }
       catch (error) { console.error(JSON.stringify({ mode: name, failed, errors, ui: (await page.locator('body').innerText()).slice(-1000), draftLength: (await page.getByLabel('消息', { exact: true }).inputValue()).length })); throw error; }
       await page.locator('.speech-main').first().waitFor({ timeout: 90000 });
-      active.firstVisibleMs = Date.now()-active.start;
+      active.firstVisibleMs = Math.round(await page.evaluate(() => window.__responseTiming.visible));
       await page.waitForFunction(() => !document.querySelector('.stop-button'), null, { timeout: 90000 });
+      active.firstPlaybackStartMs = Math.round(await page.evaluate(() => window.__responseTiming.playback));
       assert.ok(active.speechCount > 0 && active.audioCount === active.speechCount && active.consumed === active.audioCount);
       const { start, ...record } = active; report.push(record); console.log(JSON.stringify(record));
       assert.deepEqual(errors, []);

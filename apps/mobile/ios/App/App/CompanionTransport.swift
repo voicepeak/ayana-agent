@@ -57,6 +57,9 @@ final class CompanionTransport: NSObject, AVAudioPlayerDelegate {
         func receive(_ event: [String: Any]) {
             let data = try! JSONSerialization.data(withJSONObject: event)
             probe.incoming(String(data: data, encoding: .utf8)!)
+            // Plugin load can precede didBecomeActive; drain the native backlog
+            // just as foreground restoration does before inspecting JS events.
+            probe.flush()
         }
         receive(["type": "utterance.ready", "generation_id": 1, "utterance_id": "early", "speech_ja": "ここにいるよ。", "audio_enabled": true])
         precondition(!events.contains { $0["type"] as? String == "mobile.preview" })
@@ -70,6 +73,7 @@ final class CompanionTransport: NSObject, AVAudioPlayerDelegate {
         receive(["type": "utterance.ready", "generation_id": 3, "utterance_id": "text-only", "speech_ja": "続けよう。", "audio_enabled": false])
         precondition(probe.textWork != nil)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            probe.flush()
             precondition(events.contains { $0["type"] as? String == "mobile.present" && $0["utterance_id"] as? String == "text-only" }, "Text fallback stalled after cancellation")
             let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("layout-audit")
             let report: [String: Any] = ["caption_before_audio": true, "preview_keeps_audio_pending": true, "cancel_releases_text_timer": true, "next_text_turn_presented": true]
