@@ -4,7 +4,9 @@ Android / iOS 共用的独立移动客户端。角色资源、提示词、历史
 
 完整部署、激活、构建和排障说明见 [本地交付说明](../../docs/MOBILE_INDEPENDENT_DELIVERY.md)。
 
-2026-10-25 最新为 **build 7**，只启用黑制服 Ayana，在此前排版修复基础上，首句文字提前显示，模型结束后用语音准备状态衔接等待，并修复 iOS 取消后的文字计时器。原生 iPhone 测试见 [测试说明](../../docs/MOBILE_IOS_TEST_2026-10-25.md)。专项截图与验证边界见 [字体与排版复核](../../docs/MOBILE_TYPOGRAPHY_2026-10-25.md)。悬浮入口见 [悬浮陪伴说明](../../docs/MOBILE_FLOATING_2026-10-25.md)，此前运行逻辑修复见 [检查记录](../../docs/MOBILE_UI_AUDIT_2026-10-25.md)。
+2026-10-25 已编译的原生安装包为 **build 7**，只启用黑制服 Ayana，修复 iOS 取消后的文字计时器。原生 iPhone 测试见 [测试说明](../../docs/MOBILE_IOS_TEST_2026-10-25.md)。专项截图与验证边界见 [字体与排版复核](../../docs/MOBILE_TYPOGRAPHY_2026-10-25.md)。悬浮入口见 [悬浮陪伴说明](../../docs/MOBILE_FLOATING_2026-10-25.md)，此前运行逻辑修复见 [检查记录](../../docs/MOBILE_UI_AUDIT_2026-10-25.md)。
+
+后续网页迭代默认日语正文与中文翻译，每句字幕和音频齐备后逐句播放，立绘切换加入上下轻弹，详见 [逐句音画同步](../../docs/MOBILE_CAPTION_SYNC_2026-10-25.md)。纯汉字称呼导致回复中断的源码修复及服务加载边界见 [称呼校验修复](../../docs/MOBILE_MODEL_ADDRESS_FIX_2026-10-25.md)。按功能拆分的提交与检查索引见 [手机迭代索引](../../docs/MOBILE_ITERATIONS_2026-10-25.md)。
 
 ```powershell
 npm install
