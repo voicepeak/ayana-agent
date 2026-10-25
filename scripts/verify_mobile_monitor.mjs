@@ -91,6 +91,17 @@ try {
   assert.match(await page.locator('#detail-label').innerText(), /语音合成失败/);
   assert.match(await page.locator('#facts').innerText(), /已完成/);
   checks.push('Voice synthesis failures remain distinct from successful model generation');
+  Object.assign(turns.find(turn => turn.id === 'failure'), { status: 'generated_rejected', model_output: {
+    parts: [{ ja: '戯曲。古いやつ。', zh: '戏剧。老作品。' }], text: '', parse_incomplete: false, truncated: false,
+    source: 'model.failed.response_excerpt', delivery_confirmation: 'not_recorded' }, event_count: 6 });
+  await page.waitForFunction(() => document.querySelector('[data-key="one/failure"] .generated-preview'));
+  await page.locator('[data-key="one/failure"]').click();
+  assert.match(await page.locator('[data-key="one/failure"] .generated-preview').innerText(), /戯曲。古いやつ。/);
+  assert.match(await page.locator('[data-key="one/failure"] .generated-preview').innerText(), /未确认送达/);
+  assert.match(await page.locator('#detail-badge').innerText(), /生成后处理失败/);
+  assert.equal(await page.locator('[data-key="one/failure"] .pending-copy').innerText(), '未记录回复提交成功；下方可查看模型原始生成。');
+  checks.push('Rejected raw model output is visible and clearly separate from committed replies and device delivery');
+  await page.screenshot({ path: path.join(output, 'rejected-generation.png') });
   await page.locator('[data-key="two/slow"]').click();
   assert.match(await page.locator('#phases').innerText(), /6.42 s/);
   await noOverflow();

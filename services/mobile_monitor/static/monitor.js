@@ -1,7 +1,7 @@
 const $ = id => document.getElementById(id);
 const state = { user: '', topic: '', hours: 24, inactive: false, issues: false, paused: false, follow: true, snapshot: null,
   selected: '', detailKey: '', detailEpoch: 0, filterEpoch: 0, inFlight: false, timer: 0 };
-const statuses = { failed: '模型回复失败', tts_failed: '语音合成失败', cancelled: '已打断', unresolved: '缺少后续记录', model_wait_long: '模型等待偏长',
+const statuses = { failed: '模型处理失败', generated_rejected: '生成后处理失败', tts_failed: '语音合成失败', cancelled: '已打断', unresolved: '缺少后续记录', model_wait_long: '模型等待偏长',
   thinking: '模型生成中', audio_wait_long: '语音等待偏长', preparing_audio: '语音合成中', slow_audio: '首段合成偏慢', complete: '已完成' };
 const clock = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const calendar = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit' });
@@ -139,11 +139,23 @@ function renderTurn(turn) {
   const incoming = node('div', 'message-row'); incoming.append(node('span', 'role', '用户'), node('p', 'user-text', turn.text)); item.append(incoming);
   const outgoing = node('div', 'message-row'); const reply = node('div', 'reply-list');
   outgoing.append(node('span', 'role', '彩名'), reply);
-  if (!turn.speeches.length) reply.append(node('p', 'pending-copy', turn.severity === 'error' ? '本轮未记录到有效回复' : '等待回复记录…'));
+  if (!turn.speeches.length) reply.append(node('p', 'pending-copy', turn.model_output ? '未记录回复提交成功；下方可查看模型原始生成。' : turn.severity === 'error' ? '未记录到已提交回复；无法仅据此确认手机未收到回答。' : '等待回复提交记录…'));
   turn.speeches.forEach(speech => { const group = node('div', 'reply'); const ja = node('p', 'reply-ja', speech.ja); ja.lang = 'ja'; group.append(ja); if (speech.zh) group.append(node('p', 'reply-zh', speech.zh)); reply.append(group); });
   item.append(outgoing);
+  if (turn.model_output) {
+    const preview = node('section', 'generated-preview');
+    preview.append(node('span', 'generated-label', '模型原始生成 · 未确认送达'));
+    if (turn.model_output.parts.length) turn.model_output.parts.forEach(part => {
+      const ja = node('p', 'reply-ja', part.ja); ja.lang = 'ja'; preview.append(ja);
+      if (part.zh) preview.append(node('p', 'reply-zh', part.zh));
+    });
+    else preview.append(node('p', 'raw-preview', turn.model_output.text));
+    preview.append(node('small', '', turn.speeches.length ? '原始片段可能包含已提交的前半段，不等于新增送达内容。' : '这是失败时保存的生成片段，不代表手机已显示或播放。'));
+    if (turn.model_output.truncated || turn.model_output.parse_incomplete) preview.append(node('small', '', '原始输出有截取或不完整；完整已保存内容可在事件记录中查看。'));
+    item.append(preview);
+  }
   const footer = node('div', 'turn-footer');
-  for (const [title, value] of [['首句文字', duration(turn.first_text_ms)], ['首段合成', duration(turn.first_audio_ms)], ['合成', `${turn.audio_completed}/${turn.audio_expected}`]]) {
+  for (const [title, value] of [['首句提交', duration(turn.first_text_ms)], ['首段合成', duration(turn.first_audio_ms)], ['合成', `${turn.audio_completed}/${turn.audio_expected}`]]) {
     const fact = node('span', '', `${title} `); fact.append(node('b', '', value)); footer.append(fact);
   }
   item.append(footer);
@@ -160,7 +172,8 @@ function renderInspector(turn) {
   $('detail-badge').replaceWith(Object.assign(badge(turn), { id: 'detail-badge' }));
   $('detail-time').textContent = recordTime(turn.started_at);
   const descriptions = {
-    failed: '本轮记录了明确失败。先查看错误码和发生阶段，再定位模型格式或语音合成问题。',
+    failed: '本轮记录了处理错误。它不等于模型完全没有生成内容，也不能单独证明手机未收到前面的回复。',
+    generated_rejected: '模型生成过内容，但后续处理报错。下方原始生成未记录为提交成功；现有日志不能确认手机实际看到或听到了什么。',
     tts_failed: '记录到了语音合成失败。检查语音服务的错误类型；模型可能已经生成了可阅读的回复。',
     unresolved: '未记录到完整的后续事件。可能已经打断、断网或日志延后，不能仅凭此判断服务卡死。',
     model_wait_long: `发起请求已 ${turn.age_seconds} 秒，尚未记录模型完成。建议关注后续事件。`,
@@ -171,7 +184,7 @@ function renderInspector(turn) {
     preparing_audio: '模型已结束，等待本轮预期的语音合成记录。'
   };
   $('detail-label').textContent = descriptions[turn.status] || '查看这一轮的事件记录。';
-  $('phases').replaceChildren(...[['发出请求', 0], ['首句文字', turn.first_text_ms], ['中文翻译', turn.translation_ms], ['首段合成就绪', turn.first_audio_ms]].map(([title, value]) => {
+  $('phases').replaceChildren(...[['发出请求', 0], ['首句提交', turn.first_text_ms], ['中文翻译提交', turn.translation_ms], ['首段合成就绪', turn.first_audio_ms]].map(([title, value]) => {
     const item = node('li', `phase${value != null ? ' done' : ''}`);
     item.append(node('span', 'phase-dot'), node('span', 'phase-name', title), node('span', 'phase-time', duration(value))); return item;
   }));
@@ -179,7 +192,8 @@ function renderInspector(turn) {
   $('facts').replaceChildren();
   const modelStatus = { complete: '已完成', failed: '失败', cancelled: '已取消' }[turn.model_state] || turn.model_state || '未记录完成';
   const facts = [['模型状态', modelStatus], ['模型结束', duration(turn.model_ms)], ['语音完成段数', `${turn.audio_completed} / ${turn.audio_expected}`],
-    ['首段合成本身', duration(synthesis[0])], ['本轮事件', turn.event_count], ['已激活设备', state.snapshot.users.find(user => user.id === turn.user_id)?.activated_devices ?? '未知']];
+    ['首段合成本身', duration(synthesis[0])], ['模型原始生成', turn.model_output ? '有诊断片段' : '未采集或未记录'],
+    ['手机送达 / 播放', '未采集确认'], ['本轮事件', turn.event_count], ['已激活设备', state.snapshot.users.find(user => user.id === turn.user_id)?.activated_devices ?? '未知']];
   facts.forEach(([title, value]) => $('facts').append(node('dt', '', title), node('dd', '', value)));
   $('error-detail').hidden = !turn.errors.length;
   $('error-detail').replaceChildren();
@@ -216,7 +230,7 @@ $('logout').addEventListener('click', async () => { try { await api('/api/logout
 $('export').addEventListener('click', () => {
   const data = state.snapshot; if (!data) return;
   const lines = [`Ayana 监控视图 · ${new Date(data.now * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })} 北京时间`, `账号筛选：${state.user ? label(state.user) : '全部账号'}`, ...data.limitations, ''];
-  [...data.turns].reverse().forEach(turn => { lines.push(`--- ${recordTime(turn.started_at)} · ${label(turn.user_id)} · ${statuses[turn.status]} ---`, `用户：${turn.text}`); turn.speeches.forEach(speech => lines.push(`日语：${speech.ja}`, `中文：${speech.zh}`)); turn.errors.forEach(error => lines.push(`错误：${error.code}`)); lines.push(`首段合成：${duration(turn.first_audio_ms)}`, ''); });
+  [...data.turns].reverse().forEach(turn => { lines.push(`--- ${recordTime(turn.started_at)} · ${label(turn.user_id)} · ${statuses[turn.status]} ---`, `用户：${turn.text}`); turn.speeches.forEach(speech => lines.push(`已提交日语：${speech.ja}`, `已提交中文：${speech.zh}`)); if (turn.model_output) { lines.push('模型原始生成（未确认送达，不等于已提交回复）：'); turn.model_output.parts.forEach(part => lines.push(`原始日语：${part.ja}`, `原始中文：${part.zh}`)); if (turn.model_output.text) lines.push(turn.model_output.text); } turn.errors.forEach(error => lines.push(`错误：${error.code}`)); lines.push(`首段合成：${duration(turn.first_audio_ms)}`, ''); });
   const url = URL.createObjectURL(new Blob(['\ufeff' + lines.join('\n')], { type: 'text/plain;charset=utf-8' })); const link = node('a'); link.href = url; link.download = `Ayana-监控视图-${new Date().toISOString().slice(0, 10)}.txt`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !state.paused && !$('console').hidden) void refresh(); });

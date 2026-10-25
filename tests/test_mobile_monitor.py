@@ -101,6 +101,45 @@ def test_voice_failure_is_distinguished_from_model_failure(data):
     assert turn["status"] == "tts_failed" and turn["model_state"] == "complete"
 
 
+def test_generated_but_rejected_text_is_not_misrepresented_as_no_model_reply(data):
+    reader, append, _, _ = data
+    raw = '\n'.join(json.dumps(event, ensure_ascii=False) for event in [
+        {"type": "speech", "key": "s1", "speech_ja": "戯曲。古いやつ。"},
+        {"type": "translation", "key": "s1", "display_zh": "戏剧。老作品。"}])
+    append("user.message", text="什么书呀")
+    append("model.failed", code="invalid_model_repair", response_excerpt=raw)
+    append("turn.finished", state="failed")
+    turn = reader.snapshot()["turns"][0]
+    assert turn["status"] == "generated_rejected"
+    assert turn["model_output"]["parts"] == [{"ja": "戯曲。古いやつ。", "zh": "戏剧。老作品。"}]
+    assert turn["model_output"]["delivery_confirmation"] == "not_recorded"
+    assert turn["speeches"] == [] and turn["audio_completed"] == 0
+    assert turn["first_text_ms"] is None and turn["first_audio_ms"] is None
+    assert reader.snapshot()["summary"]["failed"] == 1
+
+
+def test_partial_reply_does_not_relabel_generated_tail_as_delivered(data):
+    reader, append, _, _ = data
+    complete(append)
+    append("model.failed", code="invalid_model_repair", response_excerpt=json.dumps(
+        {"type": "speech", "speech_ja": "ここからは未確定。"}, ensure_ascii=False))
+    turn = reader.snapshot()["turns"][0]
+    assert turn["status"] == "failed" and len(turn["speeches"]) == 1
+    assert turn["speeches"][0]["ja"] == "こんにちは。"
+    assert turn["model_output"]["parts"][0]["ja"] == "ここからは未確定。"
+
+
+def test_incomplete_model_diagnostic_is_visible_but_not_committed(data):
+    reader, append, _, _ = data
+    raw = '{"type":"speech","speech_ja":"unfinished'
+    append("user.message", text="hello")
+    append("model.failed", code="invalid_model_repair", response_excerpt=raw)
+    turn = reader.snapshot()["turns"][0]
+    assert turn["model_output"]["text"] == raw
+    assert turn["model_output"]["parse_incomplete"] is True
+    assert not turn["speeches"]
+
+
 def test_later_audio_cannot_masquerade_as_the_head_sentence_being_ready(data):
     reader, append, _, _ = data
     append("user.message", at=NOW - 10, text="hello")

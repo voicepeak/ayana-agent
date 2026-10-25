@@ -7,6 +7,8 @@ import re
 import sqlite3
 import time
 
+from packages.protocol import SpeechParser
+
 
 EVENT_LIMIT = 4000
 TURN_LIMIT = 120
@@ -48,6 +50,42 @@ def percentile(values, fraction):
     lower = int(position)
     upper = min(lower + 1, len(ordered) - 1)
     return round(ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower))
+
+
+def model_output_preview(source):
+    """Read diagnostic model text without accepting it as committed speech."""
+    if not isinstance(source, str) or not source.strip():
+        return None
+    source = source[:12000]
+    parser = SpeechParser()
+    incomplete = False
+    try:
+        decoded = parser.feed(source)
+        try:
+            parser.finish()
+        except ValueError:
+            incomplete = True
+    except ValueError:
+        decoded, incomplete = [], True
+    parts = []
+    for event in decoded:
+        kind = event.get("type")
+        if kind == "speech" or (kind is None and isinstance(event.get("speech_ja"), str)):
+            if not isinstance(event.get("speech_ja"), str):
+                continue
+            parts.append({"key": str(event.get("key", "")), "ja": event["speech_ja"],
+                          "zh": event.get("display_zh") if isinstance(event.get("display_zh"), str) else ""})
+        elif kind == "translation" and isinstance(event.get("display_zh"), str):
+            match = next((part for part in parts if not part["zh"] and part["key"] == str(event.get("key", ""))), None)
+            if match is None:
+                match = next((part for part in parts if not part["zh"]), None)
+            if match:
+                match["zh"] = event["display_zh"]
+    truncated = len(source) >= 12000 or len(parts) > 6 or any(len(part[field]) > 600 for part in parts for field in ("ja", "zh"))
+    return {"parts": [{"ja": part["ja"][:600], "zh": part["zh"][:600]} for part in parts[:6]],
+            "text": source[:800] if not parts else "", "parse_incomplete": incomplete,
+            "truncated": truncated or (not parts and len(source) > 800),
+            "source": "model.failed.response_excerpt", "delivery_confirmation": "not_recorded"}
 
 
 class MonitorReader:
@@ -110,7 +148,7 @@ class MonitorReader:
         start = messages[0]["at"] if messages else rows[0]["at"]
         incoming = messages[0]["event"] if messages else {}
         speeches, captions, audio = {}, {}, {}
-        errors, finished = [], None
+        errors, finished, generated_output = [], None, None
         first_text = first_translation = first_audio = None
         model_finished = None
         for row in rows:
@@ -128,6 +166,8 @@ class MonitorReader:
                 first_audio = at if first_audio is None else min(first_audio, at)
             elif kind in {"model.failed", "tts.failed"}:
                 errors.append({"type": kind, "code": str(event.get("code") or event.get("error_type") or kind), "at": at})
+                if kind == "model.failed":
+                    generated_output = model_output_preview(event.get("response_excerpt")) or generated_output
             elif kind == "turn.finished":
                 finished, model_finished = str(event.get("state", "unknown")), at
         expected = {sid for sid, speech in speeches.items() if speech["audio_enabled"]}
@@ -138,7 +178,7 @@ class MonitorReader:
         age = max(0, now - start)
         audio_ms = round(max(0, first_audio - start) * 1000) if first_audio is not None else None
         if any(error["type"] == "model.failed" for error in errors) or finished == "failed":
-            status, severity = "failed", "error"
+            status, severity = ("generated_rejected" if generated_output and not speeches else "failed"), "error"
         elif errors:
             status, severity = "tts_failed", "error"
         elif finished == "cancelled":
@@ -160,7 +200,8 @@ class MonitorReader:
                 "first_text_ms": round(max(0, first_text - start) * 1000) if first_text is not None else None,
                 "translation_ms": round(max(0, first_translation - start) * 1000) if first_translation is not None else None,
                 "first_audio_ms": audio_ms, "model_ms": round(max(0, model_finished - start) * 1000) if model_finished is not None else None,
-                "speeches": list(speeches.values()), "audio_expected": len(expected), "audio_completed": len(set(audio) & expected),
+                "speeches": list(speeches.values()), "model_output": generated_output,
+                "audio_expected": len(expected), "audio_completed": len(set(audio) & expected),
                 "errors": errors, "event_count": len(rows), "record_incomplete": not bool(messages)}
 
     def snapshot(self, user_id="", conversation_id="", hours=24, include_inactive=False, issues_only=False):
