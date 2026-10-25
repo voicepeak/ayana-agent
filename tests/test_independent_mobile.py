@@ -52,6 +52,30 @@ def receive_kind(socket, kind):
     raise AssertionError("Missing event: " + kind)
 
 
+def test_rejected_turn_is_tagged_with_request_generation(setup_gateway):
+    app, store, key, config = setup_gateway
+    with TestClient(app) as client:
+        session = activate(client, key)
+        with client.websocket_connect("/v1/mobile") as phone:
+            phone.send_json({"access_token": session["access_token"]})
+            receive_kind(phone, "gateway.ready")
+            rejected = turn("rejected_turn", generation=91)
+            rejected["messages"] = []
+            phone.send_json(rejected)
+            error = receive_kind(phone, "error")
+            assert error["generation_id"] == 91
+            assert error["turn_id"] == "rejected_turn"
+            assert error["conversation_id"] == rejected["conversation_id"]
+            assert receive_kind(phone, "task.state")["state"] == "failed"
+            phone.send_json(turn("recovered_turn", generation=93))
+            assert receive_kind(phone, "utterance.ready")["generation_id"] == 93
+            for _ in range(20):
+                if phone.receive_json().get("state") == "idle":
+                    break
+            else:
+                raise AssertionError("Recovered turn did not finish")
+
+
 def test_activation_refresh_revoke_and_no_provider_secrets(setup_gateway):
     app, store, key, _ = setup_gateway
     with TestClient(app) as client:

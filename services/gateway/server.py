@@ -662,6 +662,7 @@ def create_app(config, *, store=None, model_client=None):
                 if not store.authenticate(token):
                     await ws.close(code=4401)
                     break
+                cmd = None
                 try:
                     cmd = json.loads(raw)
                     if not isinstance(cmd, dict):
@@ -683,8 +684,18 @@ def create_app(config, *, store=None, model_client=None):
                     else:
                         raise ValueError("unsupported_command")
                 except (ValueError, TypeError):
-                    phone.emit(phone.event("error", source="turn", message="请求被拒绝，请检查配置或稍后重试。"))
-                    phone.emit(phone.event("task.state", state="failed"))
+                    # A rejected new turn has not become phone.local_generation yet.
+                    # Tag its failure with the requesting turn so the mobile runtime
+                    # does not discard the error as a late packet from the prior turn.
+                    request_context = {}
+                    if isinstance(cmd, dict) and cmd.get("type") == "turn.start":
+                        if type(cmd.get("generation_id")) is int and cmd["generation_id"] > 0:
+                            request_context["generation_id"] = cmd["generation_id"]
+                        for field in ("conversation_id", "turn_id"):
+                            if isinstance(cmd.get(field), str) and len(cmd[field]) <= 128:
+                                request_context[field] = cmd[field]
+                    phone.emit({**phone.event("error", source="turn", message="请求被拒绝，请检查配置或稍后重试。"), **request_context})
+                    phone.emit({**phone.event("task.state", state="failed"), **request_context})
         except (WebSocketDisconnect, RuntimeError, ValueError, TimeoutError):
             with suppress(Exception):
                 await ws.close(code=4400)
