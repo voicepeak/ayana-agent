@@ -13,8 +13,11 @@ from services.agent.tools.registry import ToolError
 class Ws:
     def __init__(self):
         self.events = []
+        self.binary = []
     async def send_json(self, value):
         self.events.append(value)
+    async def send_bytes(self, value):
+        self.binary.append(value)
 
 
 class Desktop:

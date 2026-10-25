@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import binascii
 import contextlib
 import json
 import time
@@ -26,7 +27,7 @@ from .conversation_runtime import ConversationRuntime
 from .memory import PersonalMemory, extract_memories
 from .emotion import EmotionState, suggest_faces
 from .attention import AttentionRuntime
-
+from .audio_codec import f32le_base64_to_s16le_bytes
 
 def identifier(prefix):
     return f"{prefix}-{uuid.uuid4().hex[:12]}"
@@ -105,6 +106,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         self.registry = self._make_tools()
         self.client_queues = {}
         self.client_senders = {}
+        self.client_audio_formats = {}
         self.persistence_lock = asyncio.Lock()
         self.subtitle_jobs = set()
         self.subtitle_pending = set()
@@ -134,12 +136,30 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                 self.client_queues[ws] = queue
                 self.client_senders[ws] = asyncio.create_task(self._send_events(ws, queue))
             try:
-                self.client_queues[ws].put_nowait(event)
+                client_event, binary = self._client_event(event, ws)
+                self.client_queues[ws].put_nowait((client_event, binary) if binary is not None else client_event)
             except asyncio.QueueFull:
                 self.clients.discard(ws)
                 self.client_senders[ws].cancel()
         await asyncio.sleep(0)
         return event
+
+    def _client_event(self, event, ws):
+        if event.get("type") != "audio.ready" or self.client_audio_formats.get(ws) != "pcm_s16le":
+            return event, None
+        try:
+            payload = f32le_base64_to_s16le_bytes(str(event.get("pcm_base64", "")))
+        except (ValueError, TypeError, binascii.Error):
+            return event, None
+        metadata = {**event, "format": "pcm_s16le", "transport": "binary", "byte_length": len(payload)}
+        metadata.pop("pcm_base64", None)
+        return metadata, payload
+
+    def _settings_ready_payload(self):
+        return {"settings": self.settings.public(), "api_key_configured": bool(self.settings.key()),
+                "avatar_character": self.avatars.character,
+                "avatar_costume": self.settings.values.get("avatar_costume", "校服"),
+                "default_asset_id": self.avatars.mapping.get("default_asset_id", "neutral")}
 
     async def _send_events(self, ws, queue):
         try:
@@ -147,7 +167,13 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                 event = await queue.get()
                 try:
                     async with asyncio.timeout(2):
-                        await ws.send_json(event)
+                        if isinstance(event, tuple):
+                            metadata, binary = event
+                            await ws.send_json(metadata)
+                            if binary is not None:
+                                await ws.send_bytes(binary)
+                        else:
+                            await ws.send_json(event)
                 finally:
                     queue.task_done()
         except (Exception, asyncio.CancelledError):
@@ -190,18 +216,20 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         except Exception as e:
             await self.emit("service.state", service="tts", state="failed", message=str(e)[:400])
 
-    async def connected(self, ws):
+    async def connected(self, ws, client=None):
         if self.closing or self.closed:
             raise RuntimeError("Runtime is closing")
         async with self.command_lock:
             if self.closing or self.closed:
                 raise RuntimeError("Runtime is closing")
-            await self._connected(ws)
+            await self._connected(ws, client)
 
-    async def _connected(self, ws):
+    async def _connected(self, ws, client=None):
         self.clients.add(ws)
+        requested = (client or {}).get("audio_format")
+        self.client_audio_formats[ws] = requested if requested in {"pcm_f32le", "pcm_s16le"} else "pcm_f32le"
         await self.emit("session.started", provider=self.settings.values["provider"], target=self.target)
-        await self.emit("settings.ready", settings=self.settings.public(), api_key_configured=bool(self.settings.key()))
+        await self.emit("settings.ready", **self._settings_ready_payload())
         await self.emit("service.state", service="tts", **self.tts.status)
         await self.emit("service.state", service="desktop", **self.desktop.status)
         if self.snapshot:
@@ -212,6 +240,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
 
     async def disconnected(self, ws):
         self.clients.discard(ws)
+        self.client_audio_formats.pop(ws, None)
         sender = self.client_senders.get(ws)
         if sender and sender is not asyncio.current_task():
             sender.cancel()
@@ -322,7 +351,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         elif kind.startswith("playback.") or kind == "utterance.displayed":
             await self._receipt(cmd)
         elif kind == "settings.get":
-            await self.emit("settings.ready", settings=self.settings.public(), api_key_configured=bool(self.settings.key()))
+            await self.emit("settings.ready", **self._settings_ready_payload())
             await self.emit("service.state", service="tts", **self.tts.status)
             await self._capabilities_snapshot()
         elif kind == "credentials.update":
@@ -336,8 +365,8 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                     self.settings.update({"provider": "openai"})
             else:
                 self.settings.clear_key()
-            await self.emit("settings.ready", settings=self.settings.public(),
-                            api_key_configured=bool(self.settings.key()), request_id=cmd.get("request_id"))
+            await self.emit("settings.ready", **self._settings_ready_payload(),
+                            request_id=cmd.get("request_id"))
             await self._capabilities_snapshot()
         elif kind == "settings.update":
             patch = cmd.get("settings", {})
@@ -391,7 +420,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
                 from services.tts.service import TtsService
                 self.tts = TtsService(self.settings.values["voice"])
                 self.start_task = asyncio.create_task(self._prepare_voice())
-            await self.emit("settings.ready", settings=self.settings.public(), api_key_configured=bool(self.settings.key()), request_id=cmd.get("request_id"))
+            await self.emit("settings.ready", **self._settings_ready_payload(), request_id=cmd.get("request_id"))
             if any(key in patch for key in ("search_provider", "search_proxy")):
                 await self._capabilities_snapshot()
         elif kind == "history.get":
@@ -1074,6 +1103,7 @@ class AgentRuntime(AttentionRuntime, CapabilityRuntime, ConversationRuntime):
         self.clients.clear()
         self.client_senders.clear()
         self.client_queues.clear()
+        self.client_audio_formats.clear()
         async with self.persistence_lock:
             self.store.close()
             self.closed = True
