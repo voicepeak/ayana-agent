@@ -36,15 +36,20 @@ public class AyanaCompanionPlugin: CAPPlugin, CAPBridgedPlugin, AVPictureInPictu
     public override func load() {
 #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--ayana-layout-audit") {
+            print("AyanaLayoutAudit: rendering native frames")
             do { try frameRenderer.writeLayoutAudit() }
             catch { assertionFailure("Native layout audit failed: \(error)") }
+            print("AyanaLayoutAudit: frames complete")
         }
 #endif
         transport = CompanionTransport { [weak self] event in
             self?.notifyListeners("transport", data: event)
         }
 #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("--ayana-layout-audit") { CompanionTransport.writeResponseAudit() }
+        if ProcessInfo.processInfo.arguments.contains("--ayana-layout-audit") {
+            print("AyanaLayoutAudit: checking response state")
+            CompanionTransport.writeResponseAudit()
+        }
 #endif
         transport.changed = { [weak self] in self?.render() }
         foregroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in self?.transport.flush() }
