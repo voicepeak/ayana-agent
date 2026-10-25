@@ -10,6 +10,7 @@ from __future__ import annotations
 import inspect
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import threading
@@ -24,6 +25,51 @@ def exhaust_loader(result):
     if inspect.isgenerator(result):
         for _ in result:
             pass
+
+
+def _ascii_openjtalk_dictionary(application_root):
+    """PyOpenJTalk's C++ loader cannot open dictionaries under non-ASCII paths."""
+    try:
+        import pyopenjtalk
+    except Exception:
+        return
+    source_value = getattr(pyopenjtalk, "OPEN_JTALK_DICT_DIR", None)
+    if not source_value:
+        return
+    source = Path(os.fsdecode(source_value))
+    if str(source).isascii():
+        return
+    candidates = [
+        Path(application_root) / ".runtime" / "open_jtalk_dic",
+        Path(os.environ.get("PUBLIC", r"C:\Users\Public")) / "Ayana" / "open_jtalk_dic",
+    ]
+    target = next((item for item in candidates if str(item).isascii()), None)
+    if target is None:
+        return
+    marker = target / "sys.dic"
+    if not marker.is_file():
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.is_symlink() or target.exists():
+                try:
+                    target.rmdir()
+                except OSError:
+                    shutil.rmtree(target, ignore_errors=True)
+            created = subprocess.run(
+                ["cmd", "/c", "mklink", "/J", str(target), str(source)],
+                capture_output=True, text=True,
+            )
+            if created.returncode != 0 or not marker.is_file():
+                if target.is_symlink() or target.exists():
+                    try:
+                        target.rmdir()
+                    except OSError:
+                        shutil.rmtree(target, ignore_errors=True)
+                shutil.copytree(source, target)
+        except OSError:
+            return
+    if marker.is_file():
+        pyopenjtalk.OPEN_JTALK_DICT_DIR = str(target).encode("utf-8")
 
 
 class SynthesisCancelled(Exception):
@@ -94,6 +140,7 @@ class SovitsEngine:
             # profile path can be decoded incorrectly for non-ASCII usernames.
             os.environ["NLTK_DATA"] = str(nltk_data)
         sys.path[:0] = [str(root), str(root / "GPT_SoVITS"), str(source / "src")]
+        _ascii_openjtalk_dictionary(application_root)
         os.chdir(root)
         import torch
 
