@@ -36,7 +36,7 @@ jobs:
         run: echo 'Public gateway probe skipped; do not add owner or provider credentials to CI.'
   ios:
     runs-on: macos-15
-    timeout-minutes: 25
+    timeout-minutes: 35
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
     steps:
@@ -52,6 +52,14 @@ jobs:
         run: node --experimental-strip-types --test scripts/test_mobile_state.mjs
       - name: Build unsigned IPA
         run: bash scripts/build_mobile_ios.sh
+      - name: Render native PiP typography on iOS Simulator
+        run: bash scripts/audit_mobile_ios.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Ayana-iOS-layout-audit
+          path: release/mobile/ios-layout-audit
+          if-no-files-found: warn
       - name: Validate package and checksum
         run: |
           unzip -t release/mobile/Ayana-0.2.0-ios-unsigned.ipa

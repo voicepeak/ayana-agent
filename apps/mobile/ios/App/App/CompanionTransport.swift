@@ -59,7 +59,7 @@ final class CompanionTransport: NSObject, AVAudioPlayerDelegate {
         let ratio = current == nil || duration == 0 ? 1 : min(1, (player?.currentTime ?? 0) / duration)
         return ["text": main.isEmpty ? (presentation["text"] as? String ?? "我在这里。") : main,
                 "secondary": secondary == main ? "" : secondary, "asset": event["native_asset_file"] as? String ?? presentation["assetFile"] as? String ?? "",
-                "progress": ratio]
+                "progress": ratio, "playing": current != nil && player?.isPlaying == true]
     }
     func connect(_ value: [String: Any]) throws {
         guard let connectionID = value["id"] as? String, let gateway = value["gateway"] as? String,

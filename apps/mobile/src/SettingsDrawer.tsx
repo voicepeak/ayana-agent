@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { characterOptions, costumes } from './character';
+import { costumes } from './character';
 import { serverLabel } from './api';
 import type { MobileState } from './state';
 import type { CSSProperties } from 'react';
 import type { useCompanion } from './useCompanion';
 import { nativeAndroid, nativeIOS } from './companionNative';
+import { UiIcon } from './UiIcon';
 
 export const themes = [
   { id: 'ink', name: '夜墨', background: '#25282d', bubble: '#30343d' },
@@ -115,7 +116,7 @@ export function SettingsDrawer(props: Props) {
   };
   return <div className="drawer-backdrop" onClick={onClose}>
     <aside id="mobile-drawer" ref={dialog} className="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" onClick={event => event.stopPropagation()}>
-      <header><div><span className="eyebrow">YOUR SPACE</span><strong id="drawer-title">与彩名的日常</strong></div><button className="icon-button" type="button" onClick={onClose} aria-label="关闭">×</button></header>
+      <header><div><span className="eyebrow">你的空间</span><strong id="drawer-title">与彩名的日常</strong></div><button className="icon-button" type="button" onClick={onClose} aria-label="关闭"><UiIcon name="close"/></button></header>
       <div className="drawer-scroll">
         <div className="drawer-status"><span><i className={`status-dot ${state.connected ? 'is-on' : ''}`} />{state.connected ? '服务已连接' : '服务暂未连接'}</span><span>v{props.version}</span></div>
         <section><div className="section-heading"><h2>我的话题</h2><span>{state.conversations.length}</span></div>
@@ -128,12 +129,13 @@ export function SettingsDrawer(props: Props) {
           {deleting && <div className="delete-confirm"><p>删除「{state.conversation?.title}」及其本地消息？此操作无法撤销。</p><button type="button" onClick={() => setDeleting(false)}>保留</button><button className="danger-link" type="button" disabled={working} onClick={() => void run(async () => { if (await onCommand({ type: 'conversation.delete', conversation_id: state.conversation?.conversation_id })) setDeleting(false); })}>确认删除</button></div>}
         </section>
         <section className="drawer-actions"><h2>外观与陪伴</h2>
-          <div className="field-row"><label>角色<select aria-label="角色" disabled value={state.character} onChange={event => { props.onCancel(); void update({ character: event.target.value, avatar_costume: '校服' }); }}>{characterOptions().map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>服装<select value={state.costume} onChange={event => { props.onCancel(); void update({ avatar_costume: event.target.value }); }}>{costumes().map(item => <option key={item}>{item}</option>)}</select></label></div>
+          <div className="field-row"><div className="identity-field"><span>角色</span><output aria-label="角色">彩名 · 黑制服</output></div><label>服装<select value={state.costume} onChange={event => { props.onCancel(); void update({ avatar_costume: event.target.value }); }}>{costumes().map(item => <option key={item}>{item}</option>)}</select></label></div>
           <label>称呼<input value={name} maxLength={32} onChange={event => { dirty.current.name = true; setName(event.target.value); }} onBlur={() => void flush()} placeholder="希望彩名称呼你的名字" /></label>
           <fieldset className="theme-picker"><legend>心情底色</legend><div>{themes.map(item => <button key={item.id} type="button" aria-label={`主题：${item.name}`} aria-pressed={theme === item.id} style={{ '--swatch': item.background, '--swatch-accent': item.bubble } as CSSProperties} onClick={() => void update({ companion_ui: { theme: item.id, background_color: '', bubble_color: '' } })}><i /><span>{item.name}</span></button>)}</div></fieldset>
           <label className="switch-field"><span>语音回复<small>关闭后按阅读节奏显示文字</small></span><input type="checkbox" role="switch" checked={state.settings.voice?.voice_mode !== 'silent'} onChange={event => { props.onCancel(); void update({ voice: { voice_mode: event.target.checked ? 'auto' : 'silent' } }); }} /></label>
           <label>音量 <span className="range-value">{Math.round(Number(state.settings.volume ?? 1) * 100)}%</span><input aria-label="音量" type="range" min="0" max="1" step="0.05" value={Number(state.settings.volume ?? 1)} onChange={event => void update({ volume: Number(event.target.value) })} /></label>
-          <div className="field-row"><label>对白语言<select aria-label="对白语言" value={String(ui.primary_language || 'zh')} onChange={event => void update({ companion_ui: { primary_language: event.target.value } })}><option value="zh">中文</option><option value="ja">日语</option><option value="en">英语（回退中文）</option></select></label><label>翻译语言<select aria-label="翻译语言" value={String(ui.translation_language || 'none')} onChange={event => void update({ companion_ui: { translation_language: event.target.value } })}><option value="none">不显示</option><option value="ja">日语</option><option value="zh">中文</option><option value="en">英语（回退中文）</option></select></label></div>
+          <div className="field-row"><label>对白语言<select aria-label="对白语言" value={String(ui.primary_language || 'zh')} onChange={event => void update({ companion_ui: { primary_language: event.target.value } })}><option value="zh">中文</option><option value="ja">日语</option><option value="en">英语</option></select></label><label>翻译语言<select aria-label="翻译语言" value={String(ui.translation_language || 'none')} onChange={event => void update({ companion_ui: { translation_language: event.target.value } })}><option value="none">不显示</option><option value="ja">日语</option><option value="zh">中文</option><option value="en">英语</option></select></label></div>
+          <p className="field-hint">英语译文暂缺时，将显示已有的中文或日文。</p>
         </section>
         <section className="drawer-actions"><h2>记住关于你的事</h2><label>本机记忆（每行一条）<textarea rows={4} maxLength={15000} value={memory} onChange={event => { dirty.current.memory = true; setMemory(event.target.value); }} onBlur={() => void flush()} placeholder="例如：喜欢安静的咖啡店" /></label><p className="field-hint">自动保存，最多 50 条，每条 300 字。也可以对彩名说「记住：…」。</p></section>
         <section className="drawer-actions"><h2>连接与资料</h2><button type="button" onClick={() => { props.onReconnect(); onClose(); }}>重新连接</button><button type="button" disabled={working} onClick={() => void run(props.onSignOut)}>退出激活（保留本地历史）</button><p className="drawer-hint">语音状态：{state.voice === 'ready' ? '可用' : state.voice === 'failed' ? '暂不可用，文字仍可使用' : '等待服务'}<br />服务器：{serverLabel()}<br />历史保存在这台设备，卸载应用前请导出需要的话题。</p></section>

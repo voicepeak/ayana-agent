@@ -14,12 +14,12 @@ const address = option('--url') || 'http://127.0.0.1:17330/';
 const checkOffline = !process.argv.includes('--online-only');
 const stress = process.argv.includes('--stress');
 const recovery = process.argv.includes('--recovery');
-const stored = readFileSync(path.join(root, '.runtime/mobile-services/activation-code.txt'), 'utf8').trim();
+const stored = readFileSync(option('--activation-file') || path.join(root, '.runtime/mobile-services/activation-code.txt'), 'utf8').trim();
 const activation = JSON.parse(Buffer.from(stored.split('.')[1], 'base64url'));
 const code = 'ayana1.' + Buffer.from(JSON.stringify({ ...activation, url: new URL(address).origin })).toString('base64url');
 const screenshot = path.join(root, '.runtime/benchmarks/mobile-independent.png');
 mkdirSync(path.dirname(screenshot), { recursive: true });
-const browser = await chromium.launch({ headless: true, channel: 'chrome', args: [
+const browser = await chromium.launch({ headless: true, ...(option('--browser') ? { executablePath: option('--browser') } : { channel: 'chrome' }), args: [
   '--autoplay-policy=no-user-gesture-required',
   ...(process.argv.includes('--direct') ? ['--no-proxy-server'] : []),
 ] });
@@ -96,12 +96,7 @@ try {
   await page.click('button[type=submit]');
   await page.waitForFunction(() => document.querySelector('.topbar-title')?.textContent.includes('已连接'));
   await page.waitForFunction(() => [...document.images].some(image => image.className.includes('portrait') && image.naturalWidth > 0));
-  if (option('--character')) {
-    await page.getByLabel('打开菜单').click();
-    await page.locator('.drawer select').nth(0).selectOption(option('--character'));
-    await page.locator('.drawer').getByLabel('关闭', { exact: true }).click();
-    if (option('--character') === 'ayana-su') await page.waitForFunction(() => document.querySelector('.portrait')?.naturalHeight === 805);
-  }
+  if (option('--character') && option('--character') !== 'ayana') throw new Error('Mobile currently enables black-uniform Ayana only');
   assert.equal(await page.getByLabel('语音识别尚未配置').isDisabled(), true);
   await page.fill('.composer textarea', '你好呀，请用两句短短的日语向我问好。');
   await page.click('.send-button');
@@ -185,7 +180,7 @@ try {
   await page.screenshot({ path: screenshot });
   // Local character/settings/memory edits must not send desktop commands.
   await page.getByLabel('打开菜单').click();
-  await page.locator('.drawer select').nth(0).selectOption('ayana-su');
+  assert.equal(await page.getByLabel('角色', { exact: true }).textContent(), '彩名 · 黑制服');
   await page.getByLabel('称呼', { exact: true }).fill('联调用户');
   await page.getByLabel('本机记忆（每行一条）').fill('喜欢安静的咖啡店');
   await page.getByLabel('称呼', { exact: true }).click();
@@ -193,7 +188,7 @@ try {
   await page.waitForFunction(() => [...document.images].some(image => image.className.includes('portrait') && image.naturalWidth > 0));
   await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.getByLabel('打开菜单').click();
-  assert.equal(await page.locator('.drawer select').nth(0).inputValue(), 'ayana-su');
+  assert.equal(await page.getByLabel('角色', { exact: true }).textContent(), '彩名 · 黑制服');
   assert.equal(await page.getByLabel('称呼', { exact: true }).inputValue(), '联调用户');
   assert.equal(await page.getByLabel('本机记忆（每行一条）').inputValue(), '喜欢安静的咖啡店');
   await page.locator('.drawer').getByLabel('关闭', { exact: true }).click();

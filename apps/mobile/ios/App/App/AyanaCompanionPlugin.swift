@@ -31,10 +31,15 @@ public class AyanaCompanionPlugin: CAPPlugin, CAPBridgedPlugin, AVPictureInPictu
     private var transport: CompanionTransport!
     private var foregroundObserver: NSObjectProtocol?
     private let imageContext = CIContext(options: [.cacheIntermediates: false])
-    private let portraits = NSCache<NSString, UIImage>()
+    private let frameRenderer = CompanionFrameRenderer()
 
     public override func load() {
-        portraits.countLimit = 20; portraits.totalCostLimit = 32 * 1024 * 1024
+#if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ayana-layout-audit") {
+            do { try frameRenderer.writeLayoutAudit() }
+            catch { assertionFailure("Native layout audit failed: \(error)") }
+        }
+#endif
         transport = CompanionTransport { [weak self] event in
             self?.notifyListeners("transport", data: event)
         }
@@ -151,45 +156,9 @@ public class AyanaCompanionPlugin: CAPPlugin, CAPBridgedPlugin, AVPictureInPictu
     public func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController, didTransitionToRenderSize newRenderSize: CMVideoDimensions) { render() }
     public func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController, skipByInterval skipInterval: CMTime, completion completionHandler: @escaping () -> Void) { completionHandler() }
 
-    private func color(_ value: Any?, fallback: UInt32) -> UIColor {
-        let raw = (value as? String ?? "").replacingOccurrences(of: "#", with: "")
-        let number = raw.count == 6 ? UInt32(raw, radix: 16) ?? fallback : fallback
-        return UIColor(red: CGFloat((number >> 16) & 255) / 255, green: CGFloat((number >> 8) & 255) / 255, blue: CGFloat(number & 255) / 255, alpha: 1)
-    }
     private func render() {
         guard sourceView != nil, !paused else { return }
-        let size = CGSize(width: 960, height: 640)
-        let state = transport.frame
-        let ink = color(defaults["ink"], fallback: 0xf3efe7)
-        let accent = color(defaults["accent"], fallback: 0xe8c48a)
-        let rendererFormat = UIGraphicsImageRendererFormat(); rendererFormat.scale = 1; rendererFormat.opaque = true
-        let image = UIGraphicsImageRenderer(size: size, format: rendererFormat).image { context in
-            color(defaults["background"], fallback: 0x25282d).setFill(); context.fill(CGRect(origin: .zero, size: size))
-            let paragraph = NSMutableParagraphStyle(); paragraph.lineBreakMode = .byTruncatingTail
-            let body: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 35, weight: .regular), .foregroundColor: ink, .paragraphStyle: paragraph]
-            ("Ayana" as NSString).draw(in: CGRect(x: 40, y: 28, width: 250, height: 45), withAttributes: [.font: UIFont(name: "Georgia", size: 32) ?? UIFont.systemFont(ofSize: 32), .foregroundColor: ink])
-            let path = (state["asset"] as? String) ?? (defaults["assetFile"] as? String ?? "")
-            if let portrait = portrait(path) {
-                let area = CGRect(x: 500, y: 70, width: 440, height: 570)
-                // Same knee-height framing as desktop portraitLayout (visible height 72%).
-                let scale = min(area.width / portrait.size.width, area.height / 0.72 / portrait.size.height)
-                context.cgContext.saveGState(); context.cgContext.clip(to: area)
-                portrait.draw(in: CGRect(x: area.midX - portrait.size.width * scale / 2, y: area.minY, width: portrait.size.width * scale, height: portrait.size.height * scale))
-                context.cgContext.restoreGState()
-            }
-            let panel = CGRect(x: 34, y: 210, width: 510, height: 320)
-            UIColor(white: 0.06, alpha: 0.9).setFill(); UIBezierPath(roundedRect: panel, cornerRadius: 20).fill()
-            ("彩名" as NSString).draw(in: CGRect(x: 58, y: 231, width: 400, height: 26), withAttributes: [.font: UIFont.systemFont(ofSize: 19), .foregroundColor: accent])
-            let text = state["text"] as? String ?? defaults["text"] as? String ?? "我在这里。"
-            let attributed = NSMutableAttributedString(string: text, attributes: body.merging([.foregroundColor: UIColor(white: 0.94, alpha: 0.4)], uniquingKeysWith: { _, new in new }))
-            let progress = state["progress"] as? Double ?? 1
-            let length = (text as NSString).length
-            attributed.addAttribute(.foregroundColor, value: UIColor(white: 0.96, alpha: 1), range: NSRange(location: 0, length: min(length, max(0, Int(Double(length) * progress)))))
-            attributed.draw(in: CGRect(x: 58, y: 278, width: 460, height: 163))
-            let secondary = state["secondary"] as? String ?? ""
-            (secondary as NSString).draw(in: CGRect(x: 58, y: 454, width: 460, height: 54), withAttributes: [.font: UIFont.systemFont(ofSize: 22), .foregroundColor: UIColor(white: 0.8, alpha: 1), .paragraphStyle: paragraph])
-            ("返回 Ayana 继续对话" as NSString).draw(in: CGRect(x: 40, y: 582, width: 460, height: 30), withAttributes: [.font: UIFont.systemFont(ofSize: 20), .foregroundColor: ink.withAlphaComponent(0.65)])
-        }
+        let image = frameRenderer.image(state: transport.frame, defaults: defaults)
         guard let cgImage = image.cgImage else { return }
         var pixelBuffer: CVPixelBuffer?
         let attributes: [String: Any] = [kCVPixelBufferCGImageCompatibilityKey as String: true, kCVPixelBufferIOSurfacePropertiesKey as String: [:]]
@@ -206,13 +175,6 @@ public class AyanaCompanionPlugin: CAPPlugin, CAPBridgedPlugin, AVPictureInPictu
             if displayLayer.status == .failed { displayLayer.flush() }
             if displayLayer.isReadyForMoreMediaData { displayLayer.enqueue(sample) }
         }
-    }
-    private func portrait(_ path: String) -> UIImage? {
-        guard !path.contains(".."), path.hasPrefix("characters/ayana/") else { return nil }
-        if let value = portraits.object(forKey: path as NSString) { return value }
-        guard let url = Bundle.main.url(forResource: "public/" + path, withExtension: nil), let image = UIImage(contentsOfFile: url.path) else { return nil }
-        portraits.setObject(image, forKey: path as NSString, cost: Int(image.size.width * image.size.height * 4))
-        return image
     }
     deinit {
         if let observer = foregroundObserver { NotificationCenter.default.removeObserver(observer) }

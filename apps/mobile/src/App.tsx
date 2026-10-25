@@ -4,7 +4,8 @@ import { bootstrap, fetchAsset, logout, pair, sessionState } from './api';
 import { assetUrl } from './character';
 import { AudioPlayer } from './audio';
 import { MobileBridge } from './bridge';
-import { SpeechLine, textFor } from './SpeechLine';
+import { SpeechLine, textFor, languageFor } from './SpeechLine';
+import { UiIcon } from './UiIcon';
 import { SettingsDrawer, themes } from './SettingsDrawer';
 import { useDraft } from './useDraft';
 import { usePlaybackWake } from './usePlaybackWake';
@@ -94,6 +95,7 @@ export default function App() {
   const switchingRef = useRef(false);
   const transcriptRef = useRef<HTMLElement>(null);
   const atBottomRef = useRef(true);
+  const scrollIntent = useRef(0);
   const [atBottom, setAtBottom] = useState(true);
   useMobileViewport();
   const [imageFailed, setImageFailed] = useState(false);
@@ -228,6 +230,19 @@ export default function App() {
     element.style.height = 'auto';
     element.style.height = `${Math.min(132, element.scrollHeight)}px`;
   }, [text, paired]);
+  useEffect(() => {
+    const element = transcriptRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => { if (atBottomRef.current) scrollLatest(false); });
+    observer.observe(element);
+    if (element.firstElementChild) observer.observe(element.firstElementChild);
+    const composer = element.parentElement?.querySelector('.composer-area');
+    const measure = new ResizeObserver(() => {
+      if (composer) document.documentElement.style.setProperty('--composer-height', `${composer.getBoundingClientRect().height}px`);
+    });
+    if (composer) measure.observe(composer);
+    return () => { observer.disconnect(); measure.disconnect(); };
+  }, [paired, companion.floating]);
 
   useEffect(() => {
     if (!paired || state.current || nativeIOS) return;
@@ -360,7 +375,7 @@ export default function App() {
     return (
       <main className="pair-screen" style={style}>
         <div className="pair-card">
-          <span className="eyebrow">YOUR EVERYDAY COMPANION</span>
+          <span className="eyebrow">与你分享每一天</span>
           <img src="icon.png" alt="" className="pair-logo" />
           <h1>Ayana</h1>
           <p className="pair-lead">把今天的故事，说给彩名听。<br />粘贴激活码，开始你们的对话。</p>
@@ -404,7 +419,7 @@ export default function App() {
       </header>
 
       {!state.connected && <div className="connection-banner" role="status" inert={drawer}><span>本地话题与设置可继续使用</span><button type="button" onClick={() => bridgeRef.current?.reconnect()}>重试连接</button></div>}
-      {notice && <div className="toast" role="alert">{notice}<button type="button" onClick={() => setNotice('')} aria-label="关闭">×</button></div>}
+      {notice && <div className="toast" role="alert">{notice}<button type="button" onClick={() => setNotice('')} aria-label="关闭"><UiIcon name="close"/></button></div>}
 
       <section className="stage" aria-label="彩名">
         {!imageFailed
@@ -413,14 +428,16 @@ export default function App() {
         <div className="stage-glow" aria-hidden="true" />
       </section>
 
-      <section className="transcript" ref={transcriptRef} aria-label="对话记录" inert={drawer} onScroll={() => {
+      <section className="transcript" ref={transcriptRef} aria-label="对话记录" inert={drawer}
+      onWheel={() => { scrollIntent.current = Date.now(); }} onTouchMove={() => { scrollIntent.current = Date.now(); }} onPointerDown={() => { scrollIntent.current = Date.now(); }} onScroll={() => {
         const element = transcriptRef.current!;
         const bottom = element.scrollHeight - element.scrollTop - element.clientHeight < 70;
-        atBottomRef.current = bottom; setAtBottom(bottom);
+        if (bottom || Date.now() - scrollIntent.current < 1000) atBottomRef.current = bottom;
+        setAtBottom(bottom);
       }}>
         <div className="transcript-inner">
           {!history.length && (
-            <div className="empty-state"><span className="eyebrow">A LITTLE MOMENT, TOGETHER</span>
+            <div className="empty-state"><span className="eyebrow">日常 · 陪伴</span>
               <p>{state.settings.user_name ? `${state.settings.user_name}，` : ''}今天想聊点什么？</p>
               <small>你的日常、心事，或是一个突如其来的想法。</small><div className="starter-list">{['今天有点累，陪我聊聊。', '和我分享一件开心的小事吧。'].map(value => <button type="button" key={value} onClick={() => { setText(value); textareaRef.current?.focus(); }}>{value}<span>↗</span></button>)}</div>
             </div>
@@ -432,7 +449,7 @@ export default function App() {
             const content = { ja: item.speech_ja || '', zh: item.display_zh || item.text || '', en: item.display_en };
             const main = textFor(content, primary);
             const secondary = translation !== 'none' && translation !== primary ? textFor(content, translation) : '';
-            return <div className="message assistant" key={`a-${item.utterance_id || index}`}><p lang={primary}>{main}</p>{secondary && secondary !== main && <p className="message-secondary" lang={translation}>{secondary}</p>}{item.status === 'partial' && <small className="speech-interrupted">已打断</small>}</div>;
+            return <div className="message assistant" key={`a-${item.utterance_id || index}`}><p lang={languageFor(content, primary)}>{main}</p>{secondary && secondary !== main && <p className="message-secondary" lang={languageFor(content, translation)}>{secondary}</p>}{item.status === 'partial' && <small className="speech-interrupted">已打断</small>}</div>;
           })}
           {state.task === 'failed' && <div className="turn-failed" role="status">这次回复未能完成，可以重新发送或稍后再聊。</div>}
           {state.task === 'thinking' && (
@@ -472,7 +489,7 @@ export default function App() {
           </svg>
         </button>
         <button className="send-button" type="button" disabled={!text.trim() || !state.connected || sending}
-                onClick={() => void ask()} aria-label="发送">{sending ? '·' : '↑'}</button>
+                onClick={() => void ask()} aria-label="发送" aria-busy={sending}><UiIcon name="send"/></button>
         </div><div className="composer-hint"><span>{textOnly ? '文字陪伴' : '语音回复'} · {busy ? '可随时打断，或发送新消息' : '语音输入暂未开放'}</span>{text.length > 3200 && <span>{text.length} / 4000</span>}</div>
       </footer>
 

@@ -2,6 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { initialState, reduceEvent } from '../apps/mobile/src/state.ts';
 import { modelHistoryContent } from '../apps/mobile/src/modelHistory.ts';
+import { splitGraphemes } from '../apps/mobile/src/typography.ts';
+
+test('progressive captions keep emoji families and combining accents intact', () => {
+  assert.deepEqual(splitGraphemes('一家👨‍👩‍👧‍👦 A\u0301 café 🇨🇳👍🏽'), ['一', '家', '👨‍👩‍👧‍👦', ' ', 'A\u0301', ' ', 'c', 'a', 'f', 'é', ' ', '🇨🇳', '👍🏽']);
+});
 
 const event = (type, value = {}) => ({ protocol_version: 1, type, ...value });
 const speech = (id = 's1', generation = 2) => event('utterance.ready', { utterance_id: id, generation_id: generation, speech_ja: 'こんにちは。', turn_id: `t${generation}` });

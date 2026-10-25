@@ -1,42 +1,36 @@
-/* Scaled from the desktop companion note: warm chrome, portrait and cinematic card. */
+/* Desktop companion hierarchy, with mobile reading sizes and explicit long-text mode. */
 html.companion-overlay-active, .companion-overlay-active body, .companion-overlay-active #root { background: transparent !important; overflow: hidden; }
-.floating-companion, .floating-mini { position: fixed; inset: 0; height: var(--app-height, 100dvh); color: var(--ink); background: transparent; font-family: "DengXian", "PingFang SC", "Microsoft YaHei", sans-serif; }
-.floating-note { position: absolute; inset: 6px; display: grid; grid-template-rows: 40px minmax(0, 1fr) auto auto; overflow: hidden; isolation: isolate; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); box-shadow: 0 8px 24px #0003; }
-.floating-note::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: radial-gradient(ellipse at 90% 5%, #e6d0a020, transparent 65%), radial-gradient(ellipse at 0 100%, #00000018, transparent 60%); }
-.floating-heading { display: flex; justify-content: space-between; min-width: 0; align-items: center; padding: 0 7px 0 12px; border-bottom: 1px solid var(--line); }
+.floating-companion, .floating-mini { position: fixed; inset: 0; height: var(--app-height, 100dvh); color: var(--ink); background: transparent; font-family: var(--font-ui); }
+.floating-note { position: absolute; inset: 6px; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto auto; min-width: 0; overflow: hidden; isolation: isolate; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); box-shadow: 0 8px 24px #0003; }
+.floating-note > * { min-width: 0; }
+.floating-note::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: radial-gradient(ellipse at 90% 5%, #e6d0a01a, transparent 65%), radial-gradient(ellipse at 0 100%, #00000018, transparent 60%); }
+.floating-heading { display: flex; justify-content: space-between; min-width: 0; min-height: 44px; align-items: center; gap: 4px; padding: 4px 5px 4px 11px; border-bottom: 1px solid var(--line); }
 .floating-drag { display: flex; flex: 1; align-self: stretch; align-items: center; gap: 7px; min-width: 0; touch-action: none; cursor: grab; user-select: none; }
-.floating-drag:active { cursor: grabbing; }
-.floating-drag strong { font: 400 16px/1.2 Georgia, "SimSun", serif; letter-spacing: .04em; }
-.floating-drag > span { color: var(--muted); font-size: 9px; white-space: nowrap; }
-.floating-dot { display: block; flex: 0 0 5px; width: 5px; height: 5px; border-radius: 50%; background: #c46b4a; }
-.floating-dot.online { background: #79b896; }
-.floating-actions { display: flex; gap: 1px; }
-.floating-actions button { display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted); width: 30px; height: 34px; padding: 0; font: 19px Georgia, serif; cursor: pointer; }
-.floating-actions button:active { background: var(--panel); color: var(--ink); }
-.floating-scene { position: relative; min-height: 0; overflow: hidden; }
-.floating-portrait { position: absolute; inset: 4px 0 0 24%; display: flex; justify-content: center; align-items: flex-end; pointer-events: none; mask-image: linear-gradient(#000 calc(100% - 16px), transparent); }
+.floating-drag:active { cursor: grabbing; }.floating-drag strong { font: 500 1rem/1.5 var(--font-brand); white-space: nowrap; }.floating-drag > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: .75rem; }
+.floating-dot { display: block; flex: 0 0 5px; width: 5px; height: 5px; border-radius: 50%; background: #ca825f; }.floating-dot.online { background: #79bc97; }
+.floating-actions { display: flex; flex: 0 0 auto; gap: 0; }.floating-actions button { display: grid; place-items: center; border: 0; border-radius: 7px; background: transparent; color: var(--muted); width: 36px; height: 36px; padding: 0; }.floating-actions button:active { background: var(--panel); color: var(--ink); }
+.floating-scene { position: relative; min-height: 0; min-width: 0; overflow: hidden; }
+.floating-portrait { position: absolute; inset: 4px 0 0 24%; display: flex; justify-content: center; align-items: flex-end; overflow: hidden; pointer-events: none; mask-image: linear-gradient(#000 calc(100% - 16px), transparent); }
 .floating-portrait .portrait { position: absolute; top: 0; left: 50%; width: auto; height: 139%; max-width: none; object-fit: contain; object-position: top center; transform: translateX(-50%); filter: drop-shadow(0 8px 16px #0003); }
-.floating-caption { position: absolute; bottom: 10px; left: 10px; right: 27%; max-height: 78%; overflow-y: auto; overflow-wrap: anywhere; overscroll-behavior: contain; scrollbar-width: none; }
-.floating-caption > p, .floating-caption .speech-line { margin: 0; width: 100%; max-width: none; padding: 12px 13px; border: 1px solid var(--line); border-radius: 14px; border-bottom-left-radius: 5px; background: var(--panel); color: var(--ink); box-shadow: 0 8px 22px #0002; }
-.floating-caption > p, .floating-caption .speech-main { font-size: clamp(16px, 5vw, 23px); line-height: 1.65; font-weight: 400; }
-.floating-caption .speech-secondary { font-size: 11px; line-height: 1.6; }
-.floating-greeting { font-family: "Noto Serif SC", "Songti SC", "SimSun", serif; }
-.floating-greeting small { display: block; margin-top: 6px; color: var(--muted); font: 10px/1.8 "Microsoft YaHei", sans-serif; }
-.floating-thinking { display: inline-block; margin-top: 6px; padding: 5px 9px; border-radius: 10px; background: var(--panel); color: var(--muted); font-size: 10px; }
-.floating-notice { margin: 0 10px 6px; padding: 6px 8px; max-height: 54px; overflow-y: auto; border-radius: 6px; background: var(--panel); color: var(--accent); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
-.floating-composer { display: flex; min-width: 0; align-items: flex-end; gap: 3px; padding: 7px 18px 7px 10px; border-top: 1px solid var(--line); background: var(--panel); }
-.floating-composer textarea { flex: 1; width: 0; min-width: 0; min-height: 32px; max-height: 80px; padding: 5px 0; background: transparent; color: var(--ink); border: 0; resize: none; outline: none; font: 16px/1.5 "Microsoft YaHei", "PingFang SC", sans-serif; field-sizing: content; }
-.floating-composer textarea::placeholder { font-size: 12px; color: var(--muted); }
-.floating-composer button { width: 32px; height: 34px; flex: 0 0 32px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--accent); cursor: pointer; font-size: 20px; }
-.floating-composer button[type=button] { font-size: 10px; color: var(--muted); }
-.floating-composer button:disabled { opacity: .35; }
-.floating-resize { position: absolute; bottom: 0; right: 0; z-index: 5; width: 22px; height: 22px; border: 0; padding: 0; background: transparent; color: var(--muted); font-size: 20px; cursor: nwse-resize; touch-action: none; }
-.floating-mini { display: flex; justify-content: center; align-items: flex-end; touch-action: none; cursor: grab; user-select: none; padding: 4px; }
-.floating-mini .portrait { width: 100%; height: 100%; max-width: none; object-fit: contain; object-position: bottom; filter: drop-shadow(0 3px 4px #0005); }
-.floating-mini .floating-dot { position: absolute; right: 8px; bottom: 8px; width: 7px; height: 7px; border: 1px solid #25282d; }
-.mini-expand { position: absolute; inset: 0; border: 0; background: transparent; touch-action: none; }
-.companion-overlay-preview .floating-mini { inset: auto 12px 12px auto; width: 72px; height: 88px; }
-@media (min-width: 600px) {
-  .floating-note { inset: max(8px, 10vh) max(8px, 20vw); }
-}
-@media (max-height: 350px) { .floating-note { grid-template-rows: 36px minmax(0, 1fr) auto auto; }.floating-greeting small, .floating-drag > span { display: none; } }
+.floating-caption-wrap { position: absolute; bottom: 8px; left: 10px; right: 10px; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; max-width: 82%; height: 60%; min-width: 0; }
+.floating-caption { min-height: 0; min-width: 0; max-height: 100%; align-self: end; overflow-y: auto; overflow-x: hidden; overflow-wrap: anywhere; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.floating-caption > p, .floating-caption .speech-line { margin: 0; width: 100%; max-width: none; padding: 11px 13px; border: 1px solid var(--line); border-radius: 14px; border-bottom-left-radius: 5px; background: var(--panel); color: var(--ink); box-shadow: 0 6px 18px #0002; }
+.floating-caption > p, .floating-caption .speech-main { font-size: 1.0625rem; line-height: 1.7; font-weight: 400; }
+.floating-caption .speech-secondary { font-size: .8125rem !important; line-height: 1.75 !important; }
+.floating-greeting small { display: block; margin-top: 6px; color: var(--muted); font-size: .75rem; line-height: 1.75; }
+.floating-thinking { display: block; padding: 7px 10px; margin-top: 5px; border-radius: 9px; background: var(--panel); color: var(--muted); font-size: .75rem; line-height: 1.6; }
+.floating-read-more { justify-self: start; min-height: 40px; padding: 8px 12px; margin-top: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--accent); font-size: .8125rem; line-height: 1.5; }
+.floating-note[data-reading=true] .floating-portrait { opacity: .16; }
+.floating-note[data-reading=true] .floating-caption-wrap { inset: 8px; max-width: none; max-height: none; height: auto; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.floating-note[data-reading=true] .floating-caption > p, .floating-note[data-reading=true] .speech-line { padding: 0 2px; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.floating-note[data-reading=true] .floating-read-more { justify-self: end; margin-top: 8px; }
+.floating-notice { margin: 0 10px 6px; padding: 7px 9px; max-height: 4.5rem; overflow-y: auto; border-radius: 8px; background: var(--panel); color: var(--accent); font-size: .75rem; line-height: 1.75; overflow-wrap: anywhere; }
+.floating-composer { display: flex; min-width: 0; align-items: flex-end; gap: 3px; padding: 6px 19px 6px 11px; border-top: 1px solid var(--line); background: var(--panel); }
+.floating-composer textarea { flex: 1; width: 0; min-width: 0; min-height: 40px; max-height: 96px; padding: 8px 0; background: none; color: var(--ink); border: 0; resize: none; outline: 0; font-family: var(--font-ui); font-size: max(16px, 1rem); line-height: 1.5; overflow-y: auto; }
+.floating-composer textarea::placeholder { font-size: .875rem; color: var(--muted); }
+.floating-composer button { width: 40px; height: 40px; flex: 0 0 40px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 9px; background: none; color: var(--accent); }.floating-composer button[type=button] { color: var(--muted); }.floating-composer button:disabled { opacity: .4; }
+.floating-resize { position: absolute; bottom: 0; right: 0; z-index: 5; width: 22px; height: 22px; border: 0; padding: 0; background: none; color: var(--muted); display: grid; place-items: center; cursor: nwse-resize; touch-action: none; }
+.floating-mini { display: flex; justify-content: center; align-items: flex-end; touch-action: none; cursor: grab; user-select: none; padding: 4px; }.floating-mini .portrait { width: 100%; height: 100%; max-width: none; object-fit: contain; object-position: bottom; filter: drop-shadow(0 3px 4px #0005); }.floating-mini .floating-dot { position: absolute; right: 8px; bottom: 8px; width: 7px; height: 7px; border: 1px solid #25282d; }.mini-expand { position: absolute; inset: 0; border: 0; background: none; touch-action: none; }.companion-overlay-preview .floating-mini { inset: auto 12px 12px auto; width: 72px; height: 88px; }
+@media (max-width: 340px) { .floating-drag > span { display: none; }.floating-caption-wrap { max-width: none; } }
+@media (min-width: 600px) { .companion-overlay-preview .floating-note { inset: max(8px, 10vh) max(8px, 20vw); } }
+@media (max-height: 300px) { .floating-drag > span { display: none; }.floating-greeting small { display: none; }.keyboard-open .floating-caption-wrap { height: calc(100% - 8px); } }

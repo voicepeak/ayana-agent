@@ -1,12 +1,14 @@
 import { useMemo } from 'react';
 import type { Speech } from './types';
-
-const languageTag: Record<string, string> = { ja: 'ja', zh: 'zh-CN', en: 'en' };
+import { splitGraphemes } from './typography';
 
 export function textFor(speech: Pick<Speech, 'ja' | 'zh' | 'en'>, language: string) {
   if (language === 'ja') return speech.ja;
   if (language === 'en') return speech.en || speech.zh || speech.ja;
   return speech.zh || speech.ja;
+}
+export function languageFor(speech: Pick<Speech, 'ja' | 'zh' | 'en'>, language: string) {
+  return language === 'ja' ? 'ja' : language === 'en' && speech.en ? 'en' : speech.zh ? 'zh-CN' : 'ja';
 }
 
 export function SpeechLine({ speech, active, primary, translation }: {
@@ -21,17 +23,17 @@ export function SpeechLine({ speech, active, primary, translation }: {
   const progress = !active || speech.state === 'played' || speech.state === 'partial' || !speech.audioEnabled
     ? 1
     : speech.total ? Math.min(1, Math.max(0, speech.played / speech.total)) : 0;
-  const glyphs = useMemo(() => Array.from(main), [main]);
+  const glyphs = useMemo(() => splitGraphemes(main), [main]);
   const shown = Math.round(glyphs.length * progress);
   return (
     <div className={`speech-line ${active ? 'is-active' : ''} ${speech.state === 'partial' ? 'is-partial' : ''}`}
-         lang={languageTag[primary] || 'zh-CN'}>
+         lang={languageFor(speech, primary)}>
       <p className="speech-main" aria-label={main}>
         {glyphs.map((glyph, index) => (
           <span key={index} className={index < shown ? 'is-shown' : ''}>{glyph}</span>
         ))}
       </p>
-      {secondary && <p className="speech-secondary" lang={translation !== 'none' ? languageTag[translation] : 'ja'}>{secondary}</p>}
+      {secondary && <p className="speech-secondary" lang={languageFor(speech, translation)}>{secondary}</p>}
       {speech.state === 'partial' && <small className="speech-interrupted">已打断</small>}
     </div>
   );
