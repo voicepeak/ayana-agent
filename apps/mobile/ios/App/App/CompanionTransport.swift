@@ -8,6 +8,7 @@ import Security
 final class CompanionTransport: NSObject, AVAudioPlayerDelegate {
     var id = ""
     var changed: (() -> Void)?
+    var pipActive = false { didSet { deactivateIfIdle() } }
     var presentation: [String: Any] = [:] {
         didSet {
             if presentation["character"] as? String != oldValue["character"] as? String || presentation["costume"] as? String != oldValue["costume"] as? String { shown = nil }
@@ -229,6 +230,10 @@ final class CompanionTransport: NSObject, AVAudioPlayerDelegate {
     }
     private func finishAudio() {
         player?.stop(); player = nil; current = nil; playbackTimer?.invalidate(); playbackTimer = nil; changed?()
+        deactivateIfIdle()
+    }
+    private func deactivateIfIdle() {
+        if !pipActive && current == nil && queue.isEmpty { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
     }
     private func cancelAudio() {
         if current != nil { receipt("cancelled") }

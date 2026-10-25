@@ -77,6 +77,7 @@ public class AyanaCompanionPlugin: CAPPlugin, CAPBridgedPlugin, AVPictureInPictu
             if self.pip?.isPictureInPictureActive == true { call.resolve(); return }
             guard self.starting == nil, let parent = self.bridge?.viewController?.view, parent.window != nil else { call.reject("请在 Ayana 界面中打开画中画"); return }
             self.starting = call; self.restoring = false; self.paused = false
+            self.transport.pipActive = true
             do {
                 let audio = AVAudioSession.sharedInstance()
                 try audio.setCategory(.playback, mode: .moviePlayback)
@@ -124,6 +125,7 @@ public class AyanaCompanionPlugin: CAPPlugin, CAPBridgedPlugin, AVPictureInPictu
         renderTimer?.invalidate(); renderTimer = nil
         displayLayer.flushAndRemoveImage(); displayLayer.removeFromSuperlayer()
         sourceView?.removeFromSuperview(); sourceView = nil; pip = nil
+        transport.pipActive = false
         changed()
     }
     public func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
@@ -169,8 +171,11 @@ public class AyanaCompanionPlugin: CAPPlugin, CAPBridgedPlugin, AVPictureInPictu
             let path = (state["asset"] as? String) ?? (defaults["assetFile"] as? String ?? "")
             if let portrait = portrait(path) {
                 let area = CGRect(x: 500, y: 70, width: 440, height: 570)
-                let scale = min(area.width / portrait.size.width, area.height / portrait.size.height)
-                portrait.draw(in: CGRect(x: area.midX - portrait.size.width * scale / 2, y: area.maxY - portrait.size.height * scale, width: portrait.size.width * scale, height: portrait.size.height * scale))
+                // Same knee-height framing as desktop portraitLayout (visible height 72%).
+                let scale = min(area.width / portrait.size.width, area.height / 0.72 / portrait.size.height)
+                context.cgContext.saveGState(); context.cgContext.clip(to: area)
+                portrait.draw(in: CGRect(x: area.midX - portrait.size.width * scale / 2, y: area.minY, width: portrait.size.width * scale, height: portrait.size.height * scale))
+                context.cgContext.restoreGState()
             }
             let panel = CGRect(x: 34, y: 210, width: 510, height: 320)
             UIColor(white: 0.06, alpha: 0.9).setFill(); UIBezierPath(roundedRect: panel, cornerRadius: 20).fill()

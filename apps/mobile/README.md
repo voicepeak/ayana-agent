@@ -4,7 +4,7 @@ Android / iOS 共用的独立移动客户端。角色资源、提示词、历史
 
 完整部署、激活、构建和排障说明见 [本地交付说明](../../docs/MOBILE_INDEPENDENT_DELIVERY.md)。
 
-2026-10-25 手机界面与运行逻辑修复已生成 **Android build 4**，包括消息顺序、取消隔离、重连、草稿、主题与设置，以及首次访问后的 PWA 离线重开修复。验证结果与限制见 [本轮检查记录](../../docs/MOBILE_UI_AUDIT_2026-10-25.md)。
+2026-10-25 最新为 **build 5**，只启用黑制服 Ayana，新增电脑端风格的 Android 悬浮便签与 iOS 原生画中画。入口、构建和实机验证范围见 [悬浮陪伴说明](../../docs/MOBILE_FLOATING_2026-10-25.md)。此前界面与运行逻辑修复见 [检查记录](../../docs/MOBILE_UI_AUDIT_2026-10-25.md)。
 
 ```powershell
 npm install

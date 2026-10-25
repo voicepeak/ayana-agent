@@ -43,7 +43,11 @@ public class CompanionOverlayService extends Service {
     private final Runnable permissionCheck = new Runnable() {
         @Override public void run() {
             if (finishing) return;
-            if (!Settings.canDrawOverlays(CompanionOverlayService.this)) { finish(false); return; }
+            if (!Settings.canDrawOverlays(CompanionOverlayService.this)) {
+                AyanaCompanionPlugin plugin = AyanaCompanionPlugin.owner.get();
+                if (plugin != null) plugin.cancelAction();
+                finish(false); return;
+            }
             handler.postDelayed(this, 2000);
         }
     };
@@ -177,7 +181,11 @@ public class CompanionOverlayService extends Service {
         }
     }
     @Override public void onConfigurationChanged(Configuration configuration) { super.onConfigurationChanged(configuration); update(); }
-    @Override public void onTaskRemoved(Intent rootIntent) { finish(false); }
+    @Override public void onTaskRemoved(Intent rootIntent) {
+        AyanaCompanionPlugin plugin = AyanaCompanionPlugin.owner.get();
+        if (plugin != null) plugin.cancelAction();
+        finish(false);
+    }
     public void finish(boolean restore) {
         if (finishing) return;
         finishing = true; handler.removeCallbacksAndMessages(null); save();
