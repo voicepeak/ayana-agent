@@ -28,7 +28,7 @@ def main():
                     archive.write(path, path.relative_to(ROOT))
         for name in ("package.json", "package-lock.json", "tsconfig.json", "vite.config.ts", "capacitor.config.ts", "index.html", "README.md"):
             archive.write(mobile / name, (mobile / name).relative_to(ROOT))
-        for name in ("scripts/build_mobile_ios.sh", "scripts/audit_mobile_ios.sh", "scripts/audit_mobile_layout.mjs", "scripts/test_mobile_state.mjs", "scripts/test_mobile_model_history.mjs", "scripts/verify_mobile_ui.mjs", "scripts/verify_mobile_offline.mjs", "docs/MOBILE_INDEPENDENT_DELIVERY.md", "docs/MOBILE_IOS_INSTALL.md", "docs/MOBILE_ACCEPTANCE_2026-10-25.md", "docs/MOBILE_UI_AUDIT_2026-10-25.md", "docs/MOBILE_FLOATING_2026-10-25.md", "docs/MOBILE_TYPOGRAPHY_2026-10-25.md"):
+        for name in ("scripts/build_mobile_ios.sh", "scripts/audit_mobile_ios.sh", "scripts/audit_mobile_layout.mjs", "scripts/test_mobile_state.mjs", "scripts/verify_mobile_first_response.mjs", "scripts/test_mobile_model_history.mjs", "scripts/verify_mobile_ui.mjs", "scripts/verify_mobile_offline.mjs", "docs/MOBILE_INDEPENDENT_DELIVERY.md", "docs/MOBILE_IOS_INSTALL.md", "docs/MOBILE_ACCEPTANCE_2026-10-25.md", "docs/MOBILE_UI_AUDIT_2026-10-25.md", "docs/MOBILE_FLOATING_2026-10-25.md", "docs/MOBILE_TYPOGRAPHY_2026-10-25.md", "docs/MOBILE_IOS_TEST_2026-10-25.md", "docs/MOBILE_RESPONSE_SPEED_2026-10-25.md"):
             path = ROOT / name
             if path.is_file():
                 archive.write(path, name)

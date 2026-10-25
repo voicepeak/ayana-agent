@@ -21,6 +21,7 @@ def main():
     parser.add_argument("--config", default=str(ROOT / ".runtime/mobile-services/worker.json"))
     parser.add_argument("--threads", nargs="+", type=int, default=[8, 4, 2])
     parser.add_argument("--affinity", nargs="+", type=int)
+    parser.add_argument("--flush-denormal", action="store_true")
     parser.add_argument("--output", default=str(ROOT / ".runtime/benchmarks/mobile-tts-threads"))
     args = parser.parse_args()
     if args.affinity:
@@ -35,6 +36,9 @@ def main():
         from services.tts.adapters.sovits import SovitsEngine
         from scripts.benchmark_tts import save_wav
         import numpy as np
+        if args.flush_denormal:
+            import torch
+            assert torch.set_flush_denormal(True)
         engine = SovitsEngine(config); engine.prepare()
         assert engine.device_mode == "cpu", "Use this comparison only with the CPU engine"
         for threads in args.threads:
@@ -49,7 +53,7 @@ def main():
                 save_wav(result, output / f"threads-{threads}-sample-{index}.wav")
                 records.append({"threads": threads, "sample": index, "characters": len(text), "elapsed_ms": round(elapsed), "audio_ms": result["duration_ms"], "rtf": elapsed / result["duration_ms"], "pcm_hash": hashlib.sha256(result["pcm_base64"].encode()).hexdigest()})
     summary = [{"threads": threads, "median_ms": round(statistics.median(r["elapsed_ms"] for r in records if r["threads"] == threads)), "median_rtf": round(statistics.median(r["rtf"] for r in records if r["threads"] == threads), 3)} for threads in args.threads]
-    (output / "report.json").write_text(json.dumps({"device": engine.device_mode, "precision": engine.precision, "affinity": args.affinity, "samples": records, "summary": summary}, indent=2), encoding="utf-8")
+    (output / "report.json").write_text(json.dumps({"device": engine.device_mode, "precision": engine.precision, "affinity": args.affinity, "flush_denormal": args.flush_denormal, "samples": records, "summary": summary}, indent=2), encoding="utf-8")
     print(json.dumps(summary), flush=True)
 
 
