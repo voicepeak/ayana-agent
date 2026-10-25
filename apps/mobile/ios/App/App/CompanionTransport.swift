@@ -146,7 +146,7 @@ final class CompanionTransport: NSObject, AVAudioPlayerDelegate {
         changed?(); deliverEvent(event)
     }
     private func resolveAsset(_ event: inout [String: Any]) {
-        let character = presentation["character"] as? String ?? "ayana"
+        let character = "ayana"
         let mapping = (mappings[character] as? [String: Any])?["mapping"] as? [String: Any] ?? [:]
         let assets = mapping["assets"] as? [String: [String: Any]] ?? [:]
         let costume = presentation["costume"] as? String ?? "校服"
@@ -196,7 +196,7 @@ final class CompanionTransport: NSObject, AVAudioPlayerDelegate {
             receipt("started"); changed?()
             playbackTimer?.invalidate()
             playbackTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-                guard let self = self else { return }; self.receipt("progress"); self.changed?()
+                guard let self = self else { return }; self.receipt("progress")
             }
         } catch { receipt("error"); finishAudio(); playNext() }
     }

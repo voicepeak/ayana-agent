@@ -2,6 +2,7 @@ import UIKit
 import AVKit
 import AVFoundation
 import CoreMedia
+import CoreImage
 import Capacitor
 
 @objc(AyanaCompanionPlugin)
@@ -29,6 +30,7 @@ public class AyanaCompanionPlugin: CAPPlugin, CAPBridgedPlugin, AVPictureInPictu
     private var defaults: [String: Any] = [:]
     private var transport: CompanionTransport!
     private var foregroundObserver: NSObjectProtocol?
+    private let imageContext = CIContext(options: [.cacheIntermediates: false])
 
     public override func load() {
         transport = CompanionTransport { [weak self] event in
@@ -43,15 +45,15 @@ public class AyanaCompanionPlugin: CAPPlugin, CAPBridgedPlugin, AVPictureInPictu
     @objc func status(_ call: CAPPluginCall) { DispatchQueue.main.async { call.resolve(self.state) } }
     @objc func present(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
-            self.defaults = call.options
-            self.transport.presentation = call.options
+            self.defaults = call.options as? [String: Any] ?? [:]
+            self.transport.presentation = self.defaults
             self.render()
             call.resolve()
         }
     }
     @objc func connect(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
-            do { try self.transport.connect(call.options); call.resolve() }
+            do { try self.transport.connect(call.options as? [String: Any] ?? [:]); call.resolve() }
             catch { call.reject("无法建立画中画聊天连接") }
         }
     }
@@ -182,11 +184,9 @@ public class AyanaCompanionPlugin: CAPPlugin, CAPBridgedPlugin, AVPictureInPictu
         }
         guard let cgImage = image.cgImage else { return }
         var pixelBuffer: CVPixelBuffer?
-        let attributes = [kCVPixelBufferCGImageCompatibilityKey: true, kCVPixelBufferCGBitmapContextCompatibilityKey: true] as CFDictionary
-        guard CVPixelBufferCreate(kCFAllocatorDefault, 960, 640, kCVPixelFormatType_32ARGB, attributes, &pixelBuffer) == kCVReturnSuccess, let buffer = pixelBuffer else { return }
-        CVPixelBufferLockBaseAddress(buffer, [])
-        if let canvas = CGContext(data: CVPixelBufferGetBaseAddress(buffer), width: 960, height: 640, bitsPerComponent: 8, bytesPerRow: CVPixelBufferGetBytesPerRow(buffer), space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue) { canvas.draw(cgImage, in: CGRect(origin: .zero, size: size)) }
-        CVPixelBufferUnlockBaseAddress(buffer, [])
+        let attributes = [kCVPixelBufferCGImageCompatibilityKey: true, kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary
+        guard CVPixelBufferCreate(kCFAllocatorDefault, 960, 640, kCVPixelFormatType_32BGRA, attributes, &pixelBuffer) == kCVReturnSuccess, let buffer = pixelBuffer else { return }
+        imageContext.render(CIImage(cgImage: cgImage), to: buffer)
         var description: CMVideoFormatDescription?
         CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: buffer, formatDescriptionOut: &description)
         guard let format = description else { return }

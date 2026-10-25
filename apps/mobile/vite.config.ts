@@ -9,7 +9,7 @@ export default defineConfig({
     generateBundle(_options, bundle) {
       const files = Object.keys(bundle).filter(file => /\.(?:js|css)$/.test(file));
       this.emitFile({ type: 'asset', fileName: 'precache.json', source: JSON.stringify(files) });
-      const mappings = Object.fromEntries(Object.entries(characters).map(([id, character]) => [id, { mapping: character.mapping }]));
+      const mappings = { ayana: { mapping: characters.ayana.mapping } };
       this.emitFile({ type: 'asset', fileName: 'native-characters.json', source: JSON.stringify(mappings) });
     },
   }],

@@ -15,13 +15,14 @@ export function setCharacterSettings(value: PublicSettings) {
   settings = { ...settings, ...value,
     companion_ui: { ...settings.companion_ui, ...value.companion_ui },
     voice: { ...settings.voice, ...value.voice } };
-  if (!characters[String(settings.character)]) settings.character = 'ayana';
+  // Mobile currently exposes only the black-uniform Ayana, including old saves.
+  settings.character = 'ayana';
   if (!costumes().includes(String(settings.avatar_costume))) settings.avatar_costume = costumes()[0];
   const volume = Number(settings.volume);
   settings.volume = Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 1;
 }
 function catalog() { return characters[String(settings.character)] || characters.ayana; }
-export function characterOptions() { return Object.entries(characters).map(([id, value]) => ({ id, name: value.name })); }
+export function characterOptions() { return [{ id: 'ayana', name: characters.ayana.name }]; }
 export function costumes() { return [...new Set(Object.values(catalog().mapping.assets).map(a => a.costume || '校服'))]; }
 export function defaultAsset() {
   const preferred = catalog().mapping.assets[catalog().mapping.default_asset_id];
