@@ -26,11 +26,12 @@ iOS 进入「菜单 → 随身陪伴 → 开启画中画」。系统小窗显示
 - 生产 PWA 首次访问后的离线重载通过。
 - Android 原生代码与 debug APK 构建通过；窗口边界的 6 项 JUnit 测试通过。当前主机的 Gradle Test Executor 因缓存 worker 类路径未能启动，因此直接使用已编译测试类与 JUnitCore 执行这 6 项测试。
 - iOS 已使用项目的 GitHub Mac/Xcode 26 构建流程编译，并交付对应未签名 IPA；构建记录见 `codex/mobile-floating-pip-20261025` 分支的 Actions。
+- 最终原生编译与前端测试记录：[Mac 构建 40168430005](https://github.com/voicepeak/ayana-agent/actions/runs/40168430005)，代码快照 `03e6f2d9`。IPA 内 JavaScript 与本机最终构建逐文件一致，黑 Ayana 清单及原生插件已回读核对。交付整理时将未签名 IPA 的旧内部版本号 2 统一为 5，原生二进制保持逐字节一致；Xcode 工程版本号同步为 5。
 - 本轮未连接 Android/iPhone 实机。跨应用拖动与软键盘、系统画中画启停、音频路由及后台状态仍需实机确认；浏览器预览和原生编译不能代替这些验证。
 
 ## 产物与复验
 
-`release/mobile/Ayana-0.2.0-android-build5.apk`、`Ayana-0.2.0-ios-unsigned.ipa` 和 `Ayana-0.2.0-ios-project.zip`。SHA256 位于同目录的清单。
+`release/mobile/Ayana-0.2.0-android-build5.apk`、`Ayana-0.2.0-ios-build5-unsigned.ipa` 和 `Ayana-0.2.0-ios-project.zip`。SHA256 位于同目录的清单。
 
 ```powershell
 npm --prefix apps/mobile test
