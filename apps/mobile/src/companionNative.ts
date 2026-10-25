@@ -1,5 +1,6 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import type { PluginListenerHandle } from '@capacitor/core';
+import { identifier } from './identifier';
 
 export interface CompanionStatus {
   overlay: boolean;
@@ -37,7 +38,7 @@ export class IosGatewaySocket {
   onmessage: ((event: { data: string }) => void) | null = null;
   onclose: ((event: { code: number }) => void) | null = null;
   onerror: (() => void) | null = null;
-  private id = crypto.randomUUID();
+  private id = identifier();
   private listener?: PluginListenerHandle;
   private closed = false;
   constructor(session: Record<string, unknown>) {
