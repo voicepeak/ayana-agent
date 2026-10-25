@@ -26,6 +26,8 @@ export interface Speech {
   generation: number;
   assetId: string;
   audioEnabled: boolean;
+  audioReady?: boolean;
+  audioFailed?: boolean;
   previewed?: boolean;
   intent: string;
   intensity: number;

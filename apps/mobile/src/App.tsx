@@ -11,8 +11,8 @@ import { useDraft } from './useDraft';
 import { usePlaybackWake } from './usePlaybackWake';
 import { Capacitor } from '@capacitor/core';
 import { useMobileViewport } from './useMobileViewport';
-import { initialState, reduceEvent, nextSpeechPreview, replyWaitLabel } from './state';
-import type { Bootstrap } from './types';
+import { initialState, reduceEvent, replyWaitLabel, speechTextReady } from './state';
+import type { Bootstrap, RuntimeEvent } from './types';
 import { FloatingCompanion } from './FloatingCompanion';
 import { useCompanion } from './useCompanion';
 import { NativeCompanion, nativeIOS } from './companionNative';
@@ -103,6 +103,7 @@ export default function App() {
 
   const bridgeRef = useRef<MobileBridge | null>(null);
   const playerRef = useRef<AudioPlayer | null>(null);
+  const audioQueue = useRef(new Map<string, RuntimeEvent>());
   const stateRef = useRef(state);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const displayedRef = useRef(new Set<string>());
@@ -136,12 +137,13 @@ export default function App() {
         const speech = stateRef.current.speeches.find(item => item.id === event.utterance_id);
         if (stateRef.current.settings.voice?.voice_mode === 'silent' || speech?.state === 'played') {
           bridge.consumeAudio(event.utterance_id);
-        } else player.enqueue(event);
+        } else if (!event.native_audio) audioQueue.current.set(String(event.utterance_id), event);
       }
       if (event.type === 'settings.ready') {
         player.setVolume(Number((event.settings as Record<string, unknown> | undefined)?.volume ?? 1));
       }
       if (event.type === 'generation.cancelled') {
+        audioQueue.current.clear();
         player.cancel(Number(event.cancelled_generation_id ?? event.generation_id ?? 0));
       }
       if (event.type === 'error' && event.message) setNotice(String(event.message));
@@ -251,7 +253,9 @@ export default function App() {
     if (!paired || state.current || nativeIOS) return;
     const next = state.speeches.find(speech => speech.state === 'generated');
     if (!next) return;
-    const delay = next.audioEnabled && state.voice !== 'failed' && state.settings.voice?.voice_mode !== 'silent' ? 9000 : Math.min(5000, Math.max(700, (next.zh || next.ja).length * 55));
+    if (!speechTextReady(next, state.settings)) return;
+    if (next.audioEnabled && !next.audioFailed && state.voice !== 'failed' && state.settings.voice?.voice_mode !== 'silent') return;
+    const delay = Math.min(5000, Math.max(700, (next.zh || next.ja).length * 55));
     const timer = window.setTimeout(() => {
       dispatch({ protocol_version: 1, type: 'mobile.present', utterance_id: next.id, generation_id: next.generation });
       bridgeRef.current?.playback({ protocol_version: 1, type: 'playback.ended', utterance_id: next.id, generation_id: next.generation, played_samples: 0, total_samples: 0 });
@@ -261,7 +265,7 @@ export default function App() {
       }
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [paired, state.current, state.presented, state.speeches, state.generation, state.voice, state.settings.voice?.voice_mode]);
+  }, [paired, state.current, state.presented, state.speeches, state.generation, state.voice, state.settings]);
 
   async function connectWithToken(event: FormEvent) {
     event.preventDefault();
@@ -337,13 +341,12 @@ export default function App() {
   const history = state.history.filter(item => {
     if (item.role === 'user') return true;
     const speech = speechMap.get(String(item.utterance_id || ''));
-    return speech ? speech.previewed || ['playing', 'played', 'partial'].includes(speech.state)
+    return speech ? ['playing', 'played', 'partial'].includes(speech.state)
       : item.displayed !== false && item.status !== 'cancelled';
   });
   const textOnly = state.voice === 'failed' || state.settings.voice?.voice_mode === 'silent';
   const busy = Boolean(state.current) || state.task === 'thinking' || state.speeches.some(item => item.state === 'generated');
   const waiting = replyWaitLabel(state);
-  const waitingInCaption = state.speeches.some(item => item.state === 'generated' && item.previewed);
   usePlaybackWake(busy && paired === true);
   const style = {
     '--bg': background,
@@ -358,14 +361,15 @@ export default function App() {
 
   useEffect(() => {
     if (!paired || nativeIOS) return;
-    const next = nextSpeechPreview(state, primary);
-    if (!next) return;
-    dispatch({ protocol_version: 1, type: 'mobile.preview', utterance_id: next.id, generation_id: next.generation });
-    if (!displayedRef.current.has(next.id)) {
-      displayedRef.current.add(next.id);
-      void bridgeRef.current?.send({ type: 'utterance.displayed', utterance_id: next.id, generation_id: next.generation });
+    if (state.current) return;
+    const next = state.speeches.find(speech => speech.state === 'generated');
+    if (!next || !speechTextReady(next, state.settings)) return;
+    const audio = audioQueue.current.get(next.id);
+    if (audio) {
+      audioQueue.current.delete(next.id);
+      playerRef.current?.enqueue(audio);
     }
-  }, [paired, primary, state.current, state.speeches, state.cancelledGeneration, state.voice, state.settings.voice?.voice_mode]);
+  }, [paired, state.current, state.speeches, state.settings]);
 
   useEffect(() => { setImageFailed(false); }, [expression, state.character, state.costume]);
   useEffect(() => {
@@ -470,7 +474,7 @@ export default function App() {
             return <div className="message assistant" key={`a-${item.utterance_id || index}`}><p lang={languageFor(content, primary)}>{main}</p>{secondary && secondary !== main && <p className="message-secondary" lang={languageFor(content, translation)}>{secondary}</p>}{item.status === 'partial' && <small className="speech-interrupted">已打断</small>}</div>;
           })}
           {state.task === 'failed' && <div className="turn-failed" role="status">这次回复未能完成，可以重新发送或稍后再聊。</div>}
-          {waiting && !waitingInCaption && (
+          {waiting && (
             <div className="thinking" role="status"><span /><span /><span /><em>{waiting}</em></div>
           )}
           {state.sources.length > 0 && (

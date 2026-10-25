@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { initialState, reduceEvent, nextSpeechPreview, replyWaitLabel } from '../apps/mobile/src/state.ts';
+import { initialState, reduceEvent, speechTextReady, replyWaitLabel } from '../apps/mobile/src/state.ts';
 import { modelHistoryContent } from '../apps/mobile/src/modelHistory.ts';
 import { splitGraphemes } from '../apps/mobile/src/typography.ts';
 
@@ -54,35 +54,35 @@ test('zero-playback cancellation does not expose an unheard queued sentence', ()
   assert.equal(state.speeches[0].state, 'cancelled');
 });
 
-test('early caption stays queued for audio and does not preview later sentences', () => {
+test('captions wait for both languages and ignore premature native previews', () => {
   let state = reduceEvent(initialState, speech());
-  assert.equal(nextSpeechPreview(state, 'zh'), undefined);
+  assert.equal(speechTextReady(state.speeches[0], state.settings), false);
   state = reduceEvent(state, event('subtitle.ready', { utterance_id: 's1', generation_id: 2, display_zh: '你好。' }));
-  assert.equal(nextSpeechPreview(state, 'zh').id, 's1');
+  assert.equal(speechTextReady(state.speeches[0], state.settings), true);
   state = reduceEvent(state, speech('s2'));
   assert.equal(reduceEvent(state, event('mobile.preview', { utterance_id: 's2', generation_id: 2 })), state);
-  state = reduceEvent(state, event('mobile.preview', { utterance_id: 's1', generation_id: 2 }));
+  assert.equal(reduceEvent(state, event('mobile.preview', { utterance_id: 's1', generation_id: 2 })), state);
   assert.equal(state.speeches[0].state, 'generated');
-  assert.equal(state.presented, 's1');
-  assert.equal(nextSpeechPreview(state, 'ja'), undefined);
+  assert.equal(state.presented, undefined);
   state = reduceEvent(state, event('playback.started', { utterance_id: 's1', generation_id: 2, total_samples: 32000 }));
   assert.equal(state.current, 's1');
-  assert.equal(nextSpeechPreview(state, 'ja'), undefined);
+  assert.equal(state.presented, 's1');
   state = reduceEvent(state, event('playback.ended', { utterance_id: 's1', generation_id: 2, played_samples: 32000, total_samples: 32000 }));
-  assert.equal(nextSpeechPreview(state, 'ja').id, 's2');
+  assert.equal(state.current, undefined);
+  assert.equal(state.presented, 's1');
 });
 
-test('cancelling an already read preview preserves text and rejects late preview', () => {
+test('cancelling an unheard preview keeps its text hidden', () => {
   let state = reduceEvent(reduceEvent(initialState, speech()), event('mobile.preview', { utterance_id: 's1', generation_id: 2 }));
   state = reduceEvent(state, event('generation.cancelled', { cancelled_generation_id: 2, generation_id: 3 }));
-  assert.equal(state.speeches[0].state, 'partial');
+  assert.equal(state.speeches[0].state, 'cancelled');
   assert.equal(reduceEvent(state, event('mobile.preview', { utterance_id: 's1', generation_id: 2 })), state);
 });
 
-test('text-only mode retains reading cadence instead of previewing queued audio', () => {
+test('language readiness respects explicit subtitle preferences', () => {
   const state = reduceEvent(initialState, speech());
-  assert.equal(nextSpeechPreview({ ...state, settings: { voice: { voice_mode: 'silent' } } }, 'ja'), undefined);
-  assert.equal(nextSpeechPreview({ ...state, voice: 'failed' }, 'ja'), undefined);
+  assert.equal(speechTextReady(state.speeches[0], { companion_ui: { primary_language: 'ja', translation_language: 'none' } }), true);
+  assert.equal(speechTextReady(state.speeches[0], { companion_ui: { primary_language: 'zh', translation_language: 'none' } }), false);
 });
 
 test('wait indicator remains after model finishes until the first audio starts', () => {

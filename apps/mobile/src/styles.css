@@ -59,7 +59,7 @@ p, textarea { overflow-wrap: anywhere; }
 .message-secondary, .speech-secondary { margin: .55em 0 0 !important; color: var(--muted); font-size: .8125rem !important; line-height: 1.75 !important; white-space: pre-wrap; overflow-wrap: anywhere; }
 .speech-line { width: fit-content; }
 .speech-line.is-active { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
-.speech-main span { opacity: .45; transition: opacity .15s; }.speech-main span.is-shown { opacity: 1; }
+.speech-main span, .speech-secondary span { visibility: hidden; }.speech-main span.is-shown, .speech-secondary span.is-shown { visibility: visible; }
 .speech-interrupted { display: block; margin-top: 7px; font-size: .75rem; line-height: 1.6; color: var(--muted); }
 .eyebrow { display: block; color: var(--accent, #e8c48a); font-size: .75rem; font-weight: 500; line-height: 1.6; letter-spacing: .06em; }
 .empty-state { margin: auto auto 20px; width: min(100%, 23rem); min-width: 0; padding: 23px 20px 14px; border: 1px solid var(--line); border-radius: 22px; background: var(--panel); color: var(--muted); }

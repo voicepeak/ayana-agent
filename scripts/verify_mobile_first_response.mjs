@@ -52,11 +52,11 @@ try {
   const visible = page.locator('.speech-main').waitFor().then(() => mark('caption.visible'));
   await page.waitForTimeout(500);
   const pending = await page.locator('.transcript').innerText();
-  const captionBeforeAudio = pending.includes('这句话已经生成。');
+  const captionBeforeAudio = (await page.locator('.transcript .speech-line').count()) > 0;
   const waitingAfterModelFinished = /准备语音|语音准备中/.test(pending);
   assert.equal(receipts.length, 0, 'caption preview consumed unplayed audio');
   await page.screenshot({ path: path.join(output, 'waiting-for-first-audio.png') });
-  if (strict) { assert.ok(captionBeforeAudio); assert.ok(waitingAfterModelFinished); }
+  if (strict) { assert.equal(captionBeforeAudio, false); assert.ok(waitingAfterModelFinished); }
   await visible;
   await page.waitForFunction(() => !document.querySelector('.stop-button'), null, { timeout: 10000 });
   assert.equal(receipts.length, 1, 'audio was skipped or consumed twice');

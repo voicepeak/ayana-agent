@@ -20,21 +20,24 @@ export function SpeechLine({ speech, active, primary, translation }: {
   const main = textFor(speech, primary);
   const candidate = translation !== 'none' && translation !== primary ? textFor(speech, translation) : '';
   const secondary = candidate !== main ? candidate : '';
-  const progress = !active || speech.previewed || speech.state === 'played' || speech.state === 'partial' || !speech.audioEnabled
-    ? 1
-    : speech.total ? Math.min(1, Math.max(0, speech.played / speech.total)) : 0;
+  const progress = speech.state === 'playing' || (speech.state === 'partial' && speech.total > 0)
+    ? speech.total ? Math.min(1, Math.max(0, speech.played / speech.total)) : 0
+    : 1;
   const glyphs = useMemo(() => splitGraphemes(main), [main]);
+  const secondaryGlyphs = useMemo(() => splitGraphemes(secondary), [secondary]);
   const shown = Math.round(glyphs.length * progress);
+  const secondaryShown = Math.round(secondaryGlyphs.length * progress);
   return (
     <div className={`speech-line ${active ? 'is-active' : ''} ${speech.state === 'partial' ? 'is-partial' : ''}`}
          lang={languageFor(speech, primary)}>
-      <p className="speech-main" aria-label={main}>
+      <p className="speech-main" aria-label={glyphs.slice(0, shown).join('')}>
         {glyphs.map((glyph, index) => (
-          <span key={index} className={index < shown ? 'is-shown' : ''}>{glyph}</span>
+          <span key={index} aria-hidden="true" className={index < shown ? 'is-shown' : ''}>{glyph}</span>
         ))}
       </p>
-      {secondary && <p className="speech-secondary" lang={languageFor(speech, translation)}>{secondary}</p>}
-      {speech.previewed && speech.state === 'generated' && <small className="speech-interrupted" role="status">语音准备中…</small>}
+      {secondary && <p className="speech-secondary" lang={languageFor(speech, translation)} aria-label={secondaryGlyphs.slice(0, secondaryShown).join('')}>
+        {secondaryGlyphs.map((glyph, index) => <span key={index} aria-hidden="true" className={index < secondaryShown ? 'is-shown' : ''}>{glyph}</span>)}
+      </p>}
       {speech.state === 'partial' && <small className="speech-interrupted">已打断</small>}
     </div>
   );

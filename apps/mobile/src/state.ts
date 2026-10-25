@@ -66,19 +66,18 @@ function speechFromEvent(event: RuntimeEvent): Speech {
   };
 }
 
-/** Show only the head sentence while its audio is being prepared. */
-export function nextSpeechPreview(state: MobileState, primary: string) {
-  if (state.current || state.voice === 'failed' || state.settings.voice?.voice_mode === 'silent') return;
-  const speech = state.speeches.find(item => item.state === 'generated' && item.generation > state.cancelledGeneration);
-  if (!speech || speech.previewed || !speech.audioEnabled) return;
-  if (primary !== 'ja' && !speech.zh && !(primary === 'en' && speech.en)) return;
-  return speech;
+/** Captions must be complete in the selected languages before playback begins. */
+export function speechTextReady(speech: Speech, settings: PublicSettings) {
+  const ui = settings.companion_ui || {};
+  const languages = [String(ui.primary_language || 'ja'), String(ui.translation_language || 'zh')];
+  return languages.every(language => language === 'none' || Boolean(
+    language === 'ja' ? speech.ja : language === 'en' ? speech.en || speech.zh : speech.zh));
 }
 
 export function replyWaitLabel(state: MobileState) {
   if (state.current) return '';
   const pending = state.speeches.find(item => item.state === 'generated');
-  if (pending) return pending.audioEnabled && state.voice !== 'failed' && state.settings.voice?.voice_mode !== 'silent'
+  if (pending) return pending.audioEnabled && !pending.audioFailed && state.voice !== 'failed' && state.settings.voice?.voice_mode !== 'silent'
     ? '正在准备语音…' : '正在整理文字…';
   return state.task === 'thinking' ? '正在想…' : '';
 }
@@ -160,6 +159,9 @@ export function reduceEvent(state: MobileState, event: RuntimeEvent): MobileStat
         ...(typeof event.display_en === 'string' ? { display_en: event.display_en } : {}) } : item);
       return next;
     }
+    case 'audio.ready':
+      next.speeches = next.speeches.map(speech => speech.id === event.utterance_id ? { ...speech, audioReady: true } : speech);
+      return next;
     case 'playback.started': {
       const speech = next.speeches.find(item => item.id === event.utterance_id);
       if (!speech) return next;
@@ -181,6 +183,7 @@ export function reduceEvent(state: MobileState, event: RuntimeEvent): MobileStat
         ...speech,
         played,
         total,
+        audioFailed: event.type === 'playback.error' || speech.audioFailed,
         state: event.type === 'playback.cancelled' ? (played || speech.previewed ? 'partial' : 'cancelled')
           : event.type === 'playback.ended' ? 'played' : event.type === 'playback.error' ? 'generated' : 'playing',
       } : speech);
@@ -194,11 +197,8 @@ export function reduceEvent(state: MobileState, event: RuntimeEvent): MobileStat
       return next;
     }
     case 'mobile.preview': {
-      const speech = next.speeches.find(item => item.state === 'generated' && item.generation > state.cancelledGeneration);
-      if (state.current || !speech || speech.id !== event.utterance_id || speech.previewed) return state;
-      next.presented = speech.id;
-      next.speeches = next.speeches.map(item => item.id === speech.id ? { ...item, previewed: true } : item);
-      return next;
+      // Ignore previews from older native builds: only playback can reveal audio replies.
+      return state;
     }
     case 'mobile.present': {
       const speech = next.speeches.find(item => item.id === event.utterance_id && item.state === 'generated');
