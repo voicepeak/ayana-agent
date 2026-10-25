@@ -155,6 +155,54 @@ async def test_all_repair_pairs_validate_before_any_repaired_speech_commits():
 
 
 @pytest.mark.asyncio
+async def test_han_only_name_does_not_discard_the_following_valid_reply():
+    name = {"type": "speech", "key": "name", "speech_ja": "青葉。"}
+    content = [json.dumps(name), json.dumps({"type": "translation", "key": "name", "display_zh": "青葉。"}),
+               json.dumps(SPEECH), json.dumps(CAPTION)]
+    outputs, calls = await run(content)
+    assert len(calls) == 1
+    assert [e["type"] for e in outputs] == ["speech", "translation", "speech", "translation"]
+    assert [e["speech_ja"] for e in outputs if e["type"] == "speech"] == ["青葉。", JA]
+    assert [e["display_zh"] for e in outputs if e["type"] == "translation"] == ["青葉。", ZH]
+
+
+@pytest.mark.asyncio
+async def test_name_and_following_sentence_group_stream_without_a_repair_request():
+    content = [json.dumps({"type": "speech", "key": "name", "speech_ja": "青葉……。", "display_zh": "青葉……。"}),
+               json.dumps({**SPEECH, "speech_ja": "ここにいるよ。どうしたの？"}),
+               json.dumps({**CAPTION, "display_zh": "我在这里。怎么了？"})]
+    outputs, calls = await run(content)
+    assert len(calls) == 1
+    assert [e["speech_ja"] for e in outputs if e["type"] == "speech"] == ["青葉……。", "ここにいるよ。", "どうしたの？"]
+    assert [e["display_zh"] for e in outputs if e["type"] == "translation"] == ["青葉……。", "我在这里。", "怎么了？"]
+
+
+@pytest.mark.asyncio
+async def test_name_only_reply_retains_the_original_spelling():
+    outputs, calls = await run([json.dumps({**SPEECH, "speech_ja": "青葉……。"}),
+                                json.dumps({**CAPTION, "display_zh": "青葉……。"})])
+    assert len(calls) == 1
+    assert [e["speech_ja"] for e in outputs if e["type"] == "speech"] == ["青葉……。"]
+
+
+@pytest.mark.asyncio
+async def test_address_normalization_does_not_allow_incomplete_or_non_japanese_repair():
+    for tail in ["まだ話の途中", "hello.", "https://example.test。"]:
+        with pytest.raises(ValueError, match="invalid_model_repair"):
+            await run(["plain response"], [{"speech_ja": "青葉。", "display_zh": "青葉。"},
+                                            {"speech_ja": tail, "display_zh": ZH}])
+
+
+@pytest.mark.asyncio
+async def test_name_after_committed_sentence_does_not_replay_the_prefix():
+    name = {"type": "speech", "key": "name", "speech_ja": "青葉。"}
+    outputs, calls = await run([json.dumps(SPEECH), json.dumps(CAPTION), json.dumps(name),
+                                json.dumps({**CAPTION, "key": "name", "display_zh": "青葉。"})])
+    assert len(calls) == 1
+    assert [e["speech_ja"] for e in outputs if e["type"] == "speech"] == [JA, "青葉。"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("kwargs,code", [({"done": False}, "model_disconnected"),
                                           ({"reason": "length"}, "model_incomplete")])
 async def test_transport_or_token_limit_failure_is_not_reported_as_repaired_success(kwargs, code):

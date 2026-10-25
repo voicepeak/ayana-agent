@@ -49,7 +49,10 @@ def validate_speech(value: dict) -> dict:
     if not isinstance(text, str) or not text.strip() or len(text) > MAX_SPEECH_CHARS:
         raise ValueError(f"speech_ja must be a complete short Japanese sentence (1–{MAX_SPEECH_CHARS} characters)")
     text = text.strip()
-    if not re.search(r"[\u3040-\u30ff]", text):
+    # Japanese names and short addresses can consist entirely of Han characters.
+    # Keep this exception bounded; ordinary speech still needs Japanese kana.
+    han_address = re.fullmatch(r"[\u3400-\u9fff\u3005]{1,12}[。！？!?…]+", text)
+    if not re.search(r"[\u3040-\u30ff]", text) and not han_address:
         raise ValueError("speech_ja must contain Japanese speech")
     if re.search(r"```|https?://|<[^>]+>|\{\s*\"|[A-Za-z]:[\\/]", text):
         raise ValueError("Code, paths, URLs and tags belong in evidence, not speech")

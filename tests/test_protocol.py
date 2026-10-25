@@ -31,3 +31,14 @@ def test_unknown_expression_falls_back_and_intensity_clamps():
     assert result["intent"] == "explain"
     assert result["affect"] == "neutral"
     assert result["intensity"] == 1
+
+
+@pytest.mark.parametrize("speech", ["青葉。", "悠然……。", "佐々木？"])
+def test_short_han_only_japanese_addresses_do_not_require_kana(speech):
+    assert validate_speech({"speech_ja": speech})["speech_ja"] == speech
+
+
+@pytest.mark.parametrize("speech", ["……。", "青葉", "青葉https://example.test。", "青葉hello。", "青" * 13 + "。"])
+def test_han_address_exception_remains_bounded_and_complete(speech):
+    with pytest.raises(ValueError):
+        validate_speech({"speech_ja": speech})
