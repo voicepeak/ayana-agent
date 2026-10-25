@@ -18,6 +18,7 @@ include = ["services*", "native*", "packages*"]
 
 [tool.setuptools.package-data]
 "services.agent.prompts" = ["*.md"]
+"services.mobile_monitor" = ["static/*.html", "static/*.css", "static/*.js", "static/*.svg"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Ayana · 运行观察</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/monitor.css">
+  <script src="/static/monitor.js" defer></script>
+</head>
+<body>
+  <section class="login" id="login" hidden>
+    <div class="login-mark" aria-hidden="true">A<span>·</span></div>
+    <span class="eyebrow">AYANA / PRIVATE CONSOLE</span>
+    <h1>运行观察</h1>
+    <p>从一次等待，到每一句回复。<br>在本机查看测试中的对话与运行状态。</p>
+    <form id="login-form">
+      <label for="admin-token">本机管理员口令</label>
+      <input id="admin-token" type="password" autocomplete="current-password" required placeholder="粘贴面板管理员口令">
+      <button class="primary" type="submit">进入观察台 <span aria-hidden="true">↗</span></button>
+      <p id="login-error" class="form-error" role="alert"></p>
+    </form>
+    <small>口令保存在 .runtime/mobile-monitor/面板登录信息.txt<br>此入口不会改变测试者的会话。</small>
+  </section>
+
+  <div id="console" hidden>
+    <header class="masthead">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">A<span>·</span></span><div><span class="eyebrow">AYANA / OPERATIONS</span><h1>运行观察<span>手机测试</span></h1></div></div>
+      <div class="header-right"><div class="live"><i id="live-dot"></i><span id="live-label">连接面板中</span><time id="sync-time">—</time></div><button id="pause" class="quiet">暂停刷新</button><button id="logout" class="quiet icon-button" aria-label="退出面板" title="退出面板">↗</button></div>
+    </header>
+
+    <section class="overview" aria-label="当前筛选统计">
+      <div class="metric"><span>有效账号</span><strong id="account-count">—</strong><small>已启用；不代表此刻在线</small></div>
+      <div class="metric"><span>请求记录</span><strong id="request-count">—</strong><small id="window-label">最近 24 小时</small></div>
+      <div class="metric"><span>需要留意</span><strong id="attention-count">—</strong><small id="error-count">错误与等待提示</small></div>
+      <div class="metric latency-metric"><span>首段合成就绪 · P50</span><strong id="audio-p50">—</strong><small id="audio-p95">统计发送至合成完成，不是实际出声</small><svg id="audio-trend" viewBox="0 0 152 42" aria-label="最近请求首段合成耗时趋势" role="img"></svg></div>
+    </section>
+
+    <div id="connection-error" class="notice" role="status" hidden></div>
+    <main class="workbench">
+      <aside class="users-pane" aria-label="测试账号">
+        <div class="section-heading"><span class="eyebrow">01 / TESTERS</span><span id="user-total" class="count">—</span></div>
+        <h2>测试账号</h2>
+        <button id="all-users" class="user-item selected"><span class="user-avatar all-avatar">◎</span><span class="user-copy"><strong>全部账号</strong><small>查看整体运行情况</small></span></button>
+        <div id="user-list"></div>
+        <label class="check archive"><input id="include-inactive" type="checkbox"> 包含已停用账号</label>
+        <div class="source-note"><i class="source-line"></i><span class="eyebrow">READ ONLY</span><strong>只读日志观察</strong><p>不发送聊天，不重连手机，<br>不改变用户资料或记忆。</p><small id="source-status">等待日志来源…</small></div>
+      </aside>
+
+      <section class="activity-pane" aria-label="对话与请求">
+        <div class="activity-heading"><div><span class="eyebrow">02 / CONVERSATIONS</span><h2 id="activity-title">全部对话<span id="turn-count" class="count"></span></h2></div><div class="feed-actions"><button id="follow" class="quiet" aria-pressed="true">跟随最新</button><button id="export" class="quiet">导出视图 <span aria-hidden="true">↓</span></button></div></div>
+        <div class="filters"><label><span class="sr-only">时间范围</span><select id="hours"><option value="1">最近 1 小时</option><option value="6">最近 6 小时</option><option value="24" selected>最近 24 小时</option><option value="72">最近 3 天</option></select></label><label class="topic-filter"><span class="sr-only">话题</span><select id="topic"><option value="">所有话题</option></select></label><label class="check"><input type="checkbox" id="issues-only"> 只看异常</label></div>
+        <p class="context-boundary">这里是已记录的消息与生成结果。完整系统提示词、手机称呼及本机记忆未采集。</p>
+        <div class="feed" id="feed" tabindex="0"><div id="turn-list"></div><div id="empty" class="empty" hidden><span aria-hidden="true">∿</span><h3>这里暂时很安静</h3><p>当前筛选下没有请求记录。<br>测试者发出消息后，记录会自动出现。</p></div></div>
+        <footer class="feed-footer"><span id="coverage">每 2 秒读取日志</span><span>时间均为北京时间</span></footer>
+      </section>
+
+      <aside class="inspector" aria-label="请求诊断">
+        <div class="section-heading"><span class="eyebrow">03 / DIAGNOSTICS</span><span class="tiny-dot"></span></div>
+        <h2>这一轮的路径</h2>
+        <div id="inspector-empty" class="inspector-empty">选择一条请求，查看字幕、<br>模型与语音合成的时序。</div>
+        <div id="inspector-content" hidden>
+          <div class="detail-status"><span id="detail-badge" class="badge"></span><time id="detail-time"></time></div>
+          <p id="detail-label" class="detail-description"></p>
+          <ol class="phases" id="phases"></ol>
+          <dl class="facts" id="facts"></dl>
+          <div id="error-detail" class="error-detail" hidden></div>
+          <div class="timing-note">合成完成后仍需传输与手机播放。<br>本面板未采集手机实际出声时间。</div>
+          <details class="events-section"><summary>查看事件记录 <span id="event-count"></span></summary><pre id="event-data"></pre></details>
+        </div>
+        <div class="thresholds"><span class="eyebrow">OBSERVATION RULES</span><p><span>首段合成 &gt; 5 秒</span><b>偏慢</b></p><p><span>未完成等待 &gt; 30 秒</span><b>留意</b></p><small>等待提示是根据日志推断，主动打断、断网或日志延后也会造成记录不完整。</small></div>
+      </aside>
+    </main>
+    <footer class="page-footer"><span>AYANA COMPANION SYSTEM</span><span>本机访问 · 管理员视图 · 不自动干预对话</span></footer>
+  </div>
+</body>
+</html>
