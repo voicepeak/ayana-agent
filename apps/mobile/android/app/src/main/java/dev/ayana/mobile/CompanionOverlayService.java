@@ -124,11 +124,8 @@ public class CompanionOverlayService extends Service {
             android.graphics.Rect display = manager.getMaximumWindowMetrics().getBounds();
             screenWidth = display.width(); screenHeight = display.height();
         }
-        int margin = (int)(8 * density);
-        bounds.width = Math.max(Math.min(collapsed ? (int)(72 * density) : (int)(260 * density), screenWidth - margin * 2), Math.min(bounds.width, screenWidth - margin * 2));
-        bounds.height = Math.max(Math.min(collapsed ? (int)(88 * density) : (int)(300 * density), screenHeight - margin * 2), Math.min(bounds.height, screenHeight - margin * 2));
-        bounds.x = Math.max(0, Math.min(bounds.x, screenWidth - bounds.width));
-        bounds.y = Math.max(0, Math.min(bounds.y, screenHeight - bounds.height - (int)(24 * density)));
+        int[] fitted = OverlayGeometry.fit(bounds.x, bounds.y, bounds.width, bounds.height, screenWidth, screenHeight, density, collapsed);
+        bounds.x = fitted[0]; bounds.y = fitted[1]; bounds.width = fitted[2]; bounds.height = fitted[3];
     }
     private void update() {
         if (!attached || finishing) return;

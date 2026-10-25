@@ -22,7 +22,7 @@ interface Props {
 }
 export function FloatingCompanion(props: Props) {
   const { state, collapsed } = props;
-  const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const drag = useRef<{ x: number; y: number; startX: number; startY: number; moved: boolean } | null>(null);
   const pending = useRef({ x: 0, y: 0, frame: 0 });
   const resizeStart = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
   const active = state.speeches.find(speech => speech.id === state.presented);
@@ -33,7 +33,7 @@ export function FloatingCompanion(props: Props) {
   const moving = (event: PointerEvent<HTMLElement>) => {
     if (!drag.current) return;
     const dx = event.screenX - drag.current.x, dy = event.screenY - drag.current.y;
-    if (Math.abs(dx) + Math.abs(dy) > 3) drag.current.moved = true;
+    if (Math.abs(event.screenX - drag.current.startX) + Math.abs(event.screenY - drag.current.startY) > 3) drag.current.moved = true;
     drag.current.x = event.screenX; drag.current.y = event.screenY;
     pending.current.x += dx; pending.current.y += dy;
     if (nativeAndroid && !pending.current.frame) pending.current.frame = requestAnimationFrame(() => {
@@ -45,12 +45,14 @@ export function FloatingCompanion(props: Props) {
   const down = (event: PointerEvent<HTMLElement>) => {
     if (event.button !== 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
-    drag.current = { x: event.screenX, y: event.screenY, moved: false };
+    drag.current = { x: event.screenX, y: event.screenY, startX: event.screenX, startY: event.screenY, moved: false };
   };
   const up = (event: PointerEvent<HTMLElement>) => {
     const moved = drag.current?.moved;
     drag.current = null;
-    if (nativeAndroid) void NativeCompanion.move({ dx: 0, dy: 0, settle: true }).catch(props.onError);
+    if (pending.current.frame) cancelAnimationFrame(pending.current.frame);
+    const { x, y } = pending.current; pending.current = { x: 0, y: 0, frame: 0 };
+    if (nativeAndroid) void NativeCompanion.move({ dx: x, dy: y, settle: true }).catch(props.onError);
     if (collapsed && !moved && event.type !== 'pointercancel') props.onCollapse(false);
   };
   const busy = state.task === 'thinking' || Boolean(state.current) || state.speeches.some(item => item.state === 'generated');

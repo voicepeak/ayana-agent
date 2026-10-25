@@ -46,7 +46,8 @@ export function useCompanion(onCancel: () => void, onError: (error: unknown) => 
   const floating = preview || (nativeAndroid && status.active);
   useEffect(() => {
     document.documentElement.classList.toggle('companion-overlay-active', floating);
-    return () => document.documentElement.classList.remove('companion-overlay-active');
-  }, [floating]);
+    document.documentElement.classList.toggle('companion-overlay-preview', preview);
+    return () => { document.documentElement.classList.remove('companion-overlay-active', 'companion-overlay-preview'); };
+  }, [floating, preview]);
   return { status, preview, floating, working, start, stop, collapse };
 }

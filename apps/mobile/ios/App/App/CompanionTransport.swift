@@ -36,6 +36,8 @@ final class CompanionTransport: NSObject, AVAudioPlayerDelegate {
     private var textQueue: [String] = []
     private var textWork: DispatchWorkItem?
     private var paused = false
+    private var retryWork: DispatchWorkItem?
+    private var attempts = 0
     init(emit: @escaping ([String: Any]) -> Void) {
         self.emit = emit
         super.init()
@@ -73,6 +75,7 @@ final class CompanionTransport: NSObject, AVAudioPlayerDelegate {
         epoch += 1; let version = epoch
         let task = URLSession.shared.webSocketTask(with: endpoint); socket = task; lastMessage = Date()
         task.resume()
+        sendWire(["access_token": session["access_token"] as? String ?? ""])
         deliver(["kind": "open"])
         receive(task, version)
         heartbeat?.invalidate()
@@ -142,7 +145,7 @@ final class CompanionTransport: NSObject, AVAudioPlayerDelegate {
             metadata[uid]?.merge(event, uniquingKeysWith: { _, new in new })
             if shown?["utterance_id"] as? String == uid { shown = metadata[uid] }
         }
-        if type == "gateway.ready" { /* readiness is passed through unchanged */ }
+        if type == "gateway.ready" { attempts = 0 }
         changed?(); deliverEvent(event)
     }
     private func resolveAsset(_ event: inout [String: Any]) {
@@ -151,8 +154,14 @@ final class CompanionTransport: NSObject, AVAudioPlayerDelegate {
         let assets = mapping["assets"] as? [String: [String: Any]] ?? [:]
         let costume = presentation["costume"] as? String ?? "校服"
         let expression = event["expression"] as? String ?? ""
-        let label = assets[expression]?["source_expression"] as? String ?? expression
+        var label = assets[expression]?["source_expression"] as? String ?? expression
         let candidates = assets.filter { $0.value["costume"] as? String == costume && $0.value["alias"] as? Bool != true }
+        if !candidates.contains(where: { $0.value["source_expression"] as? String == label }) {
+            let fallback = mapping["fallbacks"] as? [String: Any] ?? [:]
+            label = (fallback["affect"] as? [String: String])?[event["affect"] as? String ?? ""]
+                ?? (fallback["intent"] as? [String: String])?[event["intent"] as? String ?? ""]
+                ?? fallback["default"] as? String ?? ""
+        }
         let matching = candidates.filter { $0.value["source_expression"] as? String == label }
         let fallback = assets[mapping["default_asset_id"] as? String ?? ""]
         let selected = matching.first(where: { $0.value["pose"] as? String == "crossed" }) ?? matching.first ?? candidates.first
@@ -214,6 +223,9 @@ final class CompanionTransport: NSObject, AVAudioPlayerDelegate {
             metadata[uid]?["native_displayed"] = true; shown = metadata[uid]
             textQueue.removeAll { $0 == uid }; textWork?.cancel(); textWork = nil; scheduleText()
         }
+        if type == "error", let text = metadata[item["utterance_id"] as? String ?? ""] {
+            deliverEvent(text.merging(["type": "mobile.present", "native_playback": true, "played_samples": 0, "total_samples": 0], uniquingKeysWith: { _, new in new }))
+        }
     }
     private func finishAudio() {
         player?.stop(); player = nil; current = nil; playbackTimer?.invalidate(); playbackTimer = nil; changed?()
@@ -271,9 +283,17 @@ final class CompanionTransport: NSObject, AVAudioPlayerDelegate {
         socket?.cancel(with: .goingAway, reason: nil); socket = nil
         heartbeat?.invalidate(); heartbeat = nil; epoch += 1
         cancelAudio(); textWork?.cancel(); textWork = nil; textQueue.removeAll()
-        deliver(["kind": "close", "code": code])
+        if [1001, 1006].contains(code), UIApplication.shared.applicationState != .active, attempts < 5, !id.isEmpty {
+            cancelled = max(cancelled, generation)
+            deliverEvent(["type": "generation.cancelled", "generation_id": generation, "cancelled_generation_id": generation])
+            deliverEvent(["type": "gateway.offline"])
+            attempts += 1
+            let retry = DispatchWorkItem { [weak self] in self?.open() }
+            retryWork = retry; DispatchQueue.main.asyncAfter(deadline: .now() + min(10, pow(2, Double(attempts))), execute: retry)
+        } else { deliver(["kind": "close", "code": code]) }
     }
     func disconnect() {
+        retryWork?.cancel(); retryWork = nil; attempts = 0
         close(1000); refreshTask?.cancel(); refreshTask = nil; backlog.removeAll()
     }
     private var vaultQuery: [String: Any] { [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "dev.ayana.mobile.session.v1", kSecAttrAccount as String: "session"] }
@@ -299,10 +319,9 @@ final class CompanionTransport: NSObject, AVAudioPlayerDelegate {
                 }
                 self.socket?.cancel(with: .normalClosure, reason: nil); self.socket = nil
                 self.cancelAudio(); self.open()
-                self.sendWire(["access_token": next["access_token"] as? String ?? ""])
             }
         }
         refreshTask?.resume()
     }
-    deinit { heartbeat?.invalidate(); playbackTimer?.invalidate(); textWork?.cancel(); refreshTask?.cancel(); socket?.cancel(with: .goingAway, reason: nil) }
+    deinit { heartbeat?.invalidate(); playbackTimer?.invalidate(); textWork?.cancel(); retryWork?.cancel(); refreshTask?.cancel(); socket?.cancel(with: .goingAway, reason: nil) }
 }

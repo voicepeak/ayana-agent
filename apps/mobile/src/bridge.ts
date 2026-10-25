@@ -47,7 +47,7 @@ export class MobileBridge {
         if (this.socket === socket && !this.status.connected) socket.close();
       }, 15000);
       socket.binaryType = 'arraybuffer';
-      socket.onopen = () => socket.send(JSON.stringify({ access_token: session.access_token }));
+      socket.onopen = () => { if (!nativeIOS) socket.send(JSON.stringify({ access_token: session.access_token })); };
       socket.onmessage = message => {
         if (this.socket !== socket || this.disposed) return;
         this.lastMessage = Date.now();
@@ -67,6 +67,7 @@ export class MobileBridge {
             return;
           }
           const event = JSON.parse(String(message.data)) as RuntimeEvent;
+          if (event.type === 'gateway.offline') this.publish({ connected: false, service: 'offline' });
           if (event.native_playback && event.type.startsWith('playback.')) this.runtime.playback(event);
           if (event.native_playback && event.type === 'mobile.present') {
             this.runtime.playback({ ...event, type: 'utterance.displayed' });

@@ -31,8 +31,10 @@ public class AyanaCompanionPlugin: CAPPlugin, CAPBridgedPlugin, AVPictureInPictu
     private var transport: CompanionTransport!
     private var foregroundObserver: NSObjectProtocol?
     private let imageContext = CIContext(options: [.cacheIntermediates: false])
+    private let portraits = NSCache<NSString, UIImage>()
 
     public override func load() {
+        portraits.countLimit = 20; portraits.totalCostLimit = 32 * 1024 * 1024
         transport = CompanionTransport { [weak self] event in
             self?.notifyListeners("transport", data: event)
         }
@@ -158,13 +160,14 @@ public class AyanaCompanionPlugin: CAPPlugin, CAPBridgedPlugin, AVPictureInPictu
         let state = transport.frame
         let ink = color(defaults["ink"], fallback: 0xf3efe7)
         let accent = color(defaults["accent"], fallback: 0xe8c48a)
-        let image = UIGraphicsImageRenderer(size: size).image { context in
+        let rendererFormat = UIGraphicsImageRendererFormat(); rendererFormat.scale = 1; rendererFormat.opaque = true
+        let image = UIGraphicsImageRenderer(size: size, format: rendererFormat).image { context in
             color(defaults["background"], fallback: 0x25282d).setFill(); context.fill(CGRect(origin: .zero, size: size))
             let paragraph = NSMutableParagraphStyle(); paragraph.lineBreakMode = .byTruncatingTail
             let body: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 35, weight: .regular), .foregroundColor: ink, .paragraphStyle: paragraph]
             ("Ayana" as NSString).draw(in: CGRect(x: 40, y: 28, width: 250, height: 45), withAttributes: [.font: UIFont(name: "Georgia", size: 32) ?? UIFont.systemFont(ofSize: 32), .foregroundColor: ink])
             let path = (state["asset"] as? String) ?? (defaults["assetFile"] as? String ?? "")
-            if !path.contains(".."), path.hasPrefix("characters/"), let url = Bundle.main.url(forResource: "public/" + path, withExtension: nil), let portrait = UIImage(contentsOfFile: url.path) {
+            if let portrait = portrait(path) {
                 let area = CGRect(x: 500, y: 70, width: 440, height: 570)
                 let scale = min(area.width / portrait.size.width, area.height / portrait.size.height)
                 portrait.draw(in: CGRect(x: area.midX - portrait.size.width * scale / 2, y: area.maxY - portrait.size.height * scale, width: portrait.size.width * scale, height: portrait.size.height * scale))
@@ -184,8 +187,8 @@ public class AyanaCompanionPlugin: CAPPlugin, CAPBridgedPlugin, AVPictureInPictu
         }
         guard let cgImage = image.cgImage else { return }
         var pixelBuffer: CVPixelBuffer?
-        let attributes = [kCVPixelBufferCGImageCompatibilityKey: true, kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary
-        guard CVPixelBufferCreate(kCFAllocatorDefault, 960, 640, kCVPixelFormatType_32BGRA, attributes, &pixelBuffer) == kCVReturnSuccess, let buffer = pixelBuffer else { return }
+        let attributes: [String: Any] = [kCVPixelBufferCGImageCompatibilityKey as String: true, kCVPixelBufferIOSurfacePropertiesKey as String: [:]]
+        guard CVPixelBufferCreate(kCFAllocatorDefault, 960, 640, kCVPixelFormatType_32BGRA, attributes as CFDictionary, &pixelBuffer) == kCVReturnSuccess, let buffer = pixelBuffer else { return }
         imageContext.render(CIImage(cgImage: cgImage), to: buffer)
         var description: CMVideoFormatDescription?
         CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: buffer, formatDescriptionOut: &description)
@@ -198,6 +201,13 @@ public class AyanaCompanionPlugin: CAPPlugin, CAPBridgedPlugin, AVPictureInPictu
             if displayLayer.status == .failed { displayLayer.flush() }
             if displayLayer.isReadyForMoreMediaData { displayLayer.enqueue(sample) }
         }
+    }
+    private func portrait(_ path: String) -> UIImage? {
+        guard !path.contains(".."), path.hasPrefix("characters/ayana/") else { return nil }
+        if let value = portraits.object(forKey: path as NSString) { return value }
+        guard let url = Bundle.main.url(forResource: "public/" + path, withExtension: nil), let image = UIImage(contentsOfFile: url.path) else { return nil }
+        portraits.setObject(image, forKey: path as NSString, cost: Int(image.size.width * image.size.height * 4))
+        return image
     }
     deinit {
         if let observer = foregroundObserver { NotificationCenter.default.removeObserver(observer) }
