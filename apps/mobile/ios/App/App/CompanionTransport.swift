@@ -45,6 +45,39 @@ final class CompanionTransport: NSObject, AVAudioPlayerDelegate {
         if let path = Bundle.main.url(forResource: "public/native-characters", withExtension: "json"),
            let data = try? Data(contentsOf: path), let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { mappings = value }
     }
+#if DEBUG
+    static func writeResponseAudit() {
+        var events: [[String: Any]] = []
+        let probe = CompanionTransport { event in
+            if let text = event["text"] as? String, let data = text.data(using: .utf8),
+               let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { events.append(value) }
+        }
+        probe.presentation = ["primary": "zh"]
+        probe.generation = 1
+        func receive(_ event: [String: Any]) {
+            let data = try! JSONSerialization.data(withJSONObject: event)
+            probe.incoming(String(data: data, encoding: .utf8)!)
+        }
+        receive(["type": "utterance.ready", "generation_id": 1, "utterance_id": "early", "speech_ja": "ここにいるよ。", "audio_enabled": true])
+        precondition(!events.contains { $0["type"] as? String == "mobile.preview" })
+        receive(["type": "subtitle.ready", "generation_id": 1, "utterance_id": "early", "display_zh": "我在这里。"])
+        precondition(events.contains { $0["type"] as? String == "mobile.preview" })
+        precondition(probe.metadata["early"]?["native_displayed"] as? Bool != true, "Preview skipped pending audio")
+        precondition(probe.frame["text"] as? String == "我在这里。")
+        probe.sendCommand("{\"type\":\"generation.cancel\"}")
+        precondition(probe.textWork == nil, "Cancelled timer blocks the next turn")
+        probe.sendCommand("{\"type\":\"turn.start\",\"generation_id\":3}")
+        receive(["type": "utterance.ready", "generation_id": 3, "utterance_id": "text-only", "speech_ja": "続けよう。", "audio_enabled": false])
+        precondition(probe.textWork != nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            precondition(events.contains { $0["type"] as? String == "mobile.present" && $0["utterance_id"] as? String == "text-only" }, "Text fallback stalled after cancellation")
+            let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("layout-audit")
+            let report: [String: Any] = ["caption_before_audio": true, "preview_keeps_audio_pending": true, "cancel_releases_text_timer": true, "next_text_turn_presented": true]
+            try! JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: directory.appendingPathComponent("response-audit.json"))
+            probe.disconnect()
+        }
+    }
+#endif
     var frame: [String: Any] {
         let event = current.flatMap { metadata[$0["utterance_id"] as? String ?? ""] } ?? shown ?? [:]
         let ja = event["speech_ja"] as? String ?? ""
@@ -92,9 +125,9 @@ final class CompanionTransport: NSObject, AVAudioPlayerDelegate {
         guard let data = text.data(using: .utf8), let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         if event["type"] as? String == "turn.start" {
             cancelAudio(); generation = event["generation_id"] as? Int ?? 0
-            textWork?.cancel(); textQueue.removeAll(); metadata.removeAll(); seen.removeAll()
+            textWork?.cancel(); textWork = nil; textQueue.removeAll(); metadata.removeAll(); seen.removeAll()
         }
-        if event["type"] as? String == "generation.cancel" { cancelled = max(cancelled, generation); cancelAudio(); textWork?.cancel(); textQueue.removeAll() }
+        if event["type"] as? String == "generation.cancel" { cancelled = max(cancelled, generation); cancelAudio(); textWork?.cancel(); textWork = nil; textQueue.removeAll() }
         sendText(text)
     }
     private func sendText(_ text: String) {
@@ -148,6 +181,19 @@ final class CompanionTransport: NSObject, AVAudioPlayerDelegate {
         }
         if type == "gateway.ready" { attempts = 0 }
         changed?(); deliverEvent(event)
+        if type == "utterance.ready" || type == "subtitle.ready" || type == "subtitle.translated" { previewNext() }
+    }
+    private func previewNext() {
+        guard current == nil, !paused, presentation["silent"] as? Bool != true,
+              let uid = textQueue.first, let event = metadata[uid],
+              (event["generation_id"] as? Int ?? -1) > cancelled,
+              event["audio_enabled"] as? Bool != false, event["native_previewed"] as? Bool != true,
+              event["native_displayed"] as? Bool != true else { return }
+        let primary = presentation["primary"] as? String ?? "zh"
+        if primary != "ja" && (event["display_zh"] as? String ?? "").isEmpty && !(primary == "en" && !(event["display_en"] as? String ?? "").isEmpty) { return }
+        metadata[uid]?["native_previewed"] = true; shown = metadata[uid]
+        deliverEvent(event.merging(["type": "mobile.preview", "native_playback": true], uniquingKeysWith: { _, new in new }))
+        changed?()
     }
     private func resolveAsset(_ event: inout [String: Any]) {
         let character = "ayana"
@@ -195,7 +241,8 @@ final class CompanionTransport: NSObject, AVAudioPlayerDelegate {
         return result
     }
     private func playNext() {
-        guard current == nil, !paused, !queue.isEmpty else { return }
+        guard current == nil, !paused else { return }
+        guard !queue.isEmpty else { previewNext(); return }
         let item = queue.removeFirst(); current = item.0
         do {
             let audio = AVAudioSession.sharedInstance(); try audio.setCategory(.playback, mode: .moviePlayback); try audio.setActive(true)
@@ -241,7 +288,7 @@ final class CompanionTransport: NSObject, AVAudioPlayerDelegate {
         queue.removeAll(); finishAudio()
     }
     func cancelTurn() {
-        cancelled = max(cancelled, generation); cancelAudio(); textWork?.cancel(); textQueue.removeAll()
+        cancelled = max(cancelled, generation); cancelAudio(); textWork?.cancel(); textWork = nil; textQueue.removeAll()
         sendWire(["type": "generation.cancel"])
         deliverEvent(["type": "generation.cancelled", "generation_id": generation, "cancelled_generation_id": generation])
     }

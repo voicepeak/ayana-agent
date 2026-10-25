@@ -14,10 +14,11 @@ xcrun simctl install "$DEVICE" "$AUDIT_BUILD/Build/Products/Debug-iphonesimulato
 xcrun simctl launch "$DEVICE" dev.ayana.mobile --ayana-layout-audit
 CONTAINER="$(xcrun simctl get_app_container "$DEVICE" dev.ayana.mobile data)"
 for attempt in $(seq 1 45); do
-  if [[ -f "$CONTAINER/Documents/layout-audit/report.json" ]]; then break; fi
+  if [[ -f "$CONTAINER/Documents/layout-audit/report.json" && -f "$CONTAINER/Documents/layout-audit/response-audit.json" ]]; then break; fi
   sleep 1
 done
 test -f "$CONTAINER/Documents/layout-audit/report.json"
+test -f "$CONTAINER/Documents/layout-audit/response-audit.json"
 mkdir -p "$ROOT/release/mobile/ios-layout-audit"
 cp "$CONTAINER/Documents/layout-audit/"* "$ROOT/release/mobile/ios-layout-audit/"
 cat "$ROOT/release/mobile/ios-layout-audit/report.json"

@@ -43,6 +43,9 @@ public class AyanaCompanionPlugin: CAPPlugin, CAPBridgedPlugin, AVPictureInPictu
         transport = CompanionTransport { [weak self] event in
             self?.notifyListeners("transport", data: event)
         }
+#if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ayana-layout-audit") { CompanionTransport.writeResponseAudit() }
+#endif
         transport.changed = { [weak self] in self?.render() }
         foregroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in self?.transport.flush() }
     }

@@ -11,7 +11,7 @@ import { useDraft } from './useDraft';
 import { usePlaybackWake } from './usePlaybackWake';
 import { Capacitor } from '@capacitor/core';
 import { useMobileViewport } from './useMobileViewport';
-import { initialState, reduceEvent } from './state';
+import { initialState, reduceEvent, nextSpeechPreview, replyWaitLabel } from './state';
 import type { Bootstrap } from './types';
 import { FloatingCompanion } from './FloatingCompanion';
 import { useCompanion } from './useCompanion';
@@ -337,11 +337,13 @@ export default function App() {
   const history = state.history.filter(item => {
     if (item.role === 'user') return true;
     const speech = speechMap.get(String(item.utterance_id || ''));
-    return speech ? ['playing', 'played', 'partial'].includes(speech.state)
+    return speech ? speech.previewed || ['playing', 'played', 'partial'].includes(speech.state)
       : item.displayed !== false && item.status !== 'cancelled';
   });
   const textOnly = state.voice === 'failed' || state.settings.voice?.voice_mode === 'silent';
   const busy = Boolean(state.current) || state.task === 'thinking' || state.speeches.some(item => item.state === 'generated');
+  const waiting = replyWaitLabel(state);
+  const waitingInCaption = state.speeches.some(item => item.state === 'generated' && item.previewed);
   usePlaybackWake(busy && paired === true);
   const style = {
     '--bg': background,
@@ -353,6 +355,17 @@ export default function App() {
     '--accent': light ? '#8a5a2b' : '#e8c48a',
     '--panel': light ? 'rgba(255,251,243,.92)' : 'rgba(27,30,35,.91)',
   } as CSSProperties;
+
+  useEffect(() => {
+    if (!paired || nativeIOS) return;
+    const next = nextSpeechPreview(state, primary);
+    if (!next) return;
+    dispatch({ protocol_version: 1, type: 'mobile.preview', utterance_id: next.id, generation_id: next.generation });
+    if (!displayedRef.current.has(next.id)) {
+      displayedRef.current.add(next.id);
+      void bridgeRef.current?.send({ type: 'utterance.displayed', utterance_id: next.id, generation_id: next.generation });
+    }
+  }, [paired, primary, state.current, state.speeches, state.cancelledGeneration, state.voice, state.settings.voice?.voice_mode]);
 
   useEffect(() => { setImageFailed(false); }, [expression, state.character, state.costume]);
   useEffect(() => {
@@ -457,8 +470,8 @@ export default function App() {
             return <div className="message assistant" key={`a-${item.utterance_id || index}`}><p lang={languageFor(content, primary)}>{main}</p>{secondary && secondary !== main && <p className="message-secondary" lang={languageFor(content, translation)}>{secondary}</p>}{item.status === 'partial' && <small className="speech-interrupted">已打断</small>}</div>;
           })}
           {state.task === 'failed' && <div className="turn-failed" role="status">这次回复未能完成，可以重新发送或稍后再聊。</div>}
-          {state.task === 'thinking' && (
-            <div className="thinking" role="status"><span /><span /><span /><em>正在想…</em></div>
+          {waiting && !waitingInCaption && (
+            <div className="thinking" role="status"><span /><span /><span /><em>{waiting}</em></div>
           )}
           {state.sources.length > 0 && (
             <div className="sources">

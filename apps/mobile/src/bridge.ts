@@ -69,6 +69,7 @@ export class MobileBridge {
           const event = JSON.parse(String(message.data)) as RuntimeEvent;
           if (event.type === 'gateway.offline') this.publish({ connected: false, service: 'offline' });
           if (event.native_playback && event.type.startsWith('playback.')) this.runtime.playback(event);
+          if (event.native_playback && event.type === 'mobile.preview') this.runtime.playback({ ...event, type: 'utterance.displayed' });
           if (event.native_playback && event.type === 'mobile.present') {
             this.runtime.playback({ ...event, type: 'utterance.displayed' });
             this.runtime.playback({ ...event, type: 'playback.ended' });

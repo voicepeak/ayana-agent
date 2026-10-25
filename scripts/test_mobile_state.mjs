@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { initialState, reduceEvent } from '../apps/mobile/src/state.ts';
+import { initialState, reduceEvent, nextSpeechPreview, replyWaitLabel } from '../apps/mobile/src/state.ts';
 import { modelHistoryContent } from '../apps/mobile/src/modelHistory.ts';
 import { splitGraphemes } from '../apps/mobile/src/typography.ts';
 
@@ -52,6 +52,47 @@ test('audio failure releases current playback so text fallback can run', () => {
 test('zero-playback cancellation does not expose an unheard queued sentence', () => {
   const state = reduceEvent(reduceEvent(initialState, speech()), event('playback.cancelled', { utterance_id: 's1', generation_id: 2, played_samples: 0 }));
   assert.equal(state.speeches[0].state, 'cancelled');
+});
+
+test('early caption stays queued for audio and does not preview later sentences', () => {
+  let state = reduceEvent(initialState, speech());
+  assert.equal(nextSpeechPreview(state, 'zh'), undefined);
+  state = reduceEvent(state, event('subtitle.ready', { utterance_id: 's1', generation_id: 2, display_zh: '你好。' }));
+  assert.equal(nextSpeechPreview(state, 'zh').id, 's1');
+  state = reduceEvent(state, speech('s2'));
+  assert.equal(reduceEvent(state, event('mobile.preview', { utterance_id: 's2', generation_id: 2 })), state);
+  state = reduceEvent(state, event('mobile.preview', { utterance_id: 's1', generation_id: 2 }));
+  assert.equal(state.speeches[0].state, 'generated');
+  assert.equal(state.presented, 's1');
+  assert.equal(nextSpeechPreview(state, 'ja'), undefined);
+  state = reduceEvent(state, event('playback.started', { utterance_id: 's1', generation_id: 2, total_samples: 32000 }));
+  assert.equal(state.current, 's1');
+  assert.equal(nextSpeechPreview(state, 'ja'), undefined);
+  state = reduceEvent(state, event('playback.ended', { utterance_id: 's1', generation_id: 2, played_samples: 32000, total_samples: 32000 }));
+  assert.equal(nextSpeechPreview(state, 'ja').id, 's2');
+});
+
+test('cancelling an already read preview preserves text and rejects late preview', () => {
+  let state = reduceEvent(reduceEvent(initialState, speech()), event('mobile.preview', { utterance_id: 's1', generation_id: 2 }));
+  state = reduceEvent(state, event('generation.cancelled', { cancelled_generation_id: 2, generation_id: 3 }));
+  assert.equal(state.speeches[0].state, 'partial');
+  assert.equal(reduceEvent(state, event('mobile.preview', { utterance_id: 's1', generation_id: 2 })), state);
+});
+
+test('text-only mode retains reading cadence instead of previewing queued audio', () => {
+  const state = reduceEvent(initialState, speech());
+  assert.equal(nextSpeechPreview({ ...state, settings: { voice: { voice_mode: 'silent' } } }, 'ja'), undefined);
+  assert.equal(nextSpeechPreview({ ...state, voice: 'failed' }, 'ja'), undefined);
+});
+
+test('wait indicator remains after model finishes until the first audio starts', () => {
+  let state = reduceEvent(initialState, event('task.state', { state: 'thinking', generation_id: 2 }));
+  assert.equal(replyWaitLabel(state), '正在想…');
+  state = reduceEvent(state, speech());
+  state = reduceEvent(state, event('task.state', { state: 'idle', generation_id: 2 }));
+  assert.equal(replyWaitLabel(state), '正在准备语音…');
+  state = reduceEvent(state, event('playback.started', { utterance_id: 's1', generation_id: 2 }));
+  assert.equal(replyWaitLabel(state), '');
 });
 test('changing character resets the active expression', () => {
   const state = reduceEvent({ ...initialState, presented: 'old' }, event('settings.ready', { settings: { character: 'ayana-su' } }));

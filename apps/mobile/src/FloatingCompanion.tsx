@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent } from 'react';
 import type { MobileState } from './state';
+import { replyWaitLabel } from './state';
 import { SpeechLine, textFor, languageFor } from './SpeechLine';
 import { NativeCompanion, nativeAndroid } from './companionNative';
 import { UiIcon } from './UiIcon';
@@ -94,7 +95,7 @@ export function FloatingCompanion(props: Props) {
           {active ? <SpeechLine speech={active} active={!reading} primary={primary} translation={translation} />
             : recent ? <div className="speech-line"><p className="speech-main" lang={languageFor(recentLanguages, primary)}>{main}</p>{secondary && secondary !== main && <p className="speech-secondary" lang={languageFor(recentLanguages, translation)}>{secondary}</p>}</div>
             : <p className="floating-greeting">我在这里。<small>有什么想对我说的吗？</small></p>}
-          {state.task === 'thinking' && <span className="floating-thinking">彩名正在想…</span>}
+          {replyWaitLabel(state) && !(active?.previewed && active.state === 'generated') && <span className="floating-thinking" role="status">{replyWaitLabel(state)}</span>}
         </div>
         {(overflow || reading) && <button type="button" className="floating-read-more" aria-expanded={reading} onClick={() => { setReading(value => !value); if (caption.current) caption.current.scrollTop = 0; }}>{reading ? '收起全文' : '展开全文'}</button>}
         </div>

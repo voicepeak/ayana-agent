@@ -20,7 +20,7 @@ export function SpeechLine({ speech, active, primary, translation }: {
   const main = textFor(speech, primary);
   const candidate = translation !== 'none' && translation !== primary ? textFor(speech, translation) : '';
   const secondary = candidate !== main ? candidate : '';
-  const progress = !active || speech.state === 'played' || speech.state === 'partial' || !speech.audioEnabled
+  const progress = !active || speech.previewed || speech.state === 'played' || speech.state === 'partial' || !speech.audioEnabled
     ? 1
     : speech.total ? Math.min(1, Math.max(0, speech.played / speech.total)) : 0;
   const glyphs = useMemo(() => splitGraphemes(main), [main]);
@@ -34,6 +34,7 @@ export function SpeechLine({ speech, active, primary, translation }: {
         ))}
       </p>
       {secondary && <p className="speech-secondary" lang={languageFor(speech, translation)}>{secondary}</p>}
+      {speech.previewed && speech.state === 'generated' && <small className="speech-interrupted" role="status">语音准备中…</small>}
       {speech.state === 'partial' && <small className="speech-interrupted">已打断</small>}
     </div>
   );

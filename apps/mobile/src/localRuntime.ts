@@ -123,8 +123,8 @@ export class LocalRuntime {
     if (event.type.startsWith('playback.')) {
       item.played_samples = Number(event.played_samples || 0);
       item.total_samples = Number(event.total_samples || 0);
-      item.status = event.type === 'playback.ended' ? 'played' : event.type === 'playback.cancelled'
-        ? (Number(event.played_samples) > 0 ? 'partial' : 'cancelled') : event.type === 'playback.error' ? 'failed' : 'playing';
+        item.status = event.type === 'playback.ended' ? 'played' : event.type === 'playback.cancelled'
+        ? (Number(event.played_samples) > 0 || item.displayed ? 'partial' : 'cancelled') : event.type === 'playback.error' ? 'failed' : 'playing';
     }
     if (event.type !== 'playback.progress') void this.save();
   }
