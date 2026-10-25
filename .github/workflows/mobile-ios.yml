@@ -1,8 +1,14 @@
 name: Build iOS mobile package
 on:
   workflow_dispatch:
+    inputs:
+      run_public_gateway_smoke:
+        description: Explicitly test a dedicated public gateway account with real speech
+        type: boolean
+        required: false
+        default: false
   push:
-    branches: [codex/mobile-independent]
+    branches: [mobile]
     paths:
       - apps/mobile/**
       - scripts/build_mobile_ios.sh
@@ -15,6 +21,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   public-gateway-smoke:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_public_gateway_smoke }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
