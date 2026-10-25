@@ -1,0 +1,93 @@
+import { useRef } from 'react';
+import type { CSSProperties, PointerEvent } from 'react';
+import type { MobileState } from './state';
+import { SpeechLine, textFor } from './SpeechLine';
+import { NativeCompanion, nativeAndroid } from './companionNative';
+
+interface Props {
+  state: MobileState;
+  portrait: React.ReactNode;
+  style: CSSProperties;
+  collapsed: boolean;
+  text: string;
+  notice: string;
+  sending: boolean;
+  onText(text: string): void;
+  onSend(): void;
+  onCancel(): void;
+  onCollapse(collapsed: boolean): void;
+  onRestore(): void;
+  onClose(): void;
+  onError(error: unknown): void;
+}
+export function FloatingCompanion(props: Props) {
+  const { state, collapsed } = props;
+  const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const pending = useRef({ x: 0, y: 0, frame: 0 });
+  const resizeStart = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
+  const active = state.speeches.find(speech => speech.id === state.presented);
+  const recent = [...state.history].reverse().find(item => item.role === 'assistant' && item.displayed !== false && item.status !== 'cancelled');
+  const ui = state.settings.companion_ui || {};
+  const primary = String(ui.primary_language || 'zh');
+  const translation = String(ui.translation_language || 'none');
+  const moving = (event: PointerEvent<HTMLElement>) => {
+    if (!drag.current) return;
+    const dx = event.screenX - drag.current.x, dy = event.screenY - drag.current.y;
+    if (Math.abs(dx) + Math.abs(dy) > 3) drag.current.moved = true;
+    drag.current.x = event.screenX; drag.current.y = event.screenY;
+    pending.current.x += dx; pending.current.y += dy;
+    if (nativeAndroid && !pending.current.frame) pending.current.frame = requestAnimationFrame(() => {
+      const { x, y } = pending.current;
+      pending.current = { x: 0, y: 0, frame: 0 };
+      void NativeCompanion.move({ dx: x, dy: y }).catch(props.onError);
+    });
+  };
+  const down = (event: PointerEvent<HTMLElement>) => {
+    if (event.button !== 0) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    drag.current = { x: event.screenX, y: event.screenY, moved: false };
+  };
+  const up = (event: PointerEvent<HTMLElement>) => {
+    const moved = drag.current?.moved;
+    drag.current = null;
+    if (nativeAndroid) void NativeCompanion.move({ dx: 0, dy: 0, settle: true }).catch(props.onError);
+    if (collapsed && !moved && event.type !== 'pointercancel') props.onCollapse(false);
+  };
+  const busy = state.task === 'thinking' || Boolean(state.current) || state.speeches.some(item => item.state === 'generated');
+  if (collapsed) return <main className="floating-mini" style={props.style} aria-label="彩名悬浮头像"
+    onPointerDown={down} onPointerMove={moving} onPointerUp={up} onPointerCancel={up}>
+    {props.portrait}<span className={`floating-dot ${state.connected ? 'online' : ''}`} />
+    <button className="mini-expand" type="button" onClick={event => { if (event.detail === 0) props.onCollapse(false); }} aria-label="展开悬浮窗" />
+  </main>;
+  return <main className="floating-companion" style={props.style}>
+    <section className="floating-note" aria-label="彩名对白便签">
+      <header className="floating-heading">
+        <div className="floating-drag" onPointerDown={down} onPointerMove={moving} onPointerUp={up} onPointerCancel={up} aria-label="拖动悬浮窗"><i className={`floating-dot ${state.connected ? 'online' : ''}`} /><strong>Ayana</strong><span>陪在你身边</span></div>
+        <div className="floating-actions"><button type="button" aria-label="收起悬浮窗" onClick={() => props.onCollapse(true)}>−</button><button type="button" aria-label="返回主界面" onClick={props.onRestore}>↗</button><button type="button" aria-label="关闭悬浮窗" onClick={props.onClose}>×</button></div>
+      </header>
+      <div className="floating-scene"><div className="floating-portrait">{props.portrait}</div>
+        <div className="floating-caption" aria-live="polite">
+          {active ? <SpeechLine speech={active} active primary={primary} translation={translation} />
+            : recent ? <p>{textFor({ ja: recent.speech_ja || '', zh: recent.display_zh || '', en: recent.display_en }, primary)}</p>
+            : <p className="floating-greeting">我在这里。<small>有什么想对我说的吗？</small></p>}
+          {state.task === 'thinking' && <span className="floating-thinking">彩名正在想…</span>}
+        </div>
+      </div>
+      {props.notice && <div className="floating-notice" role="status">{props.notice}</div>}
+      <form className="floating-composer" onSubmit={event => { event.preventDefault(); props.onSend(); }}>
+        <textarea aria-label="悬浮窗消息" rows={1} maxLength={4000} value={props.text} placeholder={state.connected ? '和彩名说点什么…' : '连接恢复后发送…'} onChange={event => props.onText(event.target.value)}
+          onFocus={() => { if (nativeAndroid) void NativeCompanion.focus({ enabled: true }).catch(props.onError); }} onBlur={() => { if (nativeAndroid) void NativeCompanion.focus({ enabled: false }).catch(props.onError); }} />
+        {busy && <button type="button" aria-label="打断回复" onClick={props.onCancel}>■</button>}
+        <button type="submit" aria-label="发送悬浮窗消息" disabled={!state.connected || !props.text.trim() || props.sending}>↑</button>
+      </form>
+      <button type="button" className="floating-resize" aria-label="调整悬浮窗大小" onPointerDown={event => {
+        event.currentTarget.setPointerCapture(event.pointerId);
+        resizeStart.current = { x: event.screenX, y: event.screenY, width: innerWidth, height: innerHeight };
+      }} onPointerMove={event => {
+        const start = resizeStart.current;
+        if (!start || !nativeAndroid) return;
+        void NativeCompanion.resize({ width: start.width + event.screenX - start.x, height: start.height + event.screenY - start.y }).catch(props.onError);
+      }} onPointerUp={() => { resizeStart.current = null; }} onPointerCancel={() => { resizeStart.current = null; }}>⌟</button>
+    </section>
+  </main>;
+}

@@ -1,9 +1,18 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import characters from './src/generated/characters.json' with { type: 'json' };
 
 export default defineConfig({
   base: './',
-  plugins: [react()],
+  plugins: [react(), {
+    name: 'mobile-offline-shell',
+    generateBundle(_options, bundle) {
+      const files = Object.keys(bundle).filter(file => /\.(?:js|css)$/.test(file));
+      this.emitFile({ type: 'asset', fileName: 'precache.json', source: JSON.stringify(files) });
+      const mappings = Object.fromEntries(Object.entries(characters).map(([id, character]) => [id, { mapping: character.mapping }]));
+      this.emitFile({ type: 'asset', fileName: 'native-characters.json', source: JSON.stringify(mappings) });
+    },
+  }],
   server: {
     host: '127.0.0.1',
     port: 5174,

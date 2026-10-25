@@ -50,7 +50,10 @@ public class AyanaVaultPlugin: CAPPlugin, CAPBridgedPlugin {
 }
 
 class AyanaBridgeController: CAPBridgeViewController {
-    override func capacitorDidLoad() { bridge?.registerPluginInstance(AyanaVaultPlugin()) }
+    override func capacitorDidLoad() {
+        bridge?.registerPluginInstance(AyanaVaultPlugin())
+        bridge?.registerPluginInstance(AyanaCompanionPlugin())
+    }
 }
 
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {

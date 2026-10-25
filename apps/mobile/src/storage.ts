@@ -3,12 +3,17 @@ import { Capacitor, registerPlugin } from '@capacitor/core';
 const vault = registerPlugin<{ get(): Promise<{ value?: string }>; set(options: { value: string }): Promise<void>; clear(): Promise<void> }>('AyanaVault');
 let db: Promise<IDBDatabase> | undefined;
 function database() {
-  return db ||= new Promise((resolve, reject) => {
+  return db ||= new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open('ayana-independent-mobile', 1);
     request.onupgradeneeded = () => request.result.createObjectStore('state');
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const handle = request.result;
+      handle.onversionchange = () => { handle.close(); db = undefined; };
+      resolve(handle);
+    };
     request.onerror = () => reject(new Error('无法打开手机本地数据库'));
-  });
+    request.onblocked = () => reject(new Error('请关闭其他 Ayana 页面后重试'));
+  }).catch(error => { db = undefined; throw error; });
 }
 export async function readLocal<T>(key: string): Promise<T | undefined> {
   const handle = await database();

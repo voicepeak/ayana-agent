@@ -19,6 +19,7 @@ export interface Conversation {
 
 export interface Speech {
   id: string;
+  turnId?: string;
   ja: string;
   zh: string;
   en?: string;
@@ -45,6 +46,8 @@ export interface HistoryRecord {
   displayed?: boolean;
   played_samples?: number;
   total_samples?: number;
+  generation_id?: number;
+  asset_id?: string;
 }
 
 export interface PublicSettings {

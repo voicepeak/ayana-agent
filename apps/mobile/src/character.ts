@@ -6,10 +6,20 @@ type Catalog = { name: string; persona: string; style: string; guide: unknown;
   mapping: { assets: Record<string, Asset>; default_asset_id: string; intent_defaults: Record<string, string>;
     fallbacks?: { affect?: Record<string, string>; intent?: Record<string, string>; default?: string } } };
 const characters = catalogs as unknown as Record<string, Catalog>;
-export let settings: PublicSettings = { character: 'ayana', avatar_costume: '校服', volume: 1,
-  companion_ui: { primary_language: 'zh', translation_language: 'none' } };
+export const defaultSettings: PublicSettings = { character: 'ayana', avatar_costume: '校服', volume: 1,
+  companion_ui: { theme: 'ink', primary_language: 'zh', translation_language: 'none' } };
+export let settings: PublicSettings = structuredClone(defaultSettings);
 let sinceOpen = 2;
-export function setCharacterSettings(value: PublicSettings) { settings = { ...settings, ...value }; }
+export function resetCharacterSettings() { settings = structuredClone(defaultSettings); sinceOpen = 2; }
+export function setCharacterSettings(value: PublicSettings) {
+  settings = { ...settings, ...value,
+    companion_ui: { ...settings.companion_ui, ...value.companion_ui },
+    voice: { ...settings.voice, ...value.voice } };
+  if (!characters[String(settings.character)]) settings.character = 'ayana';
+  if (!costumes().includes(String(settings.avatar_costume))) settings.avatar_costume = costumes()[0];
+  const volume = Number(settings.volume);
+  settings.volume = Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 1;
+}
 function catalog() { return characters[String(settings.character)] || characters.ayana; }
 export function characterOptions() { return Object.entries(characters).map(([id, value]) => ({ id, name: value.name })); }
 export function costumes() { return [...new Set(Object.values(catalog().mapping.assets).map(a => a.costume || '校服'))]; }
@@ -25,6 +35,10 @@ export function assetUrl(id: string) {
 }
 export function resolveExpression(event: RuntimeEvent, random = Math.random) {
   const mapping = catalog().mapping;
+  const nativeAsset = mapping.assets[String(event.native_asset_id || '')];
+  if (nativeAsset && nativeAsset.costume === settings.avatar_costume) {
+    return { ...event, asset_id: String(event.native_asset_id), resolved_expression: nativeAsset.source_expression, resolved_pose: nativeAsset.pose };
+  }
   const exact = mapping.assets[String(event.expression || '')];
   let label = exact?.source_expression || String(event.expression || '');
   const candidates = Object.entries(mapping.assets).filter(([, a]) => !a.alias && a.costume === settings.avatar_costume);

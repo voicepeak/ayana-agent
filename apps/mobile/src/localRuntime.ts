@@ -1,5 +1,5 @@
 import { readLocal, writeLocal } from './storage';
-import { characterBootstrap, prompt, resolveExpression, settings, setCharacterSettings } from './character';
+import { characterBootstrap, defaultSettings, prompt, resolveExpression, settings, setCharacterSettings, resetCharacterSettings } from './character';
 import type { Conversation, HistoryRecord, RuntimeEvent } from './types';
 import { identifier } from './identifier';
 import { sessionOwner } from './api';
@@ -13,27 +13,45 @@ export class LocalRuntime {
   private data!: Saved;
   private saving = Promise.resolve();
   private ready?: Promise<void>;
+  private owner = '';
+  private utterances = new Map<string, RecordItem>();
   constructor(private emit: (event: RuntimeEvent) => void) {}
   initialize() {
     return this.ready ||= (async () => {
-      const saved = await readLocal<Saved>('runtime:' + sessionOwner());
+      this.owner = sessionOwner();
+      const saved = await readLocal<Saved>('runtime:' + this.owner);
       const first = { conversation_id: id(), title: '新的对话', updated: Date.now() };
-      this.data = saved || { settings, conversations: [first], current: first.conversation_id,
+      this.data = saved || { settings: structuredClone(defaultSettings), conversations: [first], current: first.conversation_id,
         history: { [first.conversation_id]: [] }, memory: [], generation: 0 };
+      // Restore settings for this owner without inheriting another activation's preferences.
+      resetCharacterSettings();
       setCharacterSettings(this.data.settings);
+      this.data.settings = structuredClone(settings);
+      if (!this.data.conversations.some(c => c.conversation_id === this.data.current)) {
+        this.data.conversations.push(first);
+        this.data.current = first.conversation_id;
+      }
+      for (const records of Object.values(this.data.history)) {
+        for (const item of records) {
+          if (item.utterance_id) this.utterances.set(item.utterance_id, item);
+          if (item.role === 'assistant' && ['generated', 'playing'].includes(item.status || '')) {
+            item.status = item.displayed ? 'partial' : 'cancelled';
+          }
+        }
+      }
       this.snapshot();
-    })();
+    })().catch(error => { this.ready = undefined; throw error; });
   }
   private save() {
     const snapshot = structuredClone(this.data);
-    const key = 'runtime:' + sessionOwner();
+    const key = 'runtime:' + this.owner;
     this.saving = this.saving.catch(() => {}).then(() => writeLocal(key, snapshot));
     this.saving.catch(() => this.emit({ protocol_version: 1, type: 'error', message: '手机本地保存失败，请检查存储空间' }));
     return this.saving;
   }
   private history() { return this.data.history[this.data.current] ||= []; }
   private output(type: string, data: Record<string, unknown> = {}) {
-    this.emit({ protocol_version: 1, type, generation_id: this.data.generation, ...data });
+    this.emit(structuredClone({ protocol_version: 1, type, generation_id: this.data.generation, ...data }));
   }
   snapshot(changed = false) {
     const boot = characterBootstrap();
@@ -45,6 +63,8 @@ export class LocalRuntime {
   }
   async start(text: string) {
     await this.initialize();
+    if (!text.trim() || text.length > 4000) throw new Error('消息长度需在 1–4000 字之间');
+    this.cancel();
     const history = this.history();
     this.data.generation++;
     const generation = this.data.generation;
@@ -55,6 +75,7 @@ export class LocalRuntime {
     let budget = 0;
     const context: { role: string; content: string }[] = [];
     for (const item of [...history].reverse()) {
+      if (item.role !== 'user' && (!item.displayed || !item.speech_ja)) continue;
       const content = modelHistoryContent(item);
       if (budget + content.length > 60000 || context.length >= 85) break;
       budget += content.length;
@@ -69,6 +90,8 @@ export class LocalRuntime {
     conversation.preview = text.slice(0, 60);
     conversation.updated = Date.now();
     this.output('user.message', { text, turn_id: turn, conversation_id: this.data.current });
+    this.output('conversations.ready', { current: conversation, conversations: this.data.conversations, persistent: true });
+    this.output('memory.ready', { memories: this.data.memory });
     await this.save();
     return { type: 'turn.start', text, messages, turn_id: turn, conversation_id: this.data.current, generation_id: generation };
   }
@@ -76,12 +99,15 @@ export class LocalRuntime {
     if (event.conversation_id && event.conversation_id !== this.data.current) return;
     if (typeof event.generation_id === 'number' && event.generation_id !== this.data.generation) return;
     if (event.type === 'utterance.ready') {
+      if (this.utterances.has(String(event.utterance_id))) return;
       event = resolveExpression(event);
-      this.history().push({ id: Date.now(), role: 'assistant', utterance_id: String(event.utterance_id),
+      const record: RecordItem = { id: Date.now(), role: 'assistant', utterance_id: String(event.utterance_id),
         speech_ja: String(event.speech_ja), displayed: false, status: 'generated', turn_id: String(event.turn_id),
-        asset_id: String(event.asset_id), resolved_expression: String(event.resolved_expression), resolved_pose: String(event.resolved_pose) });
+        generation_id: this.data.generation, asset_id: String(event.asset_id), resolved_expression: String(event.resolved_expression), resolved_pose: String(event.resolved_pose) };
+      this.history().push(record);
+      this.utterances.set(record.utterance_id!, record);
     }
-    const item = this.history().find(h => h.utterance_id === event.utterance_id);
+    const item = this.utterances.get(String(event.utterance_id));
     if (item && (event.type === 'subtitle.ready' || event.type === 'subtitle.translated')) {
       if (typeof event.display_zh === 'string') item.display_zh = event.display_zh;
       if (typeof event.display_en === 'string') item.display_en = event.display_en;
@@ -90,27 +116,69 @@ export class LocalRuntime {
     return event;
   }
   playback(event: RuntimeEvent) {
-    const item = this.history().find(h => h.utterance_id === event.utterance_id);
+    if (!this.data) return;
+    const item = this.utterances.get(String(event.utterance_id));
     if (!item) return;
     if (event.type === 'utterance.displayed' || event.type === 'playback.started') item.displayed = true;
     if (event.type.startsWith('playback.')) {
       item.played_samples = Number(event.played_samples || 0);
       item.total_samples = Number(event.total_samples || 0);
-      item.status = event.type === 'playback.ended' ? 'played' : event.type === 'playback.cancelled' ? 'partial' : 'playing';
+      item.status = event.type === 'playback.ended' ? 'played' : event.type === 'playback.cancelled'
+        ? (Number(event.played_samples) > 0 ? 'partial' : 'cancelled') : event.type === 'playback.error' ? 'failed' : 'playing';
     }
     if (event.type !== 'playback.progress') void this.save();
+  }
+  get generation() { return this.data?.generation ?? 0; }
+  cancel() {
+    if (!this.data) return;
+    const cancelled = this.data.generation++;
+    for (const item of this.history()) {
+      if (item.role === 'assistant' && ['generated', 'playing'].includes(item.status || '')) {
+        item.status = item.displayed ? 'partial' : 'cancelled';
+      }
+    }
+    this.output('generation.cancelled', { cancelled_generation_id: cancelled });
+    void this.save().catch(() => {});
+  }
+  async exportConversation() {
+    await this.initialize();
+    return structuredClone({ conversation: this.data.conversations.find(c => c.conversation_id === this.data.current),
+      history: this.history().filter(item => item.role === 'user' || item.displayed) });
   }
   async command(command: Record<string, unknown>) {
     await this.initialize();
     const type = command.type;
     if (type === 'conversation.create') {
+      this.cancel();
       const conversation = { conversation_id: id(), title: '新的对话', updated: Date.now() };
       this.data.conversations.push(conversation);
       this.data.current = conversation.conversation_id;
       this.snapshot(true);
     } else if (type === 'conversation.select') {
       if (!this.data.conversations.some(c => c.conversation_id === command.conversation_id)) throw new Error('话题不存在');
+      if (this.data.current === command.conversation_id) return;
+      this.cancel();
       this.data.current = String(command.conversation_id);
+      this.snapshot(true);
+    } else if (type === 'conversation.rename') {
+      const conversation = this.data.conversations.find(c => c.conversation_id === command.conversation_id);
+      const title = String(command.title || '').trim().slice(0, 60);
+      if (!conversation || !title) throw new Error('请填写话题名称');
+      conversation.title = title;
+      this.snapshot();
+    } else if (type === 'conversation.delete') {
+      const target = String(command.conversation_id);
+      if (!this.data.conversations.some(c => c.conversation_id === target)) throw new Error('话题不存在');
+      if (target === this.data.current) this.cancel();
+      this.data.conversations = this.data.conversations.filter(c => c.conversation_id !== target);
+      for (const item of this.data.history[target] || []) {
+        if (item.utterance_id) this.utterances.delete(item.utterance_id);
+      }
+      delete this.data.history[target];
+      if (!this.data.conversations.length) {
+        this.data.conversations.push({ conversation_id: id(), title: '新的对话', updated: Date.now() });
+      }
+      if (target === this.data.current) this.data.current = this.data.conversations[0].conversation_id;
       this.snapshot(true);
     } else if (type === 'settings.update') {
       setCharacterSettings(command.settings as typeof settings);
@@ -118,6 +186,7 @@ export class LocalRuntime {
       this.snapshot();
     } else if (type === 'memory.set') {
       this.data.memory = String(command.text || '').split('\n').map(v => v.trim()).filter(Boolean).slice(0, 50).map(v => v.slice(0, 300));
+      this.output('memory.ready', { memories: this.data.memory });
     } else if (type === 'utterance.displayed' || String(type).startsWith('playback.')) this.playback(command as RuntimeEvent);
     else if (['settings.get', 'history.get', 'conversations.get', 'capabilities.get'].includes(String(type))) this.snapshot();
     else throw new Error('此能力尚未配置');

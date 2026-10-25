@@ -26,8 +26,8 @@ export class AudioPlayer {
     if (this.disposed) return;
     if (!this.initializing) {
       this.initializing = (async () => {
-        this.context = new AudioContext({ latencyHint: 'interactive' });
-        if (!this.context.audioWorklet) {
+        if (typeof AudioContext !== 'undefined') this.context = new AudioContext({ latencyHint: 'interactive' });
+        if (!this.context?.audioWorklet) {
           this.fallback = true;
           this.fallbackAudio = new Audio();
           // Prime the same media element in the send-button gesture for Safari.
@@ -35,7 +35,10 @@ export class AudioPlayer {
           await this.fallbackAudio.play().catch(() => {});
           return;
         }
+        // Resume while the user gesture is still active, before addModule yields.
+        if (this.context.state === 'suspended') void this.context.resume().catch(() => {});
         await this.context.audioWorklet.addModule(new URL('pcm-player.js', document.baseURI).href);
+        if (this.disposed) return;
         this.node = new AudioWorkletNode(this.context, 'ayana-pcm-player', {
           numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1],
         });
@@ -68,20 +71,29 @@ export class AudioPlayer {
         };
       })().catch(error => {
         this.initializing = undefined;
-        this.onLocal({ protocol_version: 1, type: 'error', code: 'audio_device', message: `音频设备无法初始化：${String(error)}` });
+        if (!this.disposed) this.onLocal({ protocol_version: 1, type: 'error', code: 'audio_device', message: `音频设备无法初始化：${String(error)}` });
       });
     }
     await this.initializing;
-    if (this.context?.state === 'suspended') await this.context.resume();
+    if (this.context && this.context.state !== 'running' && !this.fallback && !this.disposed) {
+      let timer: number | undefined;
+      try {
+        await Promise.race([this.context.resume(), new Promise<never>((_, reject) => {
+          timer = window.setTimeout(() => reject(new Error('请轻触发送以允许声音播放')), 2500);
+        })]);
+      } finally { window.clearTimeout(timer); }
+    }
   }
 
   enqueue(event: RuntimeEvent) {
+    if (event.native_audio) return; // iOS owns this buffer and its playback receipts.
     const generation = Number(event.generation_id);
     const id = String(event.utterance_id || '');
-    if (!id || generation <= this.cancelledGeneration || this.seen.has(id)) return;
+    if (this.disposed || !id || !Number.isFinite(generation) || generation <= this.cancelledGeneration || this.seen.has(id)) return;
     const duration = Number(event.duration_ms || 0) / 1000;
-    const totalDuration = [...this.pending.values()].reduce((sum, item) => sum + item.duration, 0);
-    if (this.pending.size >= 3 || (this.pending.size > 0 && totalDuration + duration > 30)) {
+    const active = [...this.pending.values()].filter(item => Number(item.event.generation_id) > this.cancelledGeneration);
+    const totalDuration = active.reduce((sum, item) => sum + item.duration, 0);
+    if (active.length >= 3 || (active.length > 0 && totalDuration + duration > 30)) {
       this.fail(event, '音频缓冲已达到上限，本轮语音已停止。');
       this.cancel(generation);
       void this.sendPlayback({ protocol_version: 1, type: 'generation.cancel', generation_id: generation });
@@ -108,19 +120,20 @@ export class AudioPlayer {
       let samples: Float32Array;
       if (format === 'pcm_s16le') {
         if (bytes.length % 2 || bytes.length > 32 * 1024 * 1024) throw new Error('PCM 载荷长度无效');
-        const view = new DataView(bytes.buffer);
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         samples = new Float32Array(bytes.length / 2);
         for (let i = 0; i < samples.length; i++) samples[i] = view.getInt16(i * 2, true) / 32768;
-      } else {
+      } else if (format === 'pcm_f32le') {
         if (bytes.length % 4 || bytes.length > 32 * 1024 * 1024) throw new Error('PCM 载荷长度无效');
-        const view = new DataView(bytes.buffer);
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         samples = new Float32Array(bytes.length / 4);
         for (let i = 0; i < samples.length; i++) {
           const sample = view.getFloat32(i * 4, true);
           if (!Number.isFinite(sample)) throw new Error('PCM 包含无效样本');
           samples[i] = Math.max(-1, Math.min(1, sample));
         }
-      }
+      } else throw new Error('不支持的 PCM 编码');
+      if (!samples.length) throw new Error('音频没有可播放的样本');
       this.pending.get(id)!.duration = samples.length / rate;
       if (this.fallback) {
         this.fallbackQueue.push({ event, samples, rate });
@@ -131,7 +144,7 @@ export class AudioPlayer {
       this.node.port.postMessage({ type: 'enqueue', utterance_id: id, generation_id: generation, sample_rate: rate, samples }, [samples.buffer]);
     }).catch(error => {
       this.pending.delete(id);
-      this.fail(event, `语音播放失败：${String(error)}`);
+      if (!this.disposed && generation > this.cancelledGeneration) this.fail(event, `语音播放失败：${String(error)}`);
     });
   }
 
@@ -142,6 +155,7 @@ export class AudioPlayer {
       played_samples: 0, total_samples: 0, sample_rate: event.sample_rate, message,
     };
     this.sendPlayback(receipt);
+    this.onLocal(receipt);
     this.onLocal({ ...receipt, type: 'error', code: 'audio_playback' });
   }
 
@@ -172,6 +186,7 @@ export class AudioPlayer {
     audio.onplaying = () => { this.fallbackReceipt('started', item); };
     this.fallbackTimer = window.setInterval(() => { if (!audio.paused) this.fallbackReceipt('progress', item); }, 100);
     const finish = () => {
+      if (this.fallbackItem !== item) return;
       window.clearInterval(this.fallbackTimer); URL.revokeObjectURL(this.fallbackUrl);
       audio.onplaying = null; audio.onended = null; audio.onerror = null;
       this.pending.delete(String(item.event.utterance_id)); this.fallbackItem = undefined;
@@ -201,7 +216,7 @@ export class AudioPlayer {
   }
 
   setVolume(value: number) {
-    this.volume = Math.max(0, Math.min(1, value));
+    this.volume = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 1;
     this.gain?.gain.setTargetAtTime(this.volume, this.context!.currentTime, .02);
     if (this.fallbackAudio) this.fallbackAudio.volume = this.volume;
   }

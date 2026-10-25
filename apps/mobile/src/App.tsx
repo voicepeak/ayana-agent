@@ -1,20 +1,31 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from 'react';
-import { bootstrap, fetchAsset, logout, pair, serverLabel, sessionState } from './api';
-import { assetUrl, characterOptions, costumes } from './character';
+import type { CSSProperties, FormEvent } from 'react';
+import { bootstrap, fetchAsset, logout, pair, sessionState } from './api';
+import { assetUrl } from './character';
 import { AudioPlayer } from './audio';
 import { MobileBridge } from './bridge';
-import { SpeechLine } from './SpeechLine';
+import { SpeechLine, textFor } from './SpeechLine';
+import { SettingsDrawer, themes } from './SettingsDrawer';
+import { useDraft } from './useDraft';
+import { usePlaybackWake } from './usePlaybackWake';
+import { Capacitor } from '@capacitor/core';
+import { useMobileViewport } from './useMobileViewport';
 import { initialState, reduceEvent } from './state';
 import type { Bootstrap } from './types';
+import { FloatingCompanion } from './FloatingCompanion';
+import { useCompanion } from './useCompanion';
+import { NativeCompanion, nativeIOS } from './companionNative';
 
 const assetCache = new Map<string, string>();
+const loadingAssets = new Map<string, Promise<string>>();
 
 function loadAsset(assetId: string): Promise<string> {
   const resource = assetUrl(assetId);
   const cached = assetCache.get(resource);
   if (cached) return Promise.resolve(cached);
-  return fetchAsset(assetId).then(blob => {
+  const loading = loadingAssets.get(resource);
+  if (loading) return loading;
+  const pending = fetchAsset(assetId).then(blob => {
     const url = URL.createObjectURL(blob);
     assetCache.set(resource, url);
     if (assetCache.size > 240) {
@@ -22,11 +33,13 @@ function loadAsset(assetId: string): Promise<string> {
       if (oldest) {
         const stale = assetCache.get(oldest);
         assetCache.delete(oldest);
-        if (stale) URL.revokeObjectURL(stale);
+        if (stale) window.setTimeout(() => URL.revokeObjectURL(stale), 30000);
       }
     }
     return url;
-  });
+  }).finally(() => loadingAssets.delete(resource));
+  loadingAssets.set(resource, pending);
+  return pending;
 }
 
 export function preloadAsset(assetId: string) {
@@ -43,7 +56,8 @@ function AssetImage({ assetId, className, alt, onError }: {
   const [src, setSrc] = useState(() => assetCache.get(resource) || '');
   useEffect(() => {
     let active = true;
-    setSrc(assetCache.get(resource) || '');
+    const cached = assetCache.get(resource);
+    if (cached) setSrc(cached);
     loadAsset(assetId).then(url => {
       if (active) setSrc(url);
     }).catch(() => {
@@ -51,19 +65,8 @@ function AssetImage({ assetId, className, alt, onError }: {
     });
     return () => { active = false; };
   }, [assetId, resource, onError]);
-  return src ? <img className={className} src={src} alt={alt} draggable={false} /> : null;
+  return src ? <img className={className} src={src} alt={alt} draggable={false} onError={onError} /> : null;
 }
-
-const themes = [
-  { id: 'ink', background: '#25282d', bubble: '#30343d' },
-  { id: 'paper', background: '#e6dfd0', bubble: '#faf3e5' },
-  { id: 'forest', background: '#293831', bubble: '#dbe8db' },
-  { id: 'sea', background: '#1c3042', bubble: '#dce6ed' },
-  { id: 'sakura', background: '#3a2430', bubble: '#f4d9e4' },
-  { id: 'sky', background: '#dceaf2', bubble: '#f7fcff' },
-  { id: 'amber', background: '#3b2b1f', bubble: '#f3e2c9' },
-  { id: 'bamboo', background: '#23302c', bubble: '#d9ebe2' },
-];
 
 function luminance(hex: string) {
   const value = hex.replace('#', '');
@@ -73,51 +76,33 @@ function luminance(hex: string) {
   return .2126 * r + .7152 * g + .0722 * b;
 }
 
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = String(reader.result || '');
-      resolve(result.slice(result.indexOf(',') + 1));
-    };
-    reader.onerror = () => reject(reader.error || new Error('无法读取录音'));
-    reader.readAsDataURL(blob);
-  });
-}
-
-function newRequestId() {
-  return `mic-${(crypto as Crypto & { randomUUID?: () => string }).randomUUID?.() || Date.now().toString(36)}`;
-}
-
 export default function App() {
   const [state, dispatch] = useReducer(reduceEvent, initialState);
   const [paired, setPaired] = useState<boolean | null>(null);
-  const [sessionAvailable, setSessionAvailable] = useState(true);
-  const [apkAvailable, setApkAvailable] = useState(false);
   const [token, setToken] = useState('');
   const [pairError, setPairError] = useState('');
   const [pairing, setPairing] = useState(false);
+  const [showToken, setShowToken] = useState(false);
   const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [drawer, setDrawer] = useState(false);
   const [memoryText, setMemoryText] = useState('');
-  const [text, setText] = useState('');
+  const [text, setText] = useDraft(state.conversation?.conversation_id);
   const [notice, setNotice] = useState('');
-  const [recording, setRecording] = useState(false);
-  const [transcribing, setTranscribing] = useState(false);
+  const companion = useCompanion(cancel, error => setNotice(error instanceof Error ? error.message : String((error as { message?: string })?.message || error)));
+  const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
+  const switchingRef = useRef(false);
+  const transcriptRef = useRef<HTMLElement>(null);
+  const atBottomRef = useRef(true);
+  const [atBottom, setAtBottom] = useState(true);
+  useMobileViewport();
   const [imageFailed, setImageFailed] = useState(false);
   const markImageFailed = useCallback(() => setImageFailed(true), []);
 
   const bridgeRef = useRef<MobileBridge | null>(null);
   const playerRef = useRef<AudioPlayer | null>(null);
   const stateRef = useRef(state);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const recordingCancelled = useRef(false);
-  const holdingMic = useRef(false);
-  const holdTimer = useRef<number | undefined>(undefined);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
   const displayedRef = useRef(new Set<string>());
   const startedRef = useRef(false);
   stateRef.current = state;
@@ -145,23 +130,17 @@ export default function App() {
     bridge.onEvent(event => {
       dispatch(event);
       if (event.type === 'memory.ready' && Array.isArray(event.memories)) setMemoryText(event.memories.join('\n'));
-      if (event.type === 'audio.ready') player.enqueue(event);
+      if (event.type === 'audio.ready') {
+        const speech = stateRef.current.speeches.find(item => item.id === event.utterance_id);
+        if (stateRef.current.settings.voice?.voice_mode === 'silent' || speech?.state === 'played') {
+          bridge.consumeAudio(event.utterance_id);
+        } else player.enqueue(event);
+      }
       if (event.type === 'settings.ready') {
         player.setVolume(Number((event.settings as Record<string, unknown> | undefined)?.volume ?? 1));
       }
       if (event.type === 'generation.cancelled') {
         player.cancel(Number(event.cancelled_generation_id ?? event.generation_id ?? 0));
-      }
-      if (event.type === 'input.transcribed') {
-        setTranscribing(false);
-        if (typeof event.text === 'string' && event.text.trim()) {
-          setText(event.text.trim());
-          requestAnimationFrame(() => textareaRef.current?.focus());
-        }
-      }
-      if (event.type === 'input.state' && event.state === 'failed') {
-        setTranscribing(false);
-        setNotice('尚未配置语音识别服务，请先使用文字输入。');
       }
       if (event.type === 'error' && event.message) setNotice(String(event.message));
       if (event.type === 'utterance.ready') {
@@ -175,6 +154,8 @@ export default function App() {
       if (status.service === 'unauthorized') {
         startedRef.current = false;
         setPaired(false);
+        setPairError(status.error || '激活凭据失效，请重新激活');
+        player.dispose();
         bridge.close();
       }
     });
@@ -186,8 +167,6 @@ export default function App() {
     let cancelled = false;
     void sessionState().then(result => {
       if (cancelled) return;
-      setSessionAvailable(result.available);
-      setApkAvailable(Boolean(result.android_apk));
       setPaired(result.paired);
       if (result.paired) startSession();
     }).catch(error => {
@@ -198,7 +177,8 @@ export default function App() {
     });
     return () => {
       cancelled = true;
-      bridgeRef.current?.close();      playerRef.current?.dispose();
+      bridgeRef.current?.close();
+      playerRef.current?.dispose();
       bridgeRef.current = null;
       playerRef.current = null;
       startedRef.current = false;
@@ -206,33 +186,23 @@ export default function App() {
   }, [startSession]);
 
   useEffect(() => {
-    if (!paired) return;
-    let released = false;
-    void import('@capacitor-community/keep-awake').then(({ KeepAwake }) => {
-      if (!released) void KeepAwake.keepAwake().catch(() => {});
-    }).catch(() => {});
-    return () => {
-      released = true;
-      void import('@capacitor-community/keep-awake').then(({ KeepAwake }) => KeepAwake.allowSleep()).catch(() => {});
-    };
-  }, [paired]);
-
-  useEffect(() => {
-    const wake = () => {
-      const lock = (navigator as Navigator & { wakeLock?: { request?: (type: string) => Promise<unknown> } }).wakeLock;
-      void lock?.request?.('screen')?.catch(() => {});
-    };
-    window.addEventListener('pointerdown', wake, { once: true });
-    return () => window.removeEventListener('pointerdown', wake);
+    if (!Capacitor.isNativePlatform()) return;
+    const listener = import('@capacitor/app').then(({ App }) => App.addListener('appStateChange', ({ isActive }) => {
+      if (isActive) bridgeRef.current?.resume();
+    }));
+    return () => { void listener.then(handle => handle.remove()); };
   }, []);
 
   useEffect(() => {
-    const online = () => { if (!stateRef.current.connected) bridgeRef.current?.connect(); };
-    const visible = () => { if (document.visibilityState === 'visible') bridgeRef.current?.connect(); };
+    const online = () => { bridgeRef.current?.resume(); };
+    const offline = () => bridgeRef.current?.offline();
+    const visible = () => { if (document.visibilityState === 'visible') bridgeRef.current?.resume(); };
     window.addEventListener('online', online);
+    window.addEventListener('offline', offline);
     document.addEventListener('visibilitychange', visible);
     return () => {
       window.removeEventListener('online', online);
+      window.removeEventListener('offline', offline);
       document.removeEventListener('visibilitychange', visible);
     };
   }, []);
@@ -243,26 +213,37 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [notice]);
 
+  function scrollLatest(smooth = true) {
+    const element = transcriptRef.current;
+    if (element) element.scrollTo({ top: element.scrollHeight, behavior: smooth && !matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'instant' });
+  }
+  useEffect(() => { if (atBottomRef.current) scrollLatest(false); }, [state.history, state.speeches.length, state.presented]);
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
-  }, [state.history.length, state.speeches.length, state.presented]);
+    atBottomRef.current = true; setAtBottom(true);
+    requestAnimationFrame(() => scrollLatest(false));
+  }, [state.conversation?.conversation_id]);
+  useEffect(() => {
+    const element = textareaRef.current;
+    if (!element) return;
+    element.style.height = 'auto';
+    element.style.height = `${Math.min(132, element.scrollHeight)}px`;
+  }, [text, paired]);
 
   useEffect(() => {
-    if (!paired || state.current) return;
-    if (recording || transcribing) return;
-    const index = state.speeches.findIndex(speech => speech.id === state.presented);
-    const next = state.speeches.slice(index + 1).find(speech => speech.state === 'generated');
+    if (!paired || state.current || nativeIOS) return;
+    const next = state.speeches.find(speech => speech.state === 'generated');
     if (!next) return;
-    const delay = next.audioEnabled && state.voice !== 'failed' ? 9000 : Math.min(5000, Math.max(700, (next.zh || next.ja).length * 55));
+    const delay = next.audioEnabled && state.voice !== 'failed' && state.settings.voice?.voice_mode !== 'silent' ? 9000 : Math.min(5000, Math.max(700, (next.zh || next.ja).length * 55));
     const timer = window.setTimeout(() => {
       dispatch({ protocol_version: 1, type: 'mobile.present', utterance_id: next.id, generation_id: next.generation });
+      bridgeRef.current?.playback({ protocol_version: 1, type: 'playback.ended', utterance_id: next.id, generation_id: next.generation, played_samples: 0, total_samples: 0 });
       if (!displayedRef.current.has(next.id)) {
         displayedRef.current.add(next.id);
         void bridgeRef.current?.send({ type: 'utterance.displayed', utterance_id: next.id, generation_id: next.generation });
       }
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [paired, state.current, state.presented, state.speeches, state.generation, state.voice, recording, transcribing]);
+  }, [paired, state.current, state.presented, state.speeches, state.generation, state.voice, state.settings.voice?.voice_mode]);
 
   async function connectWithToken(event: FormEvent) {
     event.preventDefault();
@@ -272,6 +253,8 @@ export default function App() {
     try {
       await pair(token.trim());
       setToken('');
+      dispatch({ protocol_version: 1, type: 'mobile.reset' });
+      displayedRef.current.clear();
       setPaired(true);
       startSession();
     } catch (error) {
@@ -281,176 +264,88 @@ export default function App() {
     }
   }
 
+  async function sendCommand(command: Record<string, unknown> & { type: string }) {
+    const result = await bridgeRef.current?.send(command);
+    if (!result?.ok) setNotice(result?.error || '操作失败，请重试');
+    return Boolean(result?.ok);
+  }
   async function ask(question = text) {
     const body = question.trim();
-    if (!body) return;
-    await playerRef.current?.unlock();
+    if (!body || sendingRef.current || switchingRef.current) return;
+    if (!stateRef.current.connected) { setNotice('连接恢复后即可发送，草稿已保留。'); return; }
+    sendingRef.current = true; setSending(true); setNotice('');
+    atBottomRef.current = true; setAtBottom(true);
+    if (!nativeIOS) void playerRef.current?.unlock().catch(() => setNotice('声音暂不可用，本轮将显示文字。'));
     playerRef.current?.cancel(stateRef.current.generation);
-    dispatch({ protocol_version: 1, type: 'mobile.cancelled', cancelled_generation_id: stateRef.current.generation, generation_id: stateRef.current.generation });
-    setText('');
-    setNotice('');
-    const result = await bridgeRef.current?.send({ type: 'turn.start', text: body });
-    if (!result?.ok) setNotice(result?.error || '发送失败，请检查连接。');
+    try {
+      const ok = await sendCommand({ type: 'turn.start', text: body });
+      if (ok) setText(current => current.trim() === body ? '' : current);
+    } finally { sendingRef.current = false; setSending(false); }
   }
-
-  function cancel() {
-    playerRef.current?.cancel(stateRef.current.generation);
-    dispatch({ protocol_version: 1, type: 'mobile.cancelled', cancelled_generation_id: stateRef.current.generation, generation_id: stateRef.current.generation });
-    void bridgeRef.current?.send({ type: 'generation.cancel' });
-  }
-
+  function cancel() { void sendCommand({ type: 'generation.cancel' }); }
   async function changeConversation(conversationId?: string) {
-    playerRef.current?.cancel(stateRef.current.generation);
-    dispatch({ protocol_version: 1, type: 'mobile.cancelled', cancelled_generation_id: stateRef.current.generation, generation_id: stateRef.current.generation });
-    setDrawer(false);
-    const result = await bridgeRef.current?.send(conversationId
-      ? { type: 'conversation.select', conversation_id: conversationId }
-      : { type: 'conversation.create' });
-    if (!result?.ok) setNotice(result?.error || '话题切换失败');
+    if (switchingRef.current || sendingRef.current) return;
+    if (conversationId === state.conversation?.conversation_id) { setDrawer(false); return; }
+    switchingRef.current = true;
+    try {
+      const ok = await sendCommand(conversationId ? { type: 'conversation.select', conversation_id: conversationId } : { type: 'conversation.create' });
+      if (ok) setDrawer(false);
+    } finally { switchingRef.current = false; }
   }
 
   async function signOut() {
+    await companion.stop(true);
     bridgeRef.current?.close();
     playerRef.current?.dispose();
     bridgeRef.current = null;
     playerRef.current = null;
     startedRef.current = false;
     await logout().catch(() => {});
-    window.location.reload();
-  }
-
-  function cleanupRecording() {
-    if (holdTimer.current) window.clearTimeout(holdTimer.current);
-    holdTimer.current = undefined;
-    streamRef.current?.getTracks().forEach(track => track.stop());
-    streamRef.current = null;
-    recorderRef.current = null;
-    chunksRef.current = [];
-  }
-
-  async function startRecording() {
-    if (recording || transcribing) return;
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-      setNotice('当前浏览器不支持麦克风录音。');
-      return;
-    }
-    await playerRef.current?.unlock();
-    if (!holdingMic.current) return;
-    setNotice('');
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
-        video: false,
-      });
-      if (!holdingMic.current) {
-        stream.getTracks().forEach(track => track.stop());
-        return;
-      }
-      const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
-      const mimeType = candidates.find(type => MediaRecorder.isTypeSupported(type)) || '';
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 64000 } : undefined);
-      streamRef.current = stream;
-      recorderRef.current = recorder;
-      chunksRef.current = [];
-      recordingCancelled.current = false;
-      recorder.ondataavailable = data => { if (data.data.size) chunksRef.current.push(data.data); };
-      recorder.onstop = () => {
-        const chunks = chunksRef.current;
-        const type = recorder.mimeType || mimeType || 'audio/webm';
-        const cancelled = recordingCancelled.current;
-        cleanupRecording();
-        setRecording(false);
-        if (cancelled || !chunks.length) return;
-        void (async () => {
-          setTranscribing(true);
-          try {
-            const audio = await blobToBase64(new Blob(chunks, { type }));
-            const result = await bridgeRef.current?.send({
-              type: 'input.audio', request_id: newRequestId(), audio_base64: audio,
-              mime_type: type.split(';')[0] || 'audio/webm',
-            });
-            if (!result?.ok) {
-              setTranscribing(false);
-              setNotice(result?.error || '语音发送失败');
-            }
-          } catch (error) {
-            setTranscribing(false);
-            setNotice(String(error));
-          }
-        })();
-      };
-      recorder.start(250);
-      setRecording(true);
-      if (!holdingMic.current) {
-        stopRecording(true);
-        return;
-      }
-      holdTimer.current = window.setTimeout(() => stopRecording(false), 55000);
-    } catch (error) {
-      cleanupRecording();
-      setRecording(false);
-      setNotice(`无法使用麦克风：${String(error)}`);
-    }
-  }
-
-  function stopRecording(cancelled = false) {
-    recordingCancelled.current = cancelled;
-    const recorder = recorderRef.current;
-    if (holdTimer.current) window.clearTimeout(holdTimer.current);
-    holdTimer.current = undefined;
-    if (!recorder) {
-      cleanupRecording();
-      setRecording(false);
-      return;
-    }
-    if (recorder.state !== 'inactive') recorder.stop();
-    else {
-      cleanupRecording();
-      setRecording(false);
-    }
-  }
-
-  function onMicDown(event: ReactPointerEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    holdingMic.current = true;
-    void startRecording();
-  }
-
-  function onMicUp() {
-    holdingMic.current = false;
-    stopRecording(false);
+    setDrawer(false); setPaired(false); setText('');
+    dispatch({ protocol_version: 1, type: 'mobile.reset' });
   }
 
   const ui = state.settings.companion_ui || {};
   const theme = themes.find(item => item.id === ui.theme) || themes[0];
-  const background = typeof ui.background_color === 'string' ? ui.background_color : theme.background;
-  const bubble = typeof ui.bubble_color === 'string' ? ui.bubble_color : theme.bubble;
+  const background = /^#[0-9a-f]{6}$/i.test(String(ui.background_color)) ? String(ui.background_color) : theme.background;
+  const bubble = /^#[0-9a-f]{6}$/i.test(String(ui.bubble_color)) ? String(ui.bubble_color) : theme.bubble;
   const light = luminance(background) > .55;
   const primary = String(ui.primary_language || 'zh');
   const translation = String(ui.translation_language || 'none');
   const activeSpeech = state.speeches.find(speech => speech.id === state.presented);
   const knownDefault = state.defaultAsset && state.defaultAsset !== 'neutral' ? state.defaultAsset : boot?.default_asset_id;
   const expression = activeSpeech?.assetId || knownDefault || state.defaultAsset || 'neutral';
-  const presentedIndex = state.speeches.findIndex(speech => speech.id === state.presented);
-  const visibleSpeeches = presentedIndex < 0 ? [] : state.speeches.slice(0, presentedIndex + 1);
-  const liveIds = new Set(state.speeches.map(speech => speech.id));
-  const history = state.history.filter(item => item.role !== 'assistant'
-    || (!liveIds.has(String(item.utterance_id || ''))
-      && (item.displayed !== false || item.status === 'played' || item.status === 'partial')));
+  const speechMap = new Map(state.speeches.map(speech => [speech.id, speech]));
+  const history = state.history.filter(item => {
+    if (item.role === 'user') return true;
+    const speech = speechMap.get(String(item.utterance_id || ''));
+    return speech ? ['playing', 'played', 'partial'].includes(speech.state)
+      : item.displayed !== false && item.status !== 'cancelled';
+  });
   const textOnly = state.voice === 'failed' || state.settings.voice?.voice_mode === 'silent';
-  const busy = Boolean(state.current) || state.task === 'thinking';
+  const busy = Boolean(state.current) || state.task === 'thinking' || state.speeches.some(item => item.state === 'generated');
+  usePlaybackWake(busy && paired === true);
   const style = {
     '--bg': background,
     '--bubble': bubble,
+    '--bubble-ink': luminance(bubble) > .4 ? '#252a2b' : '#f3efe7',
     '--ink': light ? '#1f2328' : '#f3efe7',
-    '--muted': light ? 'rgba(31,35,40,.62)' : 'rgba(243,239,231,.58)',
+    '--muted': light ? 'rgba(31,35,40,.68)' : 'rgba(243,239,231,.68)',
     '--line': light ? 'rgba(31,35,40,.14)' : 'rgba(255,255,255,.14)',
     '--accent': light ? '#8a5a2b' : '#e8c48a',
-    '--panel': light ? 'rgba(255,255,255,.72)' : 'rgba(20,23,28,.62)',
+    '--panel': light ? 'rgba(255,251,243,.92)' : 'rgba(27,30,35,.91)',
   } as CSSProperties;
 
   useEffect(() => { setImageFailed(false); }, [expression, state.character, state.costume]);
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform() || !paired) return;
+    const text = activeSpeech ? textFor(activeSpeech, primary) : '我在这里。';
+    void NativeCompanion.present({ assetFile: new URL(assetUrl(expression)).pathname.replace(/^\//, ''),
+      text, primary, translation, character: state.character, costume: state.costume,
+      background, ink: light ? '#1f2328' : '#f3efe7', accent: light ? '#8a5a2b' : '#e8c48a',
+      volume: Number(state.settings.volume ?? 1), silent: state.settings.voice?.voice_mode === 'silent' }).catch(() => {});
+  }, [paired, expression, primary, translation, background, light, state.character, state.costume,
+      state.settings.volume, state.settings.voice?.voice_mode, activeSpeech?.zh, activeSpeech?.ja]);
 
   if (paired === null) {
     return (
@@ -465,70 +360,81 @@ export default function App() {
     return (
       <main className="pair-screen" style={style}>
         <div className="pair-card">
+          <span className="eyebrow">YOUR EVERYDAY COMPANION</span>
           <img src="icon.png" alt="" className="pair-logo" />
           <h1>Ayana</h1>
-          <p className="pair-lead">粘贴你的 Ayana 激活码，自动连接聊天和语音服务。公网激活码支持手机流量和其他 Wi-Fi，电脑需保持在线。</p>
-          {!sessionAvailable && <p className="pair-error">接入服务暂不可用。</p>}
-          <form onSubmit={connectWithToken}>
+          <p className="pair-lead">把今天的故事，说给彩名听。<br />粘贴激活码，开始你们的对话。</p>
+          <form onSubmit={connectWithToken} aria-busy={pairing}>
             <label htmlFor="mobile-token">激活码</label>
-            <input id="mobile-token" value={token} onChange={event => setToken(event.target.value)}
-                   type="password" placeholder="ayana1.…" autoComplete="off" spellCheck={false} />
+            <div className="token-field"><input id="mobile-token" value={token} onChange={event => setToken(event.target.value)}
+                   type={showToken ? 'text' : 'password'} placeholder="ayana1.…" autoComplete="off" autoCapitalize="none" spellCheck={false} disabled={pairing} aria-describedby={pairError ? 'pair-error' : 'pair-help'} />
+              <button type="button" className="token-toggle" aria-label={showToken ? '隐藏激活码' : '显示激活码'} onClick={() => setShowToken(value => !value)}>{showToken ? '隐藏' : '显示'}</button></div>
             <button type="submit" disabled={!token.trim() || pairing}>
               {pairing ? '正在激活…' : '激活并进入'}
             </button>
           </form>
-          {pairError && <p className="pair-error" role="alert">{pairError}</p>}
+          {pairError && <p id="pair-error" className="pair-error" role="alert">{pairError}</p>}
+          <p id="pair-help" className="pair-help">使用电脑生成的完整激活码。公网地址支持手机流量和其他 Wi-Fi，电脑服务需保持在线。</p>
           <p className="pair-hint">对话将同步到服务提供者的电脑，用于语音生成和问题排查。立绘、字幕和播放由本机处理。</p>
         </div>
       </main>
     );
   }
 
+  if (companion.floating) return <FloatingCompanion state={state} style={style}
+    portrait={<AssetImage assetId={expression} className="portrait" alt="彩名" onError={markImageFailed} />}
+    collapsed={companion.status.collapsed} text={text} notice={notice} sending={sending}
+    onText={setText} onSend={() => void ask()} onCancel={cancel}
+    onCollapse={value => void companion.collapse(value)} onRestore={() => void companion.stop(true)} onClose={() => void companion.stop(false)}
+    onError={error => setNotice(error instanceof Error ? error.message : '悬浮窗操作失败，请重试')} />;
+
   return (
     <main className={`app ${light ? 'is-light' : ''}`} style={style}>
-      <header className="topbar">
-        <button className="icon-button" type="button" aria-label="打开菜单" onClick={() => setDrawer(true)}>
+      <header className="topbar" inert={drawer}>
+        <button className="icon-button" type="button" aria-label="打开菜单" aria-expanded={drawer} aria-controls="mobile-drawer" onClick={() => setDrawer(true)}>
           <span className="menu-glyph" />
         </button>
         <div className="topbar-title">
           <strong>{state.conversation?.title || 'Ayana'}</strong>
-          <span><i className={`status-dot ${state.connected ? 'is-on' : ''}`} />{state.connected ? (state.voice === 'failed' ? '文字模式' : '已连接') : '连接中…'}</span>
+          <span><i className={`status-dot ${state.connected ? 'is-on' : ''}`} />{state.connected ? (textOnly ? '文字模式' : '已连接 · 语音陪伴') : state.service === 'offline' ? '暂时离线 · 草稿已保留' : '连接中…'}</span>
         </div>
         {busy
-          ? <button className="icon-button stop-button" type="button" aria-label="打断" onClick={cancel}>■</button>
+          ? <button className="icon-button stop-button" type="button" aria-label="打断" onClick={cancel}><span /></button>
           : <img className="topbar-logo" src="icon.png" alt="" />}
       </header>
 
-      {!state.connected && <div className="connection-banner">网关暂未连接，本地话题和立绘仍可使用。</div>}
+      {!state.connected && <div className="connection-banner" role="status" inert={drawer}><span>本地话题与设置可继续使用</span><button type="button" onClick={() => bridgeRef.current?.reconnect()}>重试连接</button></div>}
       {notice && <div className="toast" role="alert">{notice}<button type="button" onClick={() => setNotice('')} aria-label="关闭">×</button></div>}
 
       <section className="stage" aria-label="彩名">
         {!imageFailed
-          ? <AssetImage key={`${state.character}:${state.costume}:${expression}`} assetId={expression} className="portrait" alt="彩名" onError={markImageFailed} />
+          ? <AssetImage assetId={expression} className="portrait" alt="彩名" onError={markImageFailed} />
           : <div className="portrait-fallback"><img src="icon.png" alt="" /><span>彩名</span></div>}
         <div className="stage-glow" aria-hidden="true" />
       </section>
 
-      <section className="transcript" aria-live="polite">
+      <section className="transcript" ref={transcriptRef} aria-label="对话记录" inert={drawer} onScroll={() => {
+        const element = transcriptRef.current!;
+        const bottom = element.scrollHeight - element.scrollTop - element.clientHeight < 70;
+        atBottomRef.current = bottom; setAtBottom(bottom);
+      }}>
         <div className="transcript-inner">
-          {!history.length && !visibleSpeeches.length && (
-            <div className="empty-state">
+          {!history.length && (
+            <div className="empty-state"><span className="eyebrow">A LITTLE MOMENT, TOGETHER</span>
               <p>{state.settings.user_name ? `${state.settings.user_name}，` : ''}今天想聊点什么？</p>
-              <small>输入文字，彩名会用声音回复。</small>
+              <small>你的日常、心事，或是一个突如其来的想法。</small><div className="starter-list">{['今天有点累，陪我聊聊。', '和我分享一件开心的小事吧。'].map(value => <button type="button" key={value} onClick={() => { setText(value); textareaRef.current?.focus(); }}>{value}<span>↗</span></button>)}</div>
             </div>
           )}
-          {history.map((item, index) => item.role === 'user' ? (
-            <div className="message user" key={`u-${item.id ?? index}`}><p>{item.text}</p></div>
-          ) : (
-            <div className="message assistant" key={`a-${item.id ?? index}`}>
-              <p>{item.display_zh || item.speech_ja}</p>
-              {item.display_en && <p className="message-secondary" lang="en">{item.display_en}</p>}
-            </div>
-          ))}
-          {visibleSpeeches.map(speech => (
-            <SpeechLine key={speech.id} speech={speech} active={speech.id === state.presented}
-                        primary={primary} translation={translation} />
-          ))}
+          {history.map((item, index) => {
+            const speech = speechMap.get(String(item.utterance_id || ''));
+            if (speech) return <SpeechLine key={speech.id} speech={speech} active={speech.id === state.presented} primary={primary} translation={translation} />;
+            if (item.role === 'user') return <div className="message user" key={`u-${item.turn_id || index}`}><span className="message-label">你</span><p>{item.text}</p></div>;
+            const content = { ja: item.speech_ja || '', zh: item.display_zh || item.text || '', en: item.display_en };
+            const main = textFor(content, primary);
+            const secondary = translation !== 'none' && translation !== primary ? textFor(content, translation) : '';
+            return <div className="message assistant" key={`a-${item.utterance_id || index}`}><p lang={primary}>{main}</p>{secondary && secondary !== main && <p className="message-secondary" lang={translation}>{secondary}</p>}{item.status === 'partial' && <small className="speech-interrupted">已打断</small>}</div>;
+          })}
+          {state.task === 'failed' && <div className="turn-failed" role="status">这次回复未能完成，可以重新发送或稍后再聊。</div>}
           {state.task === 'thinking' && (
             <div className="thinking" role="status"><span /><span /><span /><em>正在想…</em></div>
           )}
@@ -542,24 +448,22 @@ export default function App() {
               })}
             </div>
           )}
-          <div ref={bottomRef} />
         </div>
       </section>
 
-      <footer className="composer">
-        <textarea ref={textareaRef} value={text} rows={1} maxLength={4000}
-                  placeholder={transcribing ? '正在识别…' : textOnly ? '说点什么…' : '和彩名说点什么…'}
+      {!atBottom && <button className="jump-latest" type="button" onClick={() => { atBottomRef.current = true; setAtBottom(true); scrollLatest(); }}>↓ 回到最新</button>}
+      <footer className="composer-area" inert={drawer}><div className="composer">
+        <textarea ref={textareaRef} value={text} rows={1} maxLength={4000} aria-label="消息"
+                  placeholder={!state.connected ? '先写下来，连接后发送…' : '和彩名说点什么…'}
                   onChange={event => setText(event.target.value)}
                   onKeyDown={event => {
-                    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing) {
                       event.preventDefault();
                       void ask();
                     }
                   }} />
-        <button className={`mic-button ${recording ? 'is-recording' : ''} ${transcribing ? 'is-busy' : ''}`}
+        <button className="mic-button"
                 type="button" disabled title="尚未配置语音识别，请使用文字输入" aria-label="语音识别尚未配置"
-                onPointerDown={onMicDown} onPointerUp={onMicUp}
-                onPointerCancel={() => { holdingMic.current = false; stopRecording(true); }}
                 onContextMenu={event => event.preventDefault()}>
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
                strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -567,68 +471,17 @@ export default function App() {
             <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7" />
           </svg>
         </button>
-        <button className="send-button" type="button" disabled={!text.trim() || !state.connected}
-                onClick={() => void ask()} aria-label="发送">↑</button>
+        <button className="send-button" type="button" disabled={!text.trim() || !state.connected || sending}
+                onClick={() => void ask()} aria-label="发送">{sending ? '·' : '↑'}</button>
+        </div><div className="composer-hint"><span>{textOnly ? '文字陪伴' : '语音回复'} · {busy ? '可随时打断，或发送新消息' : '语音输入暂未开放'}</span>{text.length > 3200 && <span>{text.length} / 4000</span>}</div>
       </footer>
 
-      {drawer && (
-        <div className="drawer-backdrop" onClick={() => setDrawer(false)}>
-          <aside className="drawer" onClick={event => event.stopPropagation()} style={style}>
-            <header>
-              <strong>Ayana</strong>
-              <button className="icon-button" type="button" onClick={() => setDrawer(false)} aria-label="关闭">×</button>
-            </header>
-            <div className="drawer-status">
-              <span><i className={`status-dot ${state.connected ? 'is-on' : ''}`} />{state.connected ? '已连接' : '未连接'}</span>
-              <span>{boot?.version || ''}</span>
-            </div>
-            <section>
-              <h2>话题</h2>
-              <div className="conversation-list">
-                {state.conversations.map(item => (
-                  <button key={item.conversation_id} type="button"
-                          className={item.conversation_id === state.conversation?.conversation_id ? 'is-current' : ''}
-                          onClick={() => void changeConversation(item.conversation_id)}>
-                    <strong>{item.title}</strong>
-                    <small>{item.preview || '还没有消息'}</small>
-                  </button>
-                ))}
-                <button type="button" className="new-conversation" onClick={() => void changeConversation()}>＋ 新的对话</button>
-              </div>
-            </section>
-            <section className="drawer-actions">
-              <label>角色
-                <select value={String(state.settings.character || 'ayana')} onChange={event => {
-                  assetCache.forEach(url => URL.revokeObjectURL(url)); assetCache.clear();
-                  void bridgeRef.current?.send({ type: 'settings.update', settings: { character: event.target.value,
-                    avatar_costume: event.target.value === 'ayana-su' ? '白色校服' : '校服' } });
-                }}>{characterOptions().map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
-              </label>
-              <label>服装
-                <select value={String(state.settings.avatar_costume || '校服')} onChange={event => {
-                  void bridgeRef.current?.send({ type: 'settings.update', settings: { avatar_costume: event.target.value } });
-                }}>{costumes().map(item => <option key={item}>{item}</option>)}</select>
-              </label>
-              <label>称呼
-                <input maxLength={32} defaultValue={String(state.settings.user_name || '')} placeholder="希望彩名称呼你的名字"
-                  onBlur={event => void bridgeRef.current?.send({ type: 'settings.update', settings: { user_name: event.target.value.trim() } })} />
-              </label>
-              <label>音量
-                <input type="range" min="0" max="1" step="0.05" value={Number(state.settings.volume ?? 1)}
-                  onChange={event => void bridgeRef.current?.send({ type: 'settings.update', settings: { volume: Number(event.target.value) } })} />
-              </label>
-              <label>本机记忆（每行一条）
-                <textarea rows={3} maxLength={15000} value={memoryText} onChange={event => setMemoryText(event.target.value)}
-                  onBlur={() => void bridgeRef.current?.send({ type: 'memory.set', text: memoryText })} />
-              </label>
-              <button type="button" onClick={() => { bridgeRef.current?.reconnect(); setDrawer(false); }}>重新连接</button>
-              <button type="button" onClick={() => void signOut()}>退出激活（保留本地历史）</button>
-            </section>
-            <p className="drawer-hint">语音状态：{state.voice === 'ready' ? '可用' : state.voice === 'failed' ? '不可用（文字模式）' : state.voice}
-              <br />服务器：{serverLabel()}</p>
-          </aside>
-        </div>
-      )}
+      {drawer && <SettingsDrawer state={state} memoryText={memoryText} version={boot?.version || '0.2.0'}
+        onClose={() => setDrawer(false)} onCommand={sendCommand} onConversation={changeConversation}
+        onCancel={cancel} onReconnect={() => bridgeRef.current?.reconnect()} onSignOut={signOut}
+        onExport={() => bridgeRef.current!.exportConversation()} companion={companion}
+        onCompanion={() => { setDrawer(false); void companion.start(); }} />}
+
     </main>
   );
 }

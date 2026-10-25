@@ -8,6 +8,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
+    "test": "node --test ../../scripts/test_mobile_state.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "cap:add:android": "cap add android",
     "cap:add:ios": "cap add ios",

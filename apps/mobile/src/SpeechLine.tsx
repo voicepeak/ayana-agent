@@ -3,7 +3,7 @@ import type { Speech } from './types';
 
 const languageTag: Record<string, string> = { ja: 'ja', zh: 'zh-CN', en: 'en' };
 
-function textFor(speech: Speech, language: string) {
+export function textFor(speech: Pick<Speech, 'ja' | 'zh' | 'en'>, language: string) {
   if (language === 'ja') return speech.ja;
   if (language === 'en') return speech.en || speech.zh || speech.ja;
   return speech.zh || speech.ja;
@@ -16,10 +16,9 @@ export function SpeechLine({ speech, active, primary, translation }: {
   translation: string;
 }) {
   const main = textFor(speech, primary);
-  const secondary = translation !== 'none' && translation !== primary
-    ? textFor(speech, translation)
-    : primary !== 'ja' && speech.ja && speech.ja !== main ? speech.ja : '';
-  const progress = !active || speech.state === 'played' || !speech.audioEnabled
+  const candidate = translation !== 'none' && translation !== primary ? textFor(speech, translation) : '';
+  const secondary = candidate !== main ? candidate : '';
+  const progress = !active || speech.state === 'played' || speech.state === 'partial' || !speech.audioEnabled
     ? 1
     : speech.total ? Math.min(1, Math.max(0, speech.played / speech.total)) : 0;
   const glyphs = useMemo(() => Array.from(main), [main]);

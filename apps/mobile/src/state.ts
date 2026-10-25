@@ -52,6 +52,7 @@ export const initialState: MobileState = {
 function speechFromEvent(event: RuntimeEvent): Speech {
   return {
     id: String(event.utterance_id),
+    turnId: typeof event.turn_id === 'string' ? event.turn_id : undefined,
     ja: String(event.speech_ja || ''),
     zh: '',
     generation: Number(event.generation_id || 0),
@@ -66,6 +67,7 @@ function speechFromEvent(event: RuntimeEvent): Speech {
 }
 
 export function reduceEvent(state: MobileState, event: RuntimeEvent): MobileState {
+  if (event.type === 'mobile.reset') return { ...initialState };
   if (event.conversation_id && state.conversation && event.conversation_id !== state.conversation.conversation_id
       && !['conversation.changed', 'conversations.ready', 'history.ready', 'conversation.deleted'].includes(event.type)) {
     return state;
@@ -81,7 +83,7 @@ export function reduceEvent(state: MobileState, event: RuntimeEvent): MobileStat
       generation: Math.max(state.generation, Number(event.generation_id ?? state.generation)),
       cancelledGeneration: Math.max(state.cancelledGeneration, cancelled),
       current: undefined,
-      presented: undefined,
+      presented: state.presented,
       progress: 0,
       task: 'idle',
       inputState: 'idle',
@@ -92,7 +94,7 @@ export function reduceEvent(state: MobileState, event: RuntimeEvent): MobileStat
   }
   const generation = Number(event.generation_id ?? state.generation);
   if (['utterance.ready', 'subtitle.ready', 'subtitle.translated', 'audio.ready', 'playback.started',
-       'playback.progress', 'playback.ended', 'playback.cancelled', 'source.ready'].includes(event.type)
+       'playback.progress', 'playback.ended', 'playback.cancelled', 'playback.error', 'mobile.present', 'source.ready', 'task.state', 'error'].includes(event.type)
       && generation <= state.cancelledGeneration) {
     return state;
   }
@@ -102,6 +104,9 @@ export function reduceEvent(state: MobileState, event: RuntimeEvent): MobileStat
       return next;
     case 'settings.ready': {
       const settings = (event.settings || {}) as PublicSettings;
+      if (settings.character !== state.settings.character || settings.avatar_costume !== state.settings.avatar_costume) {
+        next.presented = undefined;
+      }
       next.settings = settings;
       next.settingsLoaded = true;
       next.defaultAsset = String(event.default_asset_id || next.defaultAsset);
@@ -119,7 +124,11 @@ export function reduceEvent(state: MobileState, event: RuntimeEvent): MobileStat
     case 'utterance.ready': {
       if (next.speeches.some(speech => speech.id === event.utterance_id)) return next;
       const speech = speechFromEvent(event);
-      next.speeches = [...next.speeches, speech].slice(-60);
+      next.speeches = [...next.speeches, speech];
+      if (!next.history.some(item => item.utterance_id === speech.id)) {
+        next.history = [...next.history, { role: 'assistant', utterance_id: speech.id, turn_id: speech.turnId,
+          speech_ja: speech.ja, generation_id: speech.generation, displayed: false, status: 'generated' }];
+      }
       return next;
     }
     case 'subtitle.ready':
@@ -129,7 +138,9 @@ export function reduceEvent(state: MobileState, event: RuntimeEvent): MobileStat
         ...(typeof event.display_en === 'string' ? { en: event.display_en } : {}),
       };
       next.speeches = next.speeches.map(speech => speech.id === event.utterance_id ? { ...speech, ...patch } : speech);
-      next.history = next.history.map(item => item.utterance_id === event.utterance_id ? { ...item, ...patch } : item);
+      next.history = next.history.map(item => item.utterance_id === event.utterance_id ? { ...item,
+        ...(typeof event.display_zh === 'string' ? { display_zh: event.display_zh } : {}),
+        ...(typeof event.display_en === 'string' ? { display_en: event.display_en } : {}) } : item);
       return next;
     }
     case 'playback.started': {
@@ -145,18 +156,20 @@ export function reduceEvent(state: MobileState, event: RuntimeEvent): MobileStat
     }
     case 'playback.progress':
     case 'playback.cancelled':
+    case 'playback.error':
     case 'playback.ended': {
-      const played = Number(event.played_samples);
-      const total = Number(event.total_samples);
+      const played = Number(event.played_samples || 0);
+      const total = Number(event.total_samples || 0);
       next.speeches = next.speeches.map(speech => speech.id === event.utterance_id ? {
         ...speech,
         played,
         total,
-        state: event.type === 'playback.cancelled' ? 'partial' : event.type === 'playback.ended' ? 'played' : 'playing',
+        state: event.type === 'playback.cancelled' ? (played ? 'partial' : 'cancelled')
+          : event.type === 'playback.ended' ? 'played' : event.type === 'playback.error' ? 'generated' : 'playing',
       } : speech);
       if (next.current === event.utterance_id) {
         next.progress = total ? played / total : 0;
-        if (event.type === 'playback.ended' || event.type === 'playback.cancelled') {
+        if (event.type !== 'playback.progress') {
           next.current = undefined;
           next.progress = 0;
         }
@@ -164,7 +177,10 @@ export function reduceEvent(state: MobileState, event: RuntimeEvent): MobileStat
       return next;
     }
     case 'mobile.present': {
-      if (typeof event.utterance_id === 'string') next.presented = event.utterance_id;
+      const speech = next.speeches.find(item => item.id === event.utterance_id && item.state === 'generated');
+      if (!speech) return state;
+      next.presented = speech.id;
+      next.speeches = next.speeches.map(item => item.id === speech.id ? { ...item, state: 'played' } : item);
       return next;
     }
     case 'user.message': {

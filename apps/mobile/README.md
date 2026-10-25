@@ -4,9 +4,12 @@ Android / iOS 共用的独立移动客户端。角色资源、提示词、历史
 
 完整部署、激活、构建和排障说明见 [本地交付说明](../../docs/MOBILE_INDEPENDENT_DELIVERY.md)。
 
+2026-10-25 手机界面与运行逻辑修复已生成 **Android build 4**，包括消息顺序、取消隔离、重连、草稿、主题与设置，以及首次访问后的 PWA 离线重开修复。验证结果与限制见 [本轮检查记录](../../docs/MOBILE_UI_AUDIT_2026-10-25.md)。
+
 ```powershell
 npm install
 npm run build
+npm test         # 前端状态与历史协议回归
 npm run dev      # http://127.0.0.1:5174/ ，需同时启动独立网关
 npm run cap:sync # 生成/同步 Android 与 iOS 工程
 ```
